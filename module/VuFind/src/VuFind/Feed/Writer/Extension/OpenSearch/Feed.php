@@ -1,8 +1,9 @@
 <?php
+
 /**
- * Zend\Feed\Feed extension for Open Search
+ * Laminas\Feed\Feed extension for Open Search
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Deutsches Archäologisches Institut 2015.
  *
@@ -16,34 +17,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Feed_Plugins
  * @author   Sebastian Cuy <sebastian.cuy@uni-koeln.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Feed\Writer\Extension\OpenSearch;
-use Zend\Stdlib\StringUtils,
-    Zend\Feed\Uri,
-    Zend\Feed\Writer\Extension\ITunes\Feed as ParentFeed;
+
+use Laminas\Feed\Uri;
+use Laminas\Feed\Writer\Exception;
+use Laminas\Feed\Writer\Extension\ITunes\Feed as ParentFeed;
+use Laminas\Stdlib\StringUtils;
+
+use function in_array;
+use function is_string;
 
 /**
- * Zend\Feed\Feed extension for Open Search
+ * Laminas\Feed\Feed extension for Open Search
  *
  * Note: There doesn't seem to be a generic base class for this functionality,
  * and creating a class with no parent blows up due to unexpected calls to
- * Itunes-related functionality.  To work around this, we are extending the
- * equivalent Itunes plugin.  This works fine, but perhaps in future there will
+ * Itunes-related functionality. To work around this, we are extending the
+ * equivalent Itunes plugin. This works fine, but perhaps in future there will
  * be a more elegant way to achieve the same effect.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Feed_Plugins
  * @author   Sebastian Cuy <sebastian.cuy@uni-koeln.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Feed extends ParentFeed
 {
@@ -117,6 +124,7 @@ class Feed extends ParentFeed
         $this->encoding      = $enc;
         return $this;
     }
+
     /**
      * Get feed encoding
      *
@@ -222,14 +230,19 @@ class Feed extends ParentFeed
     /**
      * Add a link
      *
-     * @param string $url  the url of the link
-     * @param string $role the role of the link
-     * @param string $type the mime type of the link
+     * @param string $url   the url of the link
+     * @param string $role  the role of the link
+     * @param string $type  the mime type of the link
+     * @param string $title Title for the link (optional)
      *
      * @return Feed
      */
-    public function addOpensearchLink($url, $role = null, $type = null)
-    {
+    public function addOpensearchLink(
+        $url,
+        $role = null,
+        $type = null,
+        $title = null
+    ) {
         if (empty($url) || !is_string($url) || !Uri::factory($url)->isValid()) {
             throw new Exception\InvalidArgumentException(
                 'Invalid parameter: "url" must be '
@@ -242,10 +255,10 @@ class Feed extends ParentFeed
                 . 'feed the link points to, i.e. RSS, RDF or Atom'
             );
         }
-        $link = [];
-        $link['url'] = $url;
-        $link['role'] = $role;
-        $link['type'] = $type;
+        $link = compact('url', 'role', 'type');
+        if ($title) {
+            $link['title'] = $title;
+        }
         $this->links[] = $link;
         return $this;
     }
@@ -259,5 +272,4 @@ class Feed extends ParentFeed
     {
         return $this->links;
     }
-
 }

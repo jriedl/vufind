@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Third-party content loader
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,26 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content;
+
 use VuFind\ServiceManager\AbstractPluginManager;
 
 /**
  * Third-party content loader
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Loader
 {
@@ -99,7 +102,7 @@ class Loader
             $parts = explode(':', trim($provider));
             $provider = $parts[0];
             if (!empty($provider)) {
-                $key = isset($parts[1]) ? $parts[1] : '';
+                $key = $parts[1] ?? '';
                 try {
                     $plugin = $this->loader->get($provider);
                     $results[$provider] = $plugin->loadByIsbn($key, $isbnObj);

@@ -1,10 +1,11 @@
 <?php
+
 /**
  * Related Records: Solr-based similarity
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2009.
+ * Copyright (C) Villanova University 2009, 2022.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,25 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Related_Records
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_a_related_record_module Wiki
+ * @link     https://vufind.org/wiki/development:plugins:related_records_modules Wiki
  */
+
 namespace VuFind\Related;
+
+use VuFindSearch\Command\SimilarCommand;
 
 /**
  * Related Records: Solr-based similarity
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Related_Records
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_a_related_record_module Wiki
+ * @link     https://vufind.org/wiki/development:plugins:related_records_modules Wiki
  */
 class Similar implements RelatedInterface
 {
@@ -72,8 +76,11 @@ class Similar implements RelatedInterface
      */
     public function init($settings, $driver)
     {
-        $this->results
-            = $this->searchService->similar('Solr', $driver->getUniqueId());
+        $command = new SimilarCommand(
+            $driver->getSourceIdentifier(),
+            $driver->getUniqueId()
+        );
+        $this->results = $this->searchService->invoke($command)->getResult();
     }
 
     /**

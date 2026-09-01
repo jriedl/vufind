@@ -1,10 +1,11 @@
 <?php
+
 /**
  * Tag autocomplete test class.
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2011.
+ * Copyright (C) Villanova University 2023.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,71 +17,60 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTest\Autocomplete;
+
+use PHPUnit\Framework\MockObject\MockObject;
 use VuFind\Autocomplete\Tag;
+use VuFind\Tags\TagsService;
 
 /**
  * Tag autocomplete test class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class TagTest extends \VuFindTest\Unit\DbTestCase
+class TagTest extends \PHPUnit\Framework\TestCase
 {
-    /**
-     * Test that missing plugin manager causes exception.
-     *
-     * @return void
-     *
-     * @expectedException        Exception
-     * @expectedExceptionMessage DB table manager missing.
-     */
-    public function testMissingDependency()
-    {
-        $tag = new Tag();
-        $tag->getSuggestions('foo');
-    }
-
     /**
      * Test real suggestions.
      *
      * @return void
      */
-    public function testSuggestions()
+    public function testSuggestions(): void
     {
-        // Fake DB response:
+        // Real object to test:
+        $tag = new Tag($this->getTagsServiceMock());
+        $this->assertEquals(['bar1', 'bar2'], $tag->getSuggestions('foo'));
+    }
+
+    /**
+     * Get tagService mock.
+     *
+     * @return MockObject&TagsService
+     */
+    public function getTagsServiceMock(): MockObject&TagsService
+    {
+        $tagService = $this->createMock(TagsService::class);
         $tags = [
             ['tag' => 'bar1'],
             ['tag' => 'bar2'],
         ];
-
-        // Fake services:
-        $tagTable = $this->getMock('VuFind\Db\Table\Tags', ['matchText']);
-        $tagTable->expects($this->once())->method('matchText')
+        $tagService->expects($this->once())->method('getNonListTagsFuzzilyMatchingString')
             ->with($this->equalTo('foo'))
-            ->will($this->returnValue($tags));
-        $tableManager
-            = $this->getMock('VuFind\Db\Table\PluginManager', ['get']);
-        $tableManager->expects($this->once())->method('get')
-            ->with($this->equalTo('Tags'))
-            ->will($this->returnValue($tagTable));
-
-        // Real object to test:
-        $tag = new Tag();
-        $tag->setDbTableManager($tableManager);
-
-        $this->assertEquals(['bar1', 'bar2'], $tag->getSuggestions('foo'));
+            ->willReturn($tags);
+        return $tagService;
     }
 }

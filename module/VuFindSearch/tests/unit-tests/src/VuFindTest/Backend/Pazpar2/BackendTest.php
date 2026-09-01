@@ -3,7 +3,7 @@
 /**
  * Unit tests for Pazpar2 backend.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,33 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Pazpar2;
 
-use VuFindSearch\Query\Query;
-use VuFindSearch\Backend\Pazpar2\Backend;
-use VuFindTest\Unit\TestCase;
 use InvalidArgumentException;
+use VuFindSearch\Backend\Pazpar2\Backend;
+use VuFindSearch\Query\Query;
 
 /**
  * Unit tests for Pazpar2 backend.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class BackendTest extends TestCase
+class BackendTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+    use \VuFindTest\Feature\ReflectionTrait;
+
     /**
      * Test that getConnector works.
      *
@@ -51,13 +54,12 @@ class BackendTest extends TestCase
      */
     public function testGetConnector()
     {
-        $connector = $this->getMock(
-            'VuFindSearch\Backend\Pazpar2\Connector', [],
-            ['http://fake', $this->getMock('Zend\Http\Client')]
-        );
+        $connector = $this->getMockBuilder(\VuFindSearch\Backend\Pazpar2\Connector::class)
+            ->setConstructorArgs(['http://fake', $this->createMock(\Laminas\Http\Client::class)])
+            ->getMock();
         $back = new Backend(
             $connector,
-            $this->getMock('VuFindSearch\Response\RecordCollectionFactoryInterface')
+            $this->createMock(\VuFindSearch\Response\RecordCollectionFactoryInterface::class)
         );
         $this->assertEquals($connector, $back->getConnector());
     }
@@ -72,16 +74,16 @@ class BackendTest extends TestCase
         $conn = $this->getConnectorMock(['search', 'show', 'stat']);
         $conn->expects($this->once())
             ->method('search')
-            ->will($this->returnValue($this->loadResponse('pp2search')));
+            ->willReturn($this->loadResponse('pp2search'));
         $conn->expects($this->once())
             ->method('show')
-            ->will($this->returnValue($this->loadResponse('pp2show')));
-        $conn->expects($this->at(0))
+            ->willReturn($this->loadResponse('pp2show'));
+        $conn->expects($this->exactly(2))
             ->method('stat')
-            ->will($this->returnValue(simplexml_load_string($this->getStatXml(0.5))));
-        $conn->expects($this->at(1))
-            ->method('stat')
-            ->will($this->returnValue(simplexml_load_string($this->getStatXml(1.0))));
+            ->willReturnOnConsecutiveCalls(
+                simplexml_load_string($this->getStatXml(0.5)),
+                simplexml_load_string($this->getStatXml(1.0))
+            );
 
         $back = new Backend($conn);
         $back->setIdentifier('test');
@@ -93,7 +95,10 @@ class BackendTest extends TestCase
         $this->assertEquals('content: author test title test medium book', (string)$rec->getXML()->recid);
         $recs = $coll->getRecords();
         $this->assertEquals('test', $recs[19]->getSourceIdentifier());
-        $this->assertEquals('content: author navalani k author gidwani n n title a practical guide to colon classification medium book', (string)$recs[19]->getXML()->recid);
+        $this->assertEquals(
+            'content: author navalani k author gidwani n n title a practical guide to colon classification medium book',
+            (string)$recs[19]->getXML()->recid
+        );
         $this->assertEquals(54, $coll->getTotal());
     }
 
@@ -134,11 +139,8 @@ class BackendTest extends TestCase
      */
     protected function loadResponse($fixture)
     {
-        $file = realpath(sprintf('%s/pazpar2/response/%s', PHPUNIT_SEARCH_FIXTURES, $fixture));
-        if (!is_string($file) || !file_exists($file) || !is_readable($file)) {
-            throw new InvalidArgumentException(sprintf('Unable to load fixture file: %s', $fixture));
-        }
-        return simplexml_load_file($file);
+        $xml = $this->getFixture("pazpar2/response/$fixture", 'VuFindSearch');
+        return simplexml_load_string($xml);
     }
 
     /**
@@ -150,10 +152,11 @@ class BackendTest extends TestCase
      */
     protected function getConnectorMock(array $mock = [])
     {
-        $client = $this->getMock('Zend\Http\Client');
-        return $this->getMock(
-            'VuFindSearch\Backend\Pazpar2\Connector', $mock, ['fake', $client]
-        );
+        $client = $this->createMock(\Laminas\Http\Client::class);
+        return $this->getMockBuilder(\VuFindSearch\Backend\Pazpar2\Connector::class)
+            ->onlyMethods($mock)
+            ->setConstructorArgs(['fake', $client])
+            ->getMock();
     }
 
     /**

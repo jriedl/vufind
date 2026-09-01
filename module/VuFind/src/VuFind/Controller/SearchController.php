@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Default Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,60 +17,105 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
 
+use Laminas\View\Model\ViewModel;
+use VuFind\Exception\Forbidden as ForbiddenException;
 use VuFind\Exception\Mail as MailException;
+use VuFind\Search\Factory\UrlQueryHelperFactory;
+
+use function array_slice;
+use function count;
 
 /**
  * Redirects the user to the appropriate default VuFind action.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
-class SearchController extends AbstractSearch
+class SearchController extends AbstractSolrSearch
 {
     /**
-     * Handle an advanced search
+     * Show facet list for Solr-driven collections.
      *
      * @return mixed
      */
-    public function advancedAction()
+    public function collectionfacetlistAction()
     {
-        // Standard setup from base class:
-        $view = parent::advancedAction();
+        $this->searchClassId = 'SolrCollection';
+        return $this->facetListAction();
+    }
 
-        // Set up facet information:
-        $view->facetList = $this->processAdvancedFacets(
-            $this->getAdvancedFacets()->getFacetList(), $view->saved
-        );
-        $specialFacets = $this->parseSpecialFacetsSetting(
-            $view->options->getSpecialAdvancedFacets()
-        );
-        if (isset($specialFacets['illustrated'])) {
-            $view->illustratedLimit
-                = $this->getIllustrationSettings($view->saved);
+    /**
+     * Edit search memory action.
+     *
+     * @return mixed
+     */
+    public function editmemoryAction()
+    {
+        // Get the user's referer, with the home page as a fallback; we'll
+        // redirect here after the work is done.
+        $from = $this->getRequest()->getServer()->get('HTTP_REFERER') ?? null;
+        if (empty($from) || !$this->isLocalUrl($from)) {
+            $from = $this->url()->fromRoute('home');
         }
-        if (isset($specialFacets['checkboxes'])) {
-            $view->checkboxFacets = $this->processAdvancedCheckboxes(
-                $specialFacets['checkboxes'], $view->saved
+
+        // Get parameters:
+        $searchClassId = $this->params()
+            ->fromQuery('searchClassId', DEFAULT_SEARCH_BACKEND);
+        $removeAllFilters = $this->params()->fromQuery('removeAllFilters');
+        $removeFacet = $this->params()->fromQuery('removeFacet');
+        $removeFilter = $this->params()->fromQuery('removeFilter');
+
+        // Retrieve and manipulate the parameters:
+        $searchHelper = $this->getViewRenderer()->plugin('searchMemory');
+        $params = $searchHelper->getLastSearchParams($searchClassId);
+        $factory = $this->getService(UrlQueryHelperFactory::class);
+        $initialParams = $factory->fromParams($params);
+
+        if ($removeAllFilters) {
+            $defaultFilters = $params->getOptions()->getDefaultFilters();
+            $query = $initialParams->removeAllFilters();
+            foreach ($defaultFilters as $filter) {
+                $query = $query->addFilter($filter);
+            }
+        } elseif ($removeFacet) {
+            $query = $initialParams->removeFacet(
+                $removeFacet['field'] ?? '',
+                $removeFacet['value'] ?? '',
+                $removeFacet['operator'] ?? 'AND'
             );
+        } elseif ($removeFilter) {
+            $query = $initialParams->removeFilter($removeFilter);
+        } else {
+            $query = null;
         }
-        $view->ranges = $this->getAllRangeSettings($specialFacets, $view->saved);
-        $view->hierarchicalFacets = $this->getHierarchicalFacets();
 
-        return $view;
+        // Remember the altered parameters:
+        if ($query) {
+            $base = $this->url()
+                ->fromRoute($params->getOptions()->getSearchAction());
+            $this->getSearchMemory()
+                ->rememberSearch($base . $query->getParams(false));
+        }
+
+        // Send the user back where they came from (but strip off the SID
+        // so we don't override the modified search with an older version):
+        $from = rtrim(preg_replace('/([?&])sid=\d+/', '$1', $from), '&?');
+        return $this->redirect()->toUrl($from);
     }
 
     /**
@@ -81,20 +127,25 @@ class SearchController extends AbstractSearch
     {
         // If a URL was explicitly passed in, use that; otherwise, try to
         // find the HTTP referrer.
-        $mailer = $this->getServiceLocator()->get('VuFind\Mailer');
+        $mailer = $this->getService(\VuFind\Mailer\Mailer::class);
         $view = $this->createEmailViewModel(null, $mailer->getDefaultLinkSubject());
         $mailer->setMaxRecipients($view->maxRecipients);
-        // Set up reCaptcha
-        $view->useRecaptcha = $this->recaptcha()->active('email');
-        $view->url = $this->params()->fromPost(
-            'url', $this->params()->fromQuery(
-                'url', $this->getRequest()->getServer()->get('HTTP_REFERER')
-            )
-        );
+        // Set up Captcha
+        $view->useCaptcha = $this->captcha()->active('email');
+        $view->url = $this->params()->fromPost('url')
+            ?? $this->params()->fromQuery('url')
+            ?? $this->getRequest()->getServer()->get('HTTP_REFERER');
+        if (!$view->url || !$this->isLocalUrl($view->url)) {
+            throw new \Exception('Unexpected value passed to emailAction: ' . ($view->url ?? '<null>'));
+        }
 
+        $emailActionSettings = $this->getService(\VuFind\Config\AccountCapabilities::class)->getEmailActionSetting();
+        if ($emailActionSettings === 'disabled') {
+            throw new ForbiddenException('Email action disabled');
+        }
         // Force login if necessary:
-        $config = $this->getConfig();
-        if ((!isset($config->Mail->require_login) || $config->Mail->require_login)
+        if (
+            $emailActionSettings !== 'enabled'
             && !$this->getUser()
         ) {
             return $this->forceLogin(null, ['emailurl' => $view->url]);
@@ -113,116 +164,28 @@ class SearchController extends AbstractSearch
         }
 
         // Process form submission:
-        if ($this->formWasSubmitted('submit', $view->useRecaptcha)) {
+        if ($this->formWasSubmitted(useCaptcha: $view->useCaptcha)) {
             // Attempt to send the email and show an appropriate flash message:
             try {
                 // If we got this far, we're ready to send the email:
                 $cc = $this->params()->fromPost('ccself') && $view->from != $view->to
                     ? $view->from : null;
                 $mailer->sendLink(
-                    $view->to, $view->from, $view->message,
-                    $view->url, $this->getViewRenderer(), $view->subject, $cc
+                    $view->to,
+                    $view->from,
+                    $view->message,
+                    $view->url,
+                    $this->getViewRenderer(),
+                    $view->subject,
+                    $cc
                 );
-                $this->flashMessenger()->setNamespace('info')
-                    ->addMessage('email_success');
+                $this->flashMessenger()->addMessage('email_success', 'success');
                 return $this->redirect()->toUrl($view->url);
             } catch (MailException $e) {
-                $this->flashMessenger()->setNamespace('error')
-                    ->addMessage($e->getMessage());
+                $this->flashMessenger()->addMessage($e->getDisplayMessage(), 'error');
             }
         }
         return $view;
-    }
-
-    /**
-     * Get the possible legal values for the illustration limit radio buttons.
-     *
-     * @param object $savedSearch Saved search object (false if none)
-     *
-     * @return array              Legal options, with selected value flagged.
-     */
-    protected function getIllustrationSettings($savedSearch = false)
-    {
-        $illYes = [
-            'text' => 'Has Illustrations', 'value' => 1, 'selected' => false
-        ];
-        $illNo = [
-            'text' => 'Not Illustrated', 'value' => 0, 'selected' => false
-        ];
-        $illAny = [
-            'text' => 'No Preference', 'value' => -1, 'selected' => false
-        ];
-
-        // Find the selected value by analyzing facets -- if we find match, remove
-        // the offending facet to avoid inappropriate items appearing in the
-        // "applied filters" sidebar!
-        if ($savedSearch
-            && $savedSearch->getParams()->hasFilter('illustrated:Illustrated')
-        ) {
-            $illYes['selected'] = true;
-            $savedSearch->getParams()->removeFilter('illustrated:Illustrated');
-        } else if ($savedSearch
-            && $savedSearch->getParams()->hasFilter('illustrated:"Not Illustrated"')
-        ) {
-            $illNo['selected'] = true;
-            $savedSearch->getParams()->removeFilter('illustrated:"Not Illustrated"');
-        } else {
-            $illAny['selected'] = true;
-        }
-        return [$illYes, $illNo, $illAny];
-    }
-
-    /**
-     * Process the facets to be used as limits on the Advanced Search screen.
-     *
-     * @param array  $facetList    The advanced facet values
-     * @param object $searchObject Saved search object (false if none)
-     *
-     * @return array               Sorted facets, with selected values flagged.
-     */
-    protected function processAdvancedFacets($facetList, $searchObject = false)
-    {
-        // Process the facets
-        $hierarchicalFacets = $this->getHierarchicalFacets();
-        $facetHelper = null;
-        if (!empty($hierarchicalFacets)) {
-            $facetHelper = $this->getServiceLocator()
-                ->get('VuFind\HierarchicalFacetHelper');
-        }
-        foreach ($facetList as $facet => &$list) {
-            // Hierarchical facets: format display texts and sort facets
-            // to a flat array according to the hierarchy
-            if (in_array($facet, $hierarchicalFacets)) {
-                $tmpList = $list['list'];
-                $facetHelper->sortFacetList($tmpList, true);
-                $tmpList = $facetHelper->buildFacetArray(
-                    $facet,
-                    $tmpList
-                );
-                $list['list'] = $facetHelper->flattenFacetHierarchy($tmpList);
-            }
-
-            foreach ($list['list'] as $key => $value) {
-                // Build the filter string for the URL:
-                $fullFilter = ($value['operator'] == 'OR' ? '~' : '')
-                    . $facet . ':"' . $value['value'] . '"';
-
-                // If we haven't already found a selected facet and the current
-                // facet has been applied to the search, we should store it as
-                // the selected facet for the current control.
-                if ($searchObject
-                    && $searchObject->getParams()->hasFilter($fullFilter)
-                ) {
-                    $list['list'][$key]['selected'] = true;
-                    // Remove the filter from the search object -- we don't want
-                    // it to show up in the "applied filters" sidebar since it
-                    // will already be accounted for by being selected in the
-                    // filter select list!
-                    $searchObject->getParams()->removeFilter($fullFilter);
-                }
-            }
-        }
-        return $facetList;
     }
 
     /**
@@ -234,63 +197,35 @@ class SearchController extends AbstractSearch
     {
         // Force login if necessary
         $user = $this->getUser();
-        if ($this->params()->fromQuery('require_login', 'no') !== 'no' && !$user) {
-            return $this->forceLogin();
+        if ($this->params()->fromQuery('require_login', 'no') !== 'no') {
+            // If user is already logged in, drop the require_login parameter to
+            // allow for a cleaner log-out experience.
+            return $user
+                ? $this->redirect()->toRoute('search-history')
+                : $this->forceLogin();
         }
+        $userId = $user?->getId();
 
-        // Retrieve search history
-        $search = $this->getTable('Search');
-        $searchHistory = $search->getSearches(
-            $this->getServiceLocator()->get('VuFind\SessionManager')->getId(),
-            is_object($user) ? $user->id : null
-        );
+        $searchHistoryHelper = $this->getService(\VuFind\Search\History::class);
 
-        // Build arrays of history entries
-        $saved = $unsaved = [];
+        if ($this->params()->fromQuery('purge')) {
+            $searchHistoryHelper->purgeSearchHistory($userId);
 
-        // Loop through the history
-        foreach ($searchHistory as $current) {
-            $minSO = $current->getSearchObject();
-
-            // Saved searches
-            if ($current->saved == 1) {
-                $saved[] = $minSO->deminify($this->getResultsManager());
-            } else {
-                // All the others...
-
-                // If this was a purge request we don't need this
-                if ($this->params()->fromQuery('purge') == 'true') {
-                    $current->delete();
-
-                    // We don't want to remember the last search after a purge:
-                    $this->getSearchMemory()->forgetSearch();
-                } else {
-                    // Otherwise add to the list
-                    $unsaved[] = $minSO->deminify($this->getResultsManager());
-                }
-            }
+            // We don't want to remember the last search after a purge:
+            $this->getSearchMemory()->forgetSearch();
         }
-
-        return $this->createViewModel(
-            ['saved' => $saved, 'unsaved' => $unsaved]
-        );
-    }
-
-    /**
-     * Home action
-     *
-     * @return mixed
-     */
-    public function homeAction()
-    {
-        return $this->createViewModel(
-            [
-                'results' => $this->getHomePageFacets(),
-                'hierarchicalFacets' => $this->getHierarchicalFacets(),
-                'hierarchicalFacetSortOptions'
-                    => $this->getHierarchicalFacetSortSettings()
-            ]
-        );
+        $viewData = $searchHistoryHelper->getSearchHistory($userId);
+        // Eliminate schedule settings if scheduled searches are disabled; add
+        // user email data if scheduled searches are enabled.
+        $scheduleOptions = $this->getService(\VuFind\Search\History::class)
+            ->getScheduleOptions();
+        if (empty($scheduleOptions)) {
+            unset($viewData['schedule']);
+        } else {
+            $viewData['scheduleOptions'] = $scheduleOptions;
+            $viewData['alertemail'] = $user?->getEmail();
+        }
+        return $this->createViewModel($viewData);
     }
 
     /**
@@ -305,20 +240,27 @@ class SearchController extends AbstractSearch
             return $this->forwardTo('Search', 'NewItemResults');
         }
 
-        return $this->createViewModel(
+        $view = $this->createViewModel(
             [
+                'defaultSort' => $this->newItems()->getDefaultSort(),
                 'fundList' => $this->newItems()->getFundList(),
-                'ranges' => $this->newItems()->getRanges()
+                'ranges' => $this->newItems()->getRanges(),
             ]
         );
+        if ($this->newItems()->includeFacets()) {
+            $view->options = $this->getService(\VuFind\Search\Options\PluginManager::class)
+                ->get($this->searchClassId);
+            $this->addFacetDetailsToView($view, 'NewItems');
+        }
+        return $view;
     }
 
     /**
-     * New item result list
+     * Get new item parameters from the query and configuration.
      *
-     * @return mixed
+     * @return array
      */
-    public function newitemresultsAction()
+    protected function getNewItemParameters(): array
     {
         // Retrieve new item list:
         $range = $this->params()->fromQuery('range');
@@ -336,6 +278,18 @@ class SearchController extends AbstractSearch
         // later after the whole list is collected.
         $hiddenFilters = $this->newItems()->getHiddenFilters();
 
+        return compact('range', 'dept', 'hiddenFilters');
+    }
+
+    /**
+     * Modify the current query parameters to reflect a new item search.
+     *
+     * @param array $newItemParams Parameters retrieved from getNewItemParameters()
+     *
+     * @return void
+     */
+    protected function setUpNewItemRequestParams(array $newItemParams): void
+    {
         // Depending on whether we're in ILS or Solr mode, we need to do some
         // different processing here to retrieve the correct items:
         if ($this->newItems()->getMethod() == 'ils') {
@@ -343,36 +297,86 @@ class SearchController extends AbstractSearch
             $bibIDs = $this->newItems()->getBibIDsFromCatalog(
                 $this->getILS(),
                 $this->getResultsManager()->get('Solr')->getParams(),
-                $range, $dept, $this->flashMessenger()
+                $newItemParams['range'],
+                $newItemParams['dept'],
+                $this->flashMessenger()
             );
             $this->getRequest()->getQuery()->set('overrideIds', $bibIDs);
         } else {
             // Use a Solr filter to show results:
-            $hiddenFilters[] = $this->newItems()->getSolrFilter($range);
+            $newItemParams['hiddenFilters'][] = $this->newItems()->getSolrFilter($newItemParams['range']);
         }
-
         // If we found hidden filters above, apply them now:
-        if (!empty($hiddenFilters)) {
-            $this->getRequest()->getQuery()->set('hiddenFilters', $hiddenFilters);
+        if (!empty($newItemParams['hiddenFilters'])) {
+            $this->getRequest()->getQuery()->set('hiddenFilters', $newItemParams['hiddenFilters']);
         }
 
-        // Don't save to history -- history page doesn't handle correctly:
-        $this->saveToHistory = false;
+        // Flag this as a specialized search to avoid bleeding defaults into the
+        // standard search box:
+        $this->getRequest()->getQuery()->set('specializedSearch', true);
+    }
 
-        // Call rather than forward, so we can use custom template
-        $view = $this->resultsAction();
-
+    /**
+     * Modify the provided view model to reflect a new item search, then return it.
+     *
+     * @param ViewModel $view          View model to modify
+     * @param array     $newItemParams Parameters retrieved from getNewItemParameters()
+     *
+     * @return ViewModel
+     */
+    protected function setUpNewItemView(ViewModel $view, array $newItemParams): ViewModel
+    {
         // Customize the URL helper to make sure it builds proper new item URLs
         // (check it's set first -- RSS feed will return a response model rather
         // than a view model):
         if (isset($view->results)) {
-            $url = $view->results->getUrlQuery();
-            $url->setDefaultParameter('range', $range);
-            $url->setDefaultParameter('department', $dept);
-            $url->setSuppressQuery(true);
+            $view->results->getOptions()->setFacetListAction('search-newitemfacetlist');
+            $view->results->getUrlQuery()
+                ->setDefaultParameter('range', $newItemParams['range'])
+                ->setDefaultParameter('department', $newItemParams['dept'])
+                ->disableHiddenFilters()
+                ->setSuppressQuery(true);
         }
 
+        // We don't want new items hidden filters to propagate to other searches:
+        $this->serviceLocator->get('ViewHelperManager')->get('searchTabs')->disableCurrentHiddenFilterParams();
+        $view->ignoreHiddenFiltersInRequest = true;
         return $view;
+    }
+
+    /**
+     * New item facet list
+     *
+     * @return mixed
+     */
+    public function newitemfacetlistAction()
+    {
+        $newItemParams = $this->getNewItemParameters();
+        $this->setUpNewItemRequestParams($newItemParams);
+        // The facet list needs one extra parameter to generate appropriate links:
+        $this->getRequest()->getQuery()->set('searchAction', $this->url()->fromRoute('search-newitem'));
+        $view = $this->facetListAction();
+        return $this->setUpNewItemView($view, $newItemParams);
+    }
+
+    /**
+     * New item result list
+     *
+     * @return mixed
+     */
+    public function newitemresultsAction()
+    {
+        $newItemParams = $this->getNewItemParameters();
+        $this->setUpNewItemRequestParams($newItemParams);
+
+        // Don't save to history or memory -- history page doesn't handle correctly
+        // and we don't want hidden filters bleeding to weird places:
+        $this->saveToHistory = false;
+        $this->getSearchMemory()->disable();
+
+        // Call rather than forward, so we can use custom template
+        $view = $this->resultsAction();
+        return $this->setUpNewItemView($view, $newItemParams);
     }
 
     /**
@@ -383,7 +387,8 @@ class SearchController extends AbstractSearch
     public function reservesAction()
     {
         // Search parameters set?  Process results.
-        if ($this->params()->fromQuery('inst') !== null
+        if (
+            $this->params()->fromQuery('inst') !== null
             || $this->params()->fromQuery('course') !== null
             || $this->params()->fromQuery('dept') !== null
         ) {
@@ -397,15 +402,36 @@ class SearchController extends AbstractSearch
         }
 
         // If we got this far, we're using driver-based searching and need to
-        // send options to the view:
+        // send options to the view (but we should tolerate drivers that do not
+        // define all of the department/instructor/courses getters):
         $catalog = $this->getILS();
-        return $this->createViewModel(
-            [
-                'deptList' => $catalog->getDepartments(),
-                'instList' => $catalog->getInstructors(),
-                'courseList' =>  $catalog->getCourses()
-            ]
-        );
+        try {
+            $deptList = $catalog->getDepartments();
+        } catch (\VuFind\Exception\ILS $e) {
+            $deptList = [];
+        }
+        try {
+            $instList = $catalog->getInstructors();
+        } catch (\VuFind\Exception\ILS $e) {
+            $instList = [];
+        }
+        try {
+            $courseList =  $catalog->getCourses();
+        } catch (\VuFind\Exception\ILS $e) {
+            $courseList = [];
+        }
+        return $this->createViewModel(compact('deptList', 'instList', 'courseList'));
+    }
+
+    /**
+     * Show facet list for Solr-driven reserves.
+     *
+     * @return mixed
+     */
+    public function reservesfacetlistAction()
+    {
+        $this->searchClassId = 'SolrReserves';
+        return $this->facetListAction();
     }
 
     /**
@@ -415,17 +441,19 @@ class SearchController extends AbstractSearch
      */
     public function reservessearchAction()
     {
-        $results = $this->getResultsManager()->get('SolrReserves');
-        $params = $results->getParams();
-        $params->initFromRequest(
-            new \Zend\Stdlib\Parameters(
-                $this->getRequest()->getQuery()->toArray()
-                + $this->getRequest()->getPost()->toArray()
-            )
+        $request = new \Laminas\Stdlib\Parameters(
+            $this->getRequest()->getQuery()->toArray()
+            + $this->getRequest()->getPost()->toArray()
         );
-        return $this->createViewModel(
-            ['params' => $params, 'results' => $results]
+        $view = $this->createViewModel();
+        $runner = $this->getService(\VuFind\Search\SearchRunner::class);
+        $view->results = $runner->run(
+            $request,
+            'SolrReserves',
+            $this->getSearchSetupCallback()
         );
+        $view->params = $view->results->getParams();
+        return $view;
     }
 
     /**
@@ -452,8 +480,7 @@ class SearchController extends AbstractSearch
             ->getQueryIDLimit();
         if (count($bibIDs) > $limit) {
             $bibIDs = array_slice($bibIDs, 0, $limit);
-            $this->flashMessenger()->setNamespace('info')
-                ->addMessage('too_many_reserves');
+            $this->flashMessenger()->addMessage('too_many_reserves', 'info');
         }
 
         // Use standard search action with override parameter to show results:
@@ -481,11 +508,11 @@ class SearchController extends AbstractSearch
         // (but only do this if we have access to a results object, which we
         // won't in RSS mode):
         if (isset($view->results)) {
-            $url = $view->results->getUrlQuery();
-            $url->setDefaultParameter('course', $course);
-            $url->setDefaultParameter('inst', $inst);
-            $url->setDefaultParameter('dept', $dept);
-            $url->setSuppressQuery(true);
+            $view->results->getUrlQuery()
+                ->setDefaultParameter('course', $course)
+                ->setDefaultParameter('inst', $inst)
+                ->setDefaultParameter('dept', $dept)
+                ->setSuppressQuery(true);
         }
         return $view;
     }
@@ -505,6 +532,10 @@ class SearchController extends AbstractSearch
             $query->set('type', 'tag');
         }
         if ($this->params()->fromQuery('type') == 'tag') {
+            // Because we're coming in from a search, we want to do a fuzzy
+            // tag search, not an exact search like we would when linking to a
+            // specific tag name.
+            $query = $this->getRequest()->getQuery()->set('fuzzy', 'true');
             return $this->forwardTo('Tag', 'Home');
         }
 
@@ -513,84 +544,24 @@ class SearchController extends AbstractSearch
     }
 
     /**
-     * Return a Search Results object containing requested facet information.  This
-     * data may come from the cache.
-     *
-     * @param string $initMethod Name of params method to use to request facets
-     * @param string $cacheName  Cache key for facet data
-     *
-     * @return \VuFind\Search\Solr\Results
-     */
-    protected function getFacetResults($initMethod, $cacheName)
-    {
-        // Check if we have facet results cached, and build them if we don't.
-        $cache = $this->getServiceLocator()->get('VuFind\CacheManager')
-            ->getCache('object');
-        if (!($results = $cache->getItem($cacheName))) {
-            // Use advanced facet settings to get summary facets on the front page;
-            // we may want to make this more flexible later.  Also keep in mind that
-            // the template is currently looking for certain hard-coded fields; this
-            // should also be made smarter.
-            $results = $this->getResultsManager()->get('Solr');
-            $params = $results->getParams();
-            $params->$initMethod();
-
-            // We only care about facet lists, so don't get any results (this helps
-            // prevent problems with serialized File_MARC objects in the cache):
-            $params->setLimit(0);
-
-            $results->getResults();                     // force processing for cache
-
-            $cache->setItem($cacheName, $results);
-        }
-
-        // Restore the real service locator to the object (it was lost during
-        // serialization):
-        $results->restoreServiceLocator($this->getServiceLocator());
-        return $results;
-    }
-
-    /**
-     * Return a Search Results object containing advanced facet information.  This
-     * data may come from the cache.
-     *
-     * @return \VuFind\Search\Solr\Results
-     */
-    protected function getAdvancedFacets()
-    {
-        return $this->getFacetResults(
-            'initAdvancedFacets', 'solrSearchAdvancedFacets'
-        );
-    }
-
-    /**
-     * Return a Search Results object containing homepage facet information.  This
-     * data may come from the cache.
-     *
-     * @return \VuFind\Search\Solr\Results
-     */
-    protected function getHomePageFacets()
-    {
-        return $this->getFacetResults('initHomePageFacets', 'solrSearchHomeFacets');
-    }
-
-    /**
      * Handle OpenSearch.
      *
-     * @return \Zend\Http\Response
+     * @return \Laminas\Http\Response
      */
     public function opensearchAction()
     {
         switch ($this->params()->fromQuery('method')) {
-        case 'describe':
-            $config = $this->getConfig();
-            $xml = $this->getViewRenderer()->render(
-                'search/opensearch-describe.phtml', ['site' => $config->Site]
-            );
-            break;
-        default:
-            $xml = $this->getViewRenderer()->render('search/opensearch-error.phtml');
-            break;
+            case 'describe':
+                $config = $this->getConfigArray();
+                $xml = $this->getViewRenderer()->render(
+                    'search/opensearch-describe.phtml',
+                    ['site' => $config['Site']]
+                );
+                break;
+            default:
+                $xml = $this->getViewRenderer()
+                    ->render('search/opensearch-error.phtml');
+                break;
         }
 
         $response = $this->getResponse();
@@ -604,7 +575,7 @@ class SearchController extends AbstractSearch
      * Provide OpenSearch suggestions as specified at
      * http://www.opensearch.org/Specifications/OpenSearch/Extensions/Suggestions/1.0
      *
-     * @return \Zend\Http\Response
+     * @return \Laminas\Http\Response
      */
     public function suggestAction()
     {
@@ -614,58 +585,16 @@ class SearchController extends AbstractSearch
 
         // Get suggestions and make sure they are an array (we don't want to JSON
         // encode them into an object):
-        $autocompleteManager = $this->getServiceLocator()
-            ->get('VuFind\AutocompletePluginManager');
-        $suggestions = $autocompleteManager->getSuggestions(
-            $query, 'type', 'lookfor'
-        );
+        $suggester = $this->getService(\VuFind\Autocomplete\Suggester::class);
+        $suggestions = $suggester->getSuggestions($query, 'type', 'lookfor');
 
         // Send the JSON response:
         $response = $this->getResponse();
         $headers = $response->getHeaders();
-        $headers->addHeaderLine('Content-type', 'application/javascript');
+        $headers->addHeaderLine('Content-type', 'application/json');
         $response->setContent(
             json_encode([$query->get('lookfor', ''), $suggestions])
         );
         return $response;
     }
-
-    /**
-     * Is the result scroller active?
-     *
-     * @return bool
-     */
-    protected function resultScrollerActive()
-    {
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get('config');
-        return (isset($config->Record->next_prev_navigation)
-            && $config->Record->next_prev_navigation);
-    }
-
-    /**
-     * Get an array of hierarchical facets
-     *
-     * @return array Facets
-     */
-    protected function getHierarchicalFacets()
-    {
-        $facetConfig = $this->getConfig('facets');
-        return isset($facetConfig->SpecialFacets->hierarchical)
-            ? $facetConfig->SpecialFacets->hierarchical->toArray()
-            : [];
-    }
-
-    /**
-     * Get hierarchical facet sort settings
-     *
-     * @return array Array of sort settings keyed by facet
-     */
-    protected function getHierarchicalFacetSortSettings()
-    {
-        $facetConfig = $this->getConfig('facets');
-        return isset($facetConfig->SpecialFacets->hierarchicalFacetSortOptions)
-            ? $facetConfig->SpecialFacets->hierarchicalFacetSortOptions->toArray()
-            : [];
-    }
-
 }

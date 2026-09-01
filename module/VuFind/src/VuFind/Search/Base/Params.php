@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Abstract parameters search model.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,39 +17,55 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Base
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
+ * @author   Juha Luoma <juha.luoma@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\Base;
-use Zend\ServiceManager\ServiceLocatorAwareInterface,
-    Zend\ServiceManager\ServiceLocatorInterface;
-use VuFindSearch\Backend\Solr\LuceneSyntaxHelper, VuFindSearch\Query\Query,
-    VuFindSearch\Query\QueryGroup;
-use VuFind\Search\QueryAdapter, VuFind\Solr\Utils as SolrUtils;
+
+use VuFind\Config\ConfigManagerInterface;
+use VuFind\I18n\TranslatableString;
+use VuFind\Search\Minified;
+use VuFind\Search\QueryAdapter;
+use VuFind\Search\QueryAdapterInterface;
+use VuFind\Solr\Utils as SolrUtils;
+use VuFindSearch\Backend\Solr\LuceneSyntaxHelper;
+use VuFindSearch\Query\AbstractQuery;
+use VuFindSearch\Query\Query;
+use VuFindSearch\Query\QueryGroup;
+
+use function call_user_func;
+use function count;
+use function get_class;
+use function in_array;
+use function intval;
+use function is_array;
+use function is_callable;
+use function is_object;
 
 /**
  * Abstract parameters search model.
  *
  * This abstract class defines the parameters methods for modeling a search in VuFind
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Base
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
+ * @author   Juha Luoma <juha.luoma@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class Params implements ServiceLocatorAwareInterface
+class Params
 {
-    use \Zend\ServiceManager\ServiceLocatorAwareTrait {
-        setServiceLocator as setServiceLocatorThroughTrait;
-    }
-
     /**
      * Internal representation of user query.
      *
@@ -106,6 +123,13 @@ class Params implements ServiceLocatorAwareInterface
     protected $view = null;
 
     /**
+     * Previously-used view (loaded in from session)
+     *
+     * @var string
+     */
+    protected $lastView = null;
+
+    /**
      * Search options
      *
      * @var Options
@@ -120,6 +144,29 @@ class Params implements ServiceLocatorAwareInterface
     protected $facetConfig = [];
 
     /**
+     * Extra facet labels
+     *
+     * @var array
+     */
+    protected $extraFacetLabels = [];
+
+    /**
+     * Config sections to search for facet labels if no override configuration
+     * is set.
+     *
+     * @var array
+     */
+    protected $defaultFacetLabelSections = ['ExtraFacetLabels'];
+
+    /**
+     * Config sections to search for checkbox facet labels if no override
+     * configuration is set.
+     *
+     * @var array
+     */
+    protected $defaultFacetLabelCheckboxSections = [];
+
+    /**
      * Checkbox facet configuration
      *
      * @var array
@@ -127,11 +174,25 @@ class Params implements ServiceLocatorAwareInterface
     protected $checkboxFacets = [];
 
     /**
+     * Whether to fetch result counts for checkbox facets
+     *
+     * @var bool
+     */
+    protected $fetchCheckboxFacetCounts = false;
+
+    /**
      * Applied filters
      *
      * @var array
      */
     protected $filterList = [];
+
+    /**
+     * Pre-assigned filters
+     *
+     * @var array
+     */
+    protected $hiddenFilters = [];
 
     /**
      * Facets in "OR" mode
@@ -153,19 +214,72 @@ class Params implements ServiceLocatorAwareInterface
     protected $defaultsApplied = false;
 
     /**
+     * Map of facet field aliases.
+     *
+     * @var array
+     */
+    protected $facetAliases = [];
+
+    /**
+     * Search context parameters.
+     *
+     * @var array
+     */
+    protected $searchContextParameters = [];
+
+    /**
+     * Query adapter
+     *
+     * @var ?QueryAdapterInterface
+     */
+    protected $queryAdapter = null;
+
+    /**
+     * Default query adapter class
+     *
+     * @var string
+     */
+    protected $queryAdapterClass = QueryAdapter::class;
+
+    /**
+     * Is this a specialized search (i.e. a customized scenario like new items,
+     * rather than a "normal" backend search)?
+     *
+     * @var bool
+     */
+    protected $isSpecializedSearch = false;
+
+    /**
      * Constructor
      *
-     * @param \VuFind\Search\Base\Options  $options      Options to use
-     * @param \VuFind\Config\PluginManager $configLoader Config loader
-     *
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     * @param \VuFind\Search\Base\Options $options       Options to use
+     * @param ConfigManagerInterface      $configManager Config manager
      */
-    public function __construct($options, \VuFind\Config\PluginManager $configLoader)
+    public function __construct($options, protected ConfigManagerInterface $configManager)
     {
         $this->setOptions($options);
 
         // Make sure we have some sort of query object:
         $this->query = new Query();
+
+        // Set up facet label settings, to be used as fallbacks if specific facets
+        // are not already configured:
+        $facetConfigName = $options->getFacetsIni();
+        $config = ($facetConfigName !== null) ? $configManager->getConfigArray($facetConfigName) : [];
+        $sections = $config['FacetLabels']['labelSections']
+            ?? $this->defaultFacetLabelSections;
+        foreach ($sections as $section) {
+            foreach ($config[$section] ?? [] as $field => $label) {
+                $this->extraFacetLabels[$field] = $label;
+            }
+        }
+
+        // Activate all relevant checkboxes, also important for labeling:
+        $checkboxSections = $config['FacetLabels']['checkboxSections']
+            ?? $this->defaultFacetLabelCheckboxSections;
+        foreach ($checkboxSections as $checkboxSection) {
+            $this->initCheckboxFacets($checkboxSection);
+        }
     }
 
     /**
@@ -191,6 +305,31 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Get query adapter
+     *
+     * @return QueryAdapterInterface
+     */
+    public function getQueryAdapter(): QueryAdapterInterface
+    {
+        if (null === $this->queryAdapter) {
+            $this->queryAdapter = new ($this->queryAdapterClass)();
+        }
+        return $this->queryAdapter;
+    }
+
+    /**
+     * Set query adapter
+     *
+     * @param QueryAdapterInterface $queryAdapter Query adapter
+     *
+     * @return void
+     */
+    public function setQueryAdapter(QueryAdapterInterface $queryAdapter)
+    {
+        $this->queryAdapter = $queryAdapter;
+    }
+
+    /**
      * Copy constructor
      *
      * @return void
@@ -198,10 +337,10 @@ class Params implements ServiceLocatorAwareInterface
     public function __clone()
     {
         if (is_object($this->options)) {
-            $this->options = clone($this->options);
+            $this->options = clone $this->options;
         }
         if (is_object($this->query)) {
-            $this->query = clone($this->query);
+            $this->query = clone $this->query;
         }
     }
 
@@ -212,15 +351,13 @@ class Params implements ServiceLocatorAwareInterface
      */
     public function getSearchClassId()
     {
-        // Parse identifier out of class name of format VuFind\Search\[id]\Params:
-        $class = explode('\\', get_class($this));
-        return $class[2];
+        return $this->getOptions()->getSearchClassId();
     }
 
     /**
      * Pull the search parameters
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -238,18 +375,14 @@ class Params implements ServiceLocatorAwareInterface
         $this->initSearch($request);
         $this->initSort($request);
         $this->initFilters($request);
-
-        // Remember the user's settings for future reference (we only want to do
-        // this in initFromRequest, since other code may call the set methods from
-        // other contexts!):
-        $this->getOptions()->rememberLastLimit($this->getLimit());
-        $this->getOptions()->rememberLastSort($this->getSort());
+        $this->initHiddenFilters($request);
+        $this->isSpecializedSearch = $request->get('specializedSearch', false);
     }
 
     /**
      * Pull shard parameters from the request or set defaults
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -280,7 +413,7 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Pull the page size parameter or set to default
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -289,7 +422,7 @@ class Params implements ServiceLocatorAwareInterface
     {
         // Check for a limit parameter in the url.
         $defaultLimit = $this->getOptions()->getDefaultLimit();
-        if (($limit = $request->get('limit')) != $defaultLimit) {
+        if (($limit = intval($request->get('limit'))) != $defaultLimit) {
             // make sure the url parameter is a valid limit -- either
             // one of the explicitly allowed values, or at least smaller
             // than the largest allowed. (This leniency is useful in
@@ -297,7 +430,8 @@ class Params implements ServiceLocatorAwareInterface
             // to reduce the size of result lists without actually enabling
             // the user's ability to select a reduced list size).
             $legalOptions = $this->getOptions()->getLimitOptions();
-            if (in_array($limit, $legalOptions)
+            if (
+                in_array($limit, $legalOptions)
                 || ($limit > 0 && $limit < max($legalOptions))
             ) {
                 $this->limit = $limit;
@@ -317,7 +451,7 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Pull the page parameter
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -333,7 +467,7 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Initialize the object's search settings from a request object.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -350,31 +484,31 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Support method for initSearch() -- handle basic settings.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
-     * @return boolean True if search settings were found, false if not.
+     * @return bool True if search settings were found, false if not.
      */
     protected function initBasicSearch($request)
     {
         // If no lookfor parameter was found, we have no search terms to
         // add to our array!
-        if (is_null($lookfor = $request->get('lookfor'))) {
+        if (null === ($lookfor = $request->get('lookfor'))) {
             return false;
         }
 
         // If lookfor is an array, we may be dealing with a legacy Advanced
-        // Search URL.  If there's only one parameter, we can flatten it,
+        // Search URL. If there's only one parameter, we can flatten it,
         // but otherwise we should treat it as an error -- no point in going
         // to great lengths for compatibility.
         if (is_array($lookfor)) {
             if (count($lookfor) > 1) {
-                throw new \Exception("Unsupported search URL.");
+                throw new \Exception('Unsupported search URL.');
             }
             $lookfor = $lookfor[0];
         }
 
-        // Flatten type arrays for backward compatibility:
+        // Flatten type arrays for backward compatibility with legacy URLs:
         $handler = $request->get('type');
         if (is_array($handler)) {
             $handler = $handler[0];
@@ -413,7 +547,8 @@ class Params implements ServiceLocatorAwareInterface
     {
         if ($this->searchType === 'basic') {
             $this->query = new QueryGroup(
-                'AND', [new QueryGroup('AND', [$this->query])]
+                'AND',
+                [new QueryGroup('AND', [$this->query])]
             );
             $this->searchType = 'advanced';
         }
@@ -425,36 +560,46 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
-     * Support method for initSearch() -- handle advanced settings.  Advanced
+     * Support method for initSearch() -- handle advanced settings. Advanced
      * searches have numeric subscripts on the lookfor and type parameters --
      * this is how they are distinguished from basic searches.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
      */
     protected function initAdvancedSearch($request)
     {
-        $this->query = QueryAdapter::fromRequest(
-            $request, $this->getOptions()->getDefaultHandler()
+        $this->query = $this->getQueryAdapter()->fromRequest(
+            $request,
+            $this->getOptions()->getDefaultHandler()
         );
 
         $this->searchType = $this->query instanceof Query ? 'basic' : 'advanced';
 
-        // If we ended up with a basic search, set the default handler if necessary:
-        if ($this->searchType == 'basic' && $this->query->getHandler() === null) {
-            $this->query->setHandler($this->getOptions()->getDefaultHandler());
+        // If we ended up with a basic search, it's probably the result of
+        // submitting an empty form, and more processing may be needed:
+        if ($this->searchType == 'basic') {
+            // Set a default handler if necessary:
+            if ($this->query->getHandler() === null) {
+                $this->query->setHandler($this->getOptions()->getDefaultHandler());
+            }
+            // If the user submitted the advanced search form, we want to treat
+            // the search as advanced even if it evaluated to a basic search.
+            if ($request->offsetExists('lookfor0')) {
+                $this->convertToAdvancedSearch();
+            }
         }
     }
 
     /**
      * Get the value for which type of sorting to use
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
-     * @return string
+     * @return void
      */
     protected function initSort($request)
     {
@@ -466,36 +611,43 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Set the last value of the view parameter (if available in session).
+     *
+     * @param string $view Last valid view parameter value
+     *
+     * @return void
+     */
+    public function setLastView($view)
+    {
+        $this->lastView = $view;
+    }
+
+    /**
      * Get the value for which results view to use
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
-     * @return string
+     * @return void
      */
     protected function initView($request)
     {
         // Check for a view parameter in the url.
         $view = $request->get('view');
-        $lastView = $this->getOptions()->getLastView();
-        if (!empty($view)) {
-            if ($view == 'rss') {
-                // we don't want to store rss in the Session
-                $this->setView('rss');
-            } else {
-                // store non-rss views in Session for persistence
-                $validViews = $this->getOptions()->getViewOptions();
-                // make sure the url parameter is a valid view
-                if (in_array($view, array_keys($validViews))) {
-                    $this->setView($view);
-                    $this->getOptions()->rememberLastView($view);
-                } else {
-                    $this->setView($this->getOptions()->getDefaultView());
-                }
-            }
-        } else if (!empty($lastView)) {
-            // if there is nothing in the URL, check the Session
-            $this->setView($lastView);
+        $validViews = array_keys($this->getOptions()->getViewOptions());
+        if ($view == 'rss') {
+            // RSS is a special case that does not require config validation
+            $this->setView('rss');
+        } elseif (!empty($view) && in_array($view, $validViews)) {
+            // make sure the url parameter is a valid view
+            $this->setView($view);
+        } elseif (
+            !empty($this->lastView)
+            && in_array($this->lastView, $validViews)
+        ) {
+            // if there is nothing in the URL, see if we had a previous value
+            // injected based on session information.
+            $this->setView($this->lastView);
         } else {
             // otherwise load the default
             $this->setView($this->getOptions()->getDefaultView());
@@ -568,6 +720,24 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Check if sort is valid.
+     *
+     * @param ?string $sort            Sort value
+     * @param bool    $allowHiddenSort If hidden sort is allowed
+     *
+     * @return bool
+     */
+    public function isValidSort(?string $sort, bool $allowHiddenSort = true): bool
+    {
+        $valid = array_keys($this->getOptions()->getSortOptions());
+        return !empty($sort)
+            && (
+                in_array($sort, $valid)
+                || $allowHiddenSort && $this->getMatchingHiddenSortingPatterns($sort)
+            );
+    }
+
+    /**
      * Set the sorting value (note: sort will be set to default if an illegal
      * or empty value is passed in).
      *
@@ -585,12 +755,7 @@ class Params implements ServiceLocatorAwareInterface
         }
 
         // Validate and assign the sort value:
-        $valid = array_keys($this->getOptions()->getSortOptions());
-        if (!empty($sort) && in_array($sort, $valid)) {
-            $this->sort = $sort;
-        } else {
-            $this->sort = $this->getDefaultSort();
-        }
+        $this->sort = $this->isValidSort($sort) ? $sort : $this->getDefaultSort();
 
         // In RSS mode, we may want to adjust sort settings:
         if (!$this->skipRssSort && $this->getView() == 'rss') {
@@ -628,8 +793,7 @@ class Params implements ServiceLocatorAwareInterface
      */
     public function getView()
     {
-        return is_null($this->view)
-            ? $this->getOptions()->getDefaultView() : $this->view;
+        return $this->view ?? $this->getOptions()->getDefaultView();
     }
 
     /**
@@ -657,7 +821,7 @@ class Params implements ServiceLocatorAwareInterface
         $showField = [$this->getOptions(), 'getHumanReadableFieldName'];
 
         // Build display query:
-        return QueryAdapter::display($this->getQuery(), $translate, $showField);
+        return $this->getQueryAdapter()->display($this->getQuery(), $translate, $showField);
     }
 
     /**
@@ -682,10 +846,10 @@ class Params implements ServiceLocatorAwareInterface
         $value = count($temp) > 0 ? $temp[0] : '';
 
         // Remove quotes from the value if there are any
-        if (substr($value, 0, 1)  == '"') {
+        if (str_starts_with($value, '"')) {
             $value = substr($value, 1);
         }
-        if (substr($value, -1, 1) == '"') {
+        if (str_ends_with($value, '"')) {
             $value = substr($value, 0, -1);
         }
         // One last little clean on whitespace
@@ -693,6 +857,52 @@ class Params implements ServiceLocatorAwareInterface
 
         // Send back the results:
         return [$field, $value];
+    }
+
+    /**
+     * Parse apart any prefix, field and value from a URL filter string.
+     *
+     * @param string $filter A filter string from url : "field:value"
+     *
+     * @return array         Array with elements 0 = prefix, 1 = field, 2 = value.
+     */
+    public function parseFilterAndPrefix($filter)
+    {
+        [$field, $value] = $this->parseFilter($filter);
+        $prefix = substr($field, 0, 1);
+        if (in_array($prefix, ['-', '~'])) {
+            $field = substr($field, 1);
+        } else {
+            $prefix = '';
+        }
+        return [$prefix, $field, $value];
+    }
+
+    /**
+     * Given a facet field, return an array containing all aliases of that
+     * field.
+     *
+     * @param string $field Field to look up
+     *
+     * @return array
+     */
+    public function getAliasesForFacetField($field)
+    {
+        // Account for field prefixes used for Boolean logic:
+        $prefix = substr($field, 0, 1);
+        if ($prefix === '-' || $prefix === '~') {
+            $rawField = substr($field, 1);
+        } else {
+            $prefix = '';
+            $rawField = $field;
+        }
+        $fieldsToCheck = [$field];
+        foreach ($this->facetAliases as $k => $v) {
+            if ($v === $rawField) {
+                $fieldsToCheck[] = $prefix . $k;
+            }
+        }
+        return $fieldsToCheck;
     }
 
     /**
@@ -705,12 +915,16 @@ class Params implements ServiceLocatorAwareInterface
     public function hasFilter($filter)
     {
         // Extract field and value from URL string:
-        list($field, $value) = $this->parseFilter($filter);
+        [$field, $value] = $this->parseFilter($filter);
 
-        if (isset($this->filterList[$field])
-            && in_array($value, $this->filterList[$field])
-        ) {
-            return true;
+        // Check all of the relevant fields for matches:
+        foreach ($this->getAliasesForFacetField($field) as $current) {
+            if (
+                isset($this->filterList[$current])
+                && in_array($value, $this->filterList[$current])
+            ) {
+                return true;
+            }
         }
         return false;
     }
@@ -728,17 +942,18 @@ class Params implements ServiceLocatorAwareInterface
         // Check for duplicates -- if it's not in the array, we can add it
         if (!$this->hasFilter($newFilter)) {
             // Extract field and value from filter string:
-            list($field, $value) = $this->parseFilter($newFilter);
+            [$field, $value] = $this->parseFilter($newFilter);
             $this->filterList[$field][] = $value;
         }
     }
 
     /**
      * Detects if a filter is advanced (true) or simple (false). An advanced
-     * filter is currently defined as one surrounded by parentheses, while a
-     * simple filter is of the form field:value. Advanced filters are used to
-     * express more complex queries, such as combining multiple values from
-     * multiple fields using boolean operators.
+     * filter is currently defined as one surrounded by parentheses (possibly
+     * with a leading exclusion operator), while a simple filter is of the form
+     * field:value. Advanced filters are used to express more complex queries,
+     * such as combining multiple values from multiple fields using boolean
+     * operators.
      *
      * @param string $filter A filter string
      *
@@ -746,10 +961,7 @@ class Params implements ServiceLocatorAwareInterface
      */
     public function isAdvancedFilter($filter)
     {
-        if (substr($filter, 0, 1) == '(') {
-            return true;
-        }
-        return false;
+        return str_starts_with($filter, '(') || str_starts_with($filter, '-(');
     }
 
     /**
@@ -762,7 +974,7 @@ class Params implements ServiceLocatorAwareInterface
     public function removeFilter($oldFilter)
     {
         // Extract field and value from URL string:
-        list($field, $value) = $this->parseFilter($oldFilter);
+        [$field, $value] = $this->parseFilter($oldFilter);
 
         // Make sure the field exists
         if (isset($this->filterList[$field])) {
@@ -784,6 +996,9 @@ class Params implements ServiceLocatorAwareInterface
             // If necessary, rebuild the array to remove gaps in the key sequence:
             if ($rebuildArray) {
                 $this->filterList[$field] = array_values($this->filterList[$field]);
+                if (!$this->filterList[$field]) {
+                    unset($this->filterList[$field]);
+                }
             }
         }
     }
@@ -801,7 +1016,11 @@ class Params implements ServiceLocatorAwareInterface
         if ($field == null) {
             $this->filterList = [];
         } else {
-            $this->filterList[$field] = [];
+            foreach (['', '-', '~'] as $prefix) {
+                if (isset($this->filterList[$prefix . $field])) {
+                    unset($this->filterList[$prefix . $field]);
+                }
+            }
         }
     }
 
@@ -838,35 +1057,66 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
-     * Add a checkbox facet.  When the checkbox is checked, the specified filter
-     * will be applied to the search.  When the checkbox is not checked, no filter
+     * Add a checkbox facet. When the checkbox is checked, the specified filter
+     * will be applied to the search. When the checkbox is not checked, no filter
      * will be applied.
      *
-     * @param string $filter [field]:[value] pair to associate with checkbox
-     * @param string $desc   Description to associate with the checkbox
+     * @param string $filter  [field]:[value] pair to associate with checkbox
+     * @param string $desc    Description to associate with the checkbox
+     * @param bool   $dynamic Is this being added dynamically (true) or in response
+     * to a user configuration (false)?
      *
      * @return void
      */
-    public function addCheckboxFacet($filter, $desc)
+    public function addCheckboxFacet($filter, $desc, $dynamic = false)
     {
         // Extract the facet field name from the filter, then add the
         // relevant information to the array.
-        list($fieldName) = explode(':', $filter);
-        $this->checkboxFacets[$fieldName]
-            = ['desc' => $desc, 'filter' => $filter];
+        [$fieldName] = explode(':', $filter);
+        $this->checkboxFacets[$fieldName][$filter]
+            = compact('desc', 'filter', 'dynamic');
+    }
+
+    /**
+     * Enable or disable fetching of checkbox facet counts
+     *
+     * @param bool $enable Whether to enable counts
+     *
+     * @return void
+     */
+    public function toggleCheckboxFacetCounts(bool $enable): void
+    {
+        $this->fetchCheckboxFacetCounts = $enable;
     }
 
     /**
      * Get a user-friendly string to describe the provided facet field.
      *
-     * @param string $field Facet field name.
+     * @param string $field               Facet field name.
+     * @param string $value               Facet value.
+     * @param string $default             Default field name (null for default behavior).
+     * @param bool   $allowCheckboxFacets Should checkbox facet labels be allowed too?
      *
-     * @return string       Human-readable description of field.
+     * @return string Human-readable description of field.
      */
-    public function getFacetLabel($field)
+    public function getFacetLabel($field, $value = null, $default = null, $allowCheckboxFacets = true)
     {
-        return isset($this->facetConfig[$field])
-            ? $this->facetConfig[$field] : 'unrecognized_facet_label';
+        if (
+            !isset($this->facetConfig[$field])
+            && !isset($this->extraFacetLabels[$field])
+            && isset($this->facetAliases[$field])
+        ) {
+            $field = $this->facetAliases[$field];
+        }
+        $checkboxFacet = $allowCheckboxFacets ? ($this->checkboxFacets[$field]["$field:$value"] ?? null) : null;
+        if (null !== $checkboxFacet) {
+            return $checkboxFacet['desc'];
+        }
+        if (isset($this->facetConfig[$field])) {
+            return $this->facetConfig[$field];
+        }
+        return $this->extraFacetLabels[$field]
+            ?? ($default ?: 'unrecognized_facet_label');
     }
 
     /**
@@ -894,7 +1144,7 @@ class Params implements ServiceLocatorAwareInterface
      *
      * @return array
      */
-    public function getFilters()
+    public function getRawFilters()
     {
         return $this->filterList;
     }
@@ -909,30 +1159,114 @@ class Params implements ServiceLocatorAwareInterface
      */
     public function getFilterList($excludeCheckboxFilters = false)
     {
+        // If we don't have any filters, return right away to avoid further
+        // processing:
+        if (!$this->filterList) {
+            return [];
+        }
+
         // Get a list of checkbox filters to skip if necessary:
         $skipList = $excludeCheckboxFilters
             ? $this->getCheckboxFacetValues() : [];
 
         $list = [];
+        $translatedFacets = $this->getOptions()->getTranslatedFacets();
         // Loop through all the current filter fields
         foreach ($this->filterList as $field => $values) {
-            list($operator, $field) = $this->parseOperatorAndFieldName($field);
-            $translate
-                = in_array($field, $this->getOptions()->getTranslatedFacets());
+            [$operator, $bareField] = $this->parseOperatorAndFieldName($field);
+            $translate = in_array($bareField, $translatedFacets);
             // and each value currently used for that field
             foreach ($values as $value) {
                 // Add to the list unless it's in the list of fields to skip:
-                if (!isset($skipList[$field])
+                if (
+                    !isset($skipList[$field])
                     || !in_array($value, $skipList[$field])
                 ) {
-                    $facetLabel = $this->getFacetLabel($field);
+                    $facetLabel = $this->getFacetLabel($bareField, $value, allowCheckboxFacets: false);
                     $list[$facetLabel][] = $this->formatFilterListEntry(
-                        $field, $value, $operator, $translate
+                        $bareField,
+                        $value,
+                        $operator,
+                        $translate
                     );
                 }
             }
         }
         return $list;
+    }
+
+    /**
+     * Returns only the exclude filters (field starting with '-').
+     *
+     * @return array an array field => value without the '-' for the field
+     */
+    public function getExcludeFilters()
+    {
+        $result = [];
+        foreach ($this->filterList as $field => $values) {
+            [$operator, $fieldName] = $this->parseOperatorAndFieldName($field);
+            if ('NOT' === $operator) {
+                $result[$fieldName] = $values;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Get the filter list as a query parameter array.
+     *
+     * Returns an array of strings that parseFilter can parse.
+     *
+     * @return array
+     */
+    public function getFiltersAsQueryParams(): array
+    {
+        return $this->formatFilterArrayAsQueryParams($this->getRawFilters());
+    }
+
+    /**
+     * Get a display text for a facet field.
+     *
+     * @param string $field Facet field
+     * @param string $value Facet value
+     *
+     * @return string
+     */
+    public function getFacetValueRawDisplayText(string $field, string $value): string
+    {
+        // Check for delimited facets -- if $field is a delimited facet field,
+        // process $displayText accordingly:
+        $delimitedFacetFields = $this->getOptions()->getDelimitedFacets(true);
+        if (isset($delimitedFacetFields[$field])) {
+            $parts = explode($delimitedFacetFields[$field], $value);
+            return end($parts);
+        }
+
+        return $value;
+    }
+
+    /**
+     * Translate a facet value.
+     *
+     * @param string                    $field Field name
+     * @param string|TranslatableString $text  Field value (processed by
+     * getFacetValueRawDisplayText)
+     *
+     * @return string
+     */
+    public function translateFacetValue(string $field, $text): string
+    {
+        $domain = $this->getOptions()->getTextDomainForTranslatedFacet($field);
+        $translateFormat = $this->getOptions()->getFormatForTranslatedFacet($field);
+        $translated = $this->translate([$domain, $text]);
+        return $translateFormat
+            ? $this->translate(
+                $translateFormat,
+                [
+                    '%%raw%%' => $text,
+                    '%%translated%%' => $translated,
+                ]
+            ) : $translated;
     }
 
     /**
@@ -947,12 +1281,12 @@ class Params implements ServiceLocatorAwareInterface
      */
     protected function formatFilterListEntry($field, $value, $operator, $translate)
     {
-        return [
-            'value'       => $value,
-            'displayText' => $translate ? $this->translate($value) : $value,
-            'field'       => $field,
-            'operator'    => $operator,
-        ];
+        $rawDisplayText = $this->getFacetValueRawDisplayText($field, $value);
+        $displayText = $translate
+            ? $this->translateFacetValue($field, $rawDisplayText)
+            : $rawDisplayText;
+
+        return compact('value', 'displayText', 'field', 'operator');
     }
 
     /**
@@ -968,7 +1302,7 @@ class Params implements ServiceLocatorAwareInterface
         if ($firstChar == '-') {
             $operator = 'NOT';
             $field = substr($field, 1);
-        } else if ($firstChar == '~') {
+        } elseif ($firstChar == '~') {
             $operator = 'OR';
             $field = substr($field, 1);
         } else {
@@ -985,12 +1319,14 @@ class Params implements ServiceLocatorAwareInterface
     protected function getCheckboxFacetValues()
     {
         $list = [];
-        foreach ($this->checkboxFacets as $current) {
-            list($field, $value) = $this->parseFilter($current['filter']);
-            if (!isset($list[$field])) {
-                $list[$field] = [];
+        foreach ($this->getRawCheckboxFacets() as $facets) {
+            foreach ($facets as $current) {
+                [$field, $value] = $this->parseFilter($current['filter']);
+                if (!isset($list[$field])) {
+                    $list[$field] = [];
+                }
+                $list[$field][] = $value;
             }
-            $list[$field][] = $value;
         }
         return $list;
     }
@@ -998,32 +1334,74 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Get information on the current state of the boolean checkbox facets.
      *
+     * @param ?array $include        List of checkbox filters to return (null for all)
+     * @param bool   $includeDynamic Should we include dynamically-generated
+     * checkboxes that are not part of the include list above?
+     *
      * @return array
      */
-    public function getCheckboxFacets()
-    {
+    public function getCheckboxFacets(
+        ?array $include = null,
+        bool $includeDynamic = true
+    ) {
         // Build up an array of checkbox facets with status booleans and
         // toggle URLs.
-        $facets = [];
-        foreach ($this->checkboxFacets as $field => $details) {
-            $facets[$field] = $details;
-            if ($this->hasFilter($details['filter'])) {
-                $facets[$field]['selected'] = true;
-            } else {
-                $facets[$field]['selected'] = false;
+        $result = [];
+        foreach ($this->getRawCheckboxFacets() as $facets) {
+            foreach ($facets as $facet) {
+                // If the current filter is not on the include list, skip it (but
+                // accept everything if the include list is null).
+                if (
+                    ($include !== null && !in_array($facet['filter'], $include))
+                    && !($includeDynamic && $facet['dynamic'])
+                ) {
+                    continue;
+                }
+                $facet['selected'] = $this->hasFilter($facet['filter']);
+                // Is this checkbox always visible, even if non-selected on the
+                // "no results" screen?  By default, no (may be overridden by
+                // child classes).
+                $facet['alwaysVisible'] = false;
+                $result[] = $facet;
             }
-            // Is this checkbox always visible, even if non-selected on the
-            // "no results" screen?  By default, no (may be overridden by
-            // child classes).
-            $facets[$field]['alwaysVisible'] = false;
         }
-        return $facets;
+        return $result;
+    }
+
+    /**
+     * Return checkbox facets without any processing
+     *
+     * @return array
+     */
+    protected function getRawCheckboxFacets(): array
+    {
+        return $this->checkboxFacets;
+    }
+
+    /**
+     * Format a raw filter array as a query parameter array.
+     *
+     * Returns an array of strings that parseFilter can parse.
+     *
+     * @param array $filterArray Filter array
+     *
+     * @return array
+     */
+    protected function formatFilterArrayAsQueryParams(array $filterArray): array
+    {
+        $result = [];
+        foreach ($filterArray as $field => $values) {
+            foreach ($values as $current) {
+                $result[] = "$field:\"$current\"";
+            }
+        }
+        return $result;
     }
 
     /**
      * Initialize all range filters.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -1040,59 +1418,54 @@ class Params implements ServiceLocatorAwareInterface
      * Support method for initDateFilters() -- normalize a year for use in a
      * year-based date range.
      *
-     * @param string $year Value to check for valid year.
+     * @param ?string $year     Value to check for valid year.
+     * @param bool    $rangeEnd Is this the end of a range?
      *
      * @return string      Formatted year.
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    protected function formatYearForDateRange($year)
+    protected function formatYearForDateRange($year, $rangeEnd = false)
     {
         // Make sure parameter is set and numeric; default to wildcard otherwise:
-        $year = preg_match('/\d{2,4}/', $year) ? $year : '*';
-
-        // Pad to four digits:
-        if (strlen($year) == 2) {
-            $year = '19' . $year;
-        } else if (strlen($year) == 3) {
-            $year = '0' . $year;
-        }
-
-        return $year;
+        return preg_match('/^-?\d+$/', $year ?? '') ? $year : '*';
     }
 
     /**
      * Support method for initFullDateFilters() -- normalize a date for use in a
      * year/month/day date range.
      *
-     * @param string $date Value to check for valid date.
+     * @param ?string $date     Value to check for valid date.
+     * @param bool    $rangeEnd Is this the end of a range?
      *
      * @return string      Formatted date.
      */
-    protected function formatDateForFullDateRange($date)
+    protected function formatDateForFullDateRange($date, $rangeEnd = false)
     {
         // Make sure date is valid; default to wildcard otherwise:
-        $date = SolrUtils::sanitizeDate($date);
-        return $date === null ? '*' : $date;
+        $date = $date ? SolrUtils::sanitizeDate($date, $rangeEnd) : null;
+        return $date ?? '*';
     }
 
     /**
-     * Support method for initNumericRangeFilters() -- normalize a year for use in
-     * a date range.
+     * Support method for initNumericRangeFilters() -- normalize a number for use in
+     * a numeric range.
      *
-     * @param string $num Value to format into a number.
+     * @param ?string $num      Value to format into a number.
+     * @param bool    $rangeEnd Is this the end of a range?
      *
      * @return string     Formatted number.
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    protected function formatValueForNumericRange($num)
+    protected function formatValueForNumericRange($num, $rangeEnd = false)
     {
-        // empty strings are always wildcards:
-        if ($num == '') {
+        // empty strings, null values and non-numeric values are treated as wildcards:
+        if ($num === '' || $num === null || !is_numeric($num)) {
             return '*';
         }
-
-        // it's a string by default so this will kick it into interpreting it as a
-        // number
-        $num = $num + 0;
-        return $num = !is_float($num) && !is_int($num) ? '*' : $num;
+        // If we got this far, it's a number!
+        return $num;
     }
 
     /**
@@ -1123,23 +1496,26 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
-     * Support method for initFilters() -- initialize range filters.  Factored
+     * Support method for initFilters() -- initialize range filters. Factored
      * out as a separate method so that it can be more easily overridden by child
      * classes.
      *
-     * @param \Zend\StdLib\Parameters $request         Parameter object representing
-     * user request.
-     * @param string                  $requestParam    Name of parameter containing
-     * names of range filter fields.
-     * @param Callable                $valueFilter     Optional callback to process
-     * values in the range.
-     * @param Callable                $filterGenerator Optional callback to create
+     * @param \Laminas\Stdlib\Parameters $request         Parameter object
+     * representing user request.
+     * @param string                     $requestParam    Name of parameter
+     * containing names of range filter fields.
+     * @param callable                   $valueFilter     Optional callback to
+     * process values in the range.
+     * @param callable                   $filterGenerator Optional callback to create
      * a filter query from the range values.
      *
      * @return void
      */
-    protected function initGenericRangeFilters($request,
-        $requestParam = 'genericrange', $valueFilter = null, $filterGenerator = null
+    protected function initGenericRangeFilters(
+        $request,
+        $requestParam = 'genericrange',
+        $valueFilter = null,
+        $filterGenerator = null
     ) {
         $rangeFacets = $request->get($requestParam);
         if (!empty($rangeFacets)) {
@@ -1151,8 +1527,8 @@ class Params implements ServiceLocatorAwareInterface
 
                 // Apply filtering/validation if necessary:
                 if (is_callable($valueFilter)) {
-                    $from = call_user_func($valueFilter, $from);
-                    $to = call_user_func($valueFilter, $to);
+                    $from = call_user_func($valueFilter, $from, false);
+                    $to = call_user_func($valueFilter, $to, true);
                 }
 
                 // Build filter only if necessary:
@@ -1231,15 +1607,17 @@ class Params implements ServiceLocatorAwareInterface
      * Factored out as a separate method so that it can be more easily overridden
      * by child classes.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
      */
     protected function initDateFilters($request)
     {
-        return $this->initGenericRangeFilters(
-            $request, 'daterange', [$this, 'formatYearForDateRange'],
+        $this->initGenericRangeFilters(
+            $request,
+            'daterange',
+            [$this, 'formatYearForDateRange'],
             [$this, 'buildDateRangeFilter']
         );
     }
@@ -1249,15 +1627,17 @@ class Params implements ServiceLocatorAwareInterface
      * filters. Factored out as a separate method so that it can be more easily
      * overridden by child classes.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
      */
     protected function initFullDateFilters($request)
     {
-        return $this->initGenericRangeFilters(
-            $request, 'fulldaterange', [$this, 'formatDateForFullDateRange'],
+        $this->initGenericRangeFilters(
+            $request,
+            'fulldaterange',
+            [$this, 'formatDateForFullDateRange'],
             [$this, 'buildFullDateRangeFilter']
         );
     }
@@ -1267,15 +1647,17 @@ class Params implements ServiceLocatorAwareInterface
      * out as a separate method so that it can be more easily overridden by child
      * classes.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
      */
     protected function initNumericRangeFilters($request)
     {
-        return $this->initGenericRangeFilters(
-            $request, 'numericrange', [$this, 'formatValueForNumericRange'],
+        $this->initGenericRangeFilters(
+            $request,
+            'numericrange',
+            [$this, 'formatValueForNumericRange'],
             [$this, 'buildNumericRangeFilter']
         );
     }
@@ -1283,7 +1665,7 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Add filters to the object based on values found in the request object.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -1321,6 +1703,94 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Add hidden filters to the object based on values found in the request object.
+     *
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
+     * request.
+     *
+     * @return void
+     */
+    protected function initHiddenFilters($request)
+    {
+        $hiddenFilters = $request->get('hiddenFilters');
+        if (!empty($hiddenFilters) && is_array($hiddenFilters)) {
+            foreach ($hiddenFilters as $current) {
+                $this->addHiddenFilter($current);
+            }
+        }
+    }
+
+    /**
+     * Get hidden filters grouped by field like normal filters.
+     *
+     * @return array
+     */
+    public function getHiddenFilters()
+    {
+        return $this->hiddenFilters;
+    }
+
+    /**
+     * Get the hidden filter list as a query parameter array.
+     *
+     * Returns an array of strings that parseFilter can parse.
+     *
+     * @return array
+     */
+    public function getHiddenFiltersAsQueryParams(): array
+    {
+        return $this->formatFilterArrayAsQueryParams($this->getHiddenFilters());
+    }
+
+    /**
+     * Does the object already contain the specified hidden filter?
+     *
+     * @param string $filter A filter string from url : "field:value"
+     *
+     * @return bool
+     */
+    public function hasHiddenFilter($filter)
+    {
+        // Extract field and value from URL string:
+        [$field, $value] = $this->parseFilter($filter);
+        return in_array($value, $this->hiddenFilters[$field] ?? []);
+    }
+
+    /**
+     * Take a filter string and add it into the protected hidden filters
+     *   array checking for duplicates.
+     *
+     * @param string $newFilter A filter string from url : "field:value"
+     *
+     * @return void
+     */
+    public function addHiddenFilter($newFilter)
+    {
+        // Check for duplicates -- if it's not in the array, we can add it
+        if (!$this->hasHiddenFilter($newFilter)) {
+            // Extract field and value from filter string:
+            [$field, $value] = $this->parseFilter($newFilter);
+            if (!empty($field) && '' !== $value) {
+                $this->hiddenFilters[$field][] = $value;
+            }
+        }
+    }
+
+    /**
+     * Take a filter string and add it into the protected hidden filters
+     *   array checking for duplicates.
+     *
+     * @param string $field Field
+     * @param string $value Filter value
+     *
+     * @return void
+     */
+    public function addHiddenFilterForField(string $field, string $value): void
+    {
+        $this->addHiddenFilter("$field:\"$value\"");
+    }
+
+    /**
      * Return a query string for the current search with a search term replaced.
      *
      * @param string $oldTerm The old term to replace
@@ -1331,7 +1801,7 @@ class Params implements ServiceLocatorAwareInterface
     public function getDisplayQueryWithReplacedTerm($oldTerm, $newTerm)
     {
         // Stash our old data for a minute
-        $oldTerms = clone($this->query);
+        $oldTerms = clone $this->query;
         // Replace the search term
         $this->query->replaceTerm($oldTerm, $newTerm);
         // Get the new query string
@@ -1353,7 +1823,7 @@ class Params implements ServiceLocatorAwareInterface
         foreach ($this->getOptions()->getViewOptions() as $key => $value) {
             $list[$key] = [
                 'desc' => $value,
-                'selected' => ($key == $this->getView())
+                'selected' => ($key == $this->getView()),
             ];
         }
         return $list;
@@ -1369,11 +1839,13 @@ class Params implements ServiceLocatorAwareInterface
     {
         // Loop through all the current limits
         $valid = $this->getOptions()->getLimitOptions();
+        $defaultLimit = $this->getOptions()->getDefaultLimit();
         $list = [];
         foreach ($valid as $limit) {
             $list[$limit] = [
                 'desc' => $limit,
-                'selected' => ($limit == $this->getLimit())
+                'selected' => ($limit == $this->getLimit()),
+                'default' => $limit == $defaultLimit,
             ];
         }
         return $list;
@@ -1389,14 +1861,53 @@ class Params implements ServiceLocatorAwareInterface
     {
         // Loop through all the current filter fields
         $valid = $this->getOptions()->getSortOptions();
+        $defaultSort = $this->getDefaultSort();
         $list = [];
+        $currentSort = $this->getSort();
         foreach ($valid as $sort => $desc) {
             $list[$sort] = [
                 'desc' => $desc,
-                'selected' => ($sort == $this->getSort())
+                'selected' => ($sort == $currentSort),
+                'default' => $sort == $defaultSort,
+            ];
+        }
+        if (!isset($list[$currentSort])) {
+            $matchingHiddenSortingPatterns = $this->getMatchingHiddenSortingPatterns($currentSort);
+            // Add selected sort with a generic description so that we display it:
+            $list[$currentSort] = [
+                'desc' => $matchingHiddenSortingPatterns[0]['label'] ?? 'unrecognized_sort_option',
+                'selected' => true,
+                'default' => false,
             ];
         }
         return $list;
+    }
+
+    /**
+     * Store settings to a minified object
+     *
+     * @param Minified $minified Minified Search Object
+     *
+     * @return void
+     */
+    public function minify(Minified &$minified): void
+    {
+        $minified->ty = $this->getSearchType();
+        $minified->cl = $this->getSearchClassId();
+
+        // Search terms, we'll shorten keys
+        $query = $this->getQuery();
+        $minified->t = $this->getQueryAdapter()->minify($query);
+
+        // It would be nice to shorten filter fields too, but
+        //      it would be a nightmare to maintain.
+        $minified->f = $this->getRawFilters();
+        $minified->hf = $this->getHiddenFilters();
+
+        $minified->scp = [
+            'page' => $this->getPage(),
+            'limit' => $this->getLimit(),
+        ];
     }
 
     /**
@@ -1409,8 +1920,10 @@ class Params implements ServiceLocatorAwareInterface
     public function deminify($minified)
     {
         // Some values will transfer without changes
-        $this->filterList   = $minified->f;
-        $this->searchType   = $minified->ty;
+        $this->filterList = $minified->f;
+        $this->hiddenFilters = $minified->hf;
+        $this->searchType = $minified->ty;
+        $this->searchContextParameters = $minified->scp;
 
         // Deminified searches will always have defaults already applied;
         // we don't want to accidentally manipulate them further.
@@ -1420,30 +1933,20 @@ class Params implements ServiceLocatorAwareInterface
         }
 
         // Search terms, we need to expand keys
-        $this->query = QueryAdapter::deminify($minified->t);
+        $this->query = $this->getQueryAdapter()->deminify($minified->t);
     }
 
     /**
-     * Load all available facet settings.  This is mainly useful for showing
-     * appropriate labels when an existing search has multiple filters associated
-     * with it.
+     * Get remembered search context parameters from saved search. We track these separately since
+     * in some contexts we want to use them (e.g. linking back to a search in breadcrumbs), but in
+     * other contexts we want to ignore them (e.g. comparing two searches to see if they represent
+     * the same query -- because page 1 and page 2 still represent the same overall search).
      *
-     * @param string $preferredSection Section to favor when loading settings;
-     * if multiple sections contain the same facet, this section's description
-     * will be favored.
-     *
-     * @return void
-     *
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     * @return array
      */
-    public function activateAllFacets($preferredSection = false)
+    public function getSavedSearchContextParameters(): array
     {
-        // By default, there is only 1 set of facet settings, so this function isn't
-        // really necessary.  However, in the Search History screen, we need to
-        // use this for Solr-based Search Objects, so we need this dummy method to
-        // allow other types of Search Objects to co-exist with Solr-based ones.
-        // See the Solr Search Object for details of how this works if you need to
-        // implement context-sensitive facet settings in another module.
+        return $this->searchContextParameters;
     }
 
     /**
@@ -1474,7 +1977,7 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
-     * Get an array of the names of all selected shards.  These should correspond
+     * Get an array of the names of all selected shards. These should correspond
      * with keys in the array returned by the option class's getShards() method.
      *
      * @return array
@@ -1485,59 +1988,20 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
-     * Sleep magic method -- the service locator can't be serialized, so we need to
-     * exclude it from serialization.  Since we can't obtain a new locator in the
-     * __wakeup() method, it needs to be re-injected from outside.
+     * Translate a string (or string-castable object)
      *
-     * @return array
-     */
-    public function __sleep()
-    {
-        $vars = get_object_vars($this);
-        unset($vars['serviceLocator']);
-        $vars = array_keys($vars);
-        return $vars;
-    }
-
-    /**
-     * Set the service locator.
-     *
-     * @param ServiceLocatorInterface $serviceLocator Locator to register
-     *
-     * @return Params
-     */
-    public function setServiceLocator(ServiceLocatorInterface $serviceLocator)
-    {
-        // If this isn't the top-level manager, get its parent:
-        if ($serviceLocator instanceof ServiceLocatorAwareInterface) {
-            $serviceLocator = $serviceLocator->getServiceLocator();
-        }
-        return $this->setServiceLocatorThroughTrait($serviceLocator);
-    }
-
-    /**
-     * Get a database table object.
-     *
-     * @param string $table Name of table to retrieve
-     *
-     * @return \VuFind\Db\Table\Gateway
-     */
-    public function getTable($table)
-    {
-        return $this->getServiceLocator()->get('VuFind\DbTablePluginManager')
-            ->get($table);
-    }
-
-    /**
-     * Translate a string if a translator is available.
-     *
-     * @param string $msg Message to translate
+     * @param string|object|array $target  String to translate or an array of text
+     * domain and string to translate
+     * @param array               $tokens  Tokens to inject into the translated
+     * string
+     * @param string              $default Default value to use if no translation is
+     * found (null for no default).
      *
      * @return string
      */
-    public function translate($msg)
+    public function translate($target, $tokens = [], $default = null)
     {
-        return $this->getOptions()->translate($msg);
+        return $this->getOptions()->translate($target, $tokens, $default);
     }
 
     /**
@@ -1565,7 +2029,7 @@ class Params implements ServiceLocatorAwareInterface
     /**
      * Return search query object.
      *
-     * @return VuFindSearch\Query\AbstractQuery
+     * @return AbstractQuery
      */
     public function getQuery()
     {
@@ -1576,31 +2040,49 @@ class Params implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Set search query object.
+     *
+     * @param AbstractQuery $query Query
+     *
+     * @return void
+     */
+    public function setQuery(AbstractQuery $query): void
+    {
+        if ($this->overrideQuery) {
+            $this->overrideQuery = false;
+        }
+        $this->query = $query;
+    }
+
+    /**
      * Initialize facet settings for the specified configuration sections.
      *
      * @param string $facetList     Config section containing fields to activate
      * @param string $facetSettings Config section containing related settings
-     * @param string $cfgFile       Name of configuration to load
+     * @param string $cfgFile       Name of configuration to load (null to load
+     * default facets configuration).
      *
      * @return bool                 True if facets set, false if no settings found
      */
-    protected function initFacetList($facetList, $facetSettings, $cfgFile = 'facets')
+    protected function initFacetList($facetList, $facetSettings, $cfgFile = null)
     {
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get($cfgFile);
-        if (!isset($config->$facetList)) {
+        $facetConfigName = $cfgFile ?? $this->getOptions()->getFacetsIni();
+        $config = ($facetConfigName !== null) ? $this->configManager->getConfigArray($facetConfigName) : [];
+        if (!isset($config[$facetList])) {
             return false;
         }
-        if (isset($config->$facetSettings->orFacets)) {
+        if (isset($config[$facetSettings]['orFacets'])) {
             $orFields
-                = array_map('trim', explode(',', $config->$facetSettings->orFacets));
+                = array_map('trim', explode(',', $config[$facetSettings]['orFacets']));
         } else {
             $orFields = [];
         }
-        foreach ($config->$facetList as $key => $value) {
+        foreach ($config[$facetList] as $key => $value) {
             $useOr = (isset($orFields[0]) && $orFields[0] == '*')
                 || in_array($key, $orFields);
             $this->addFacet($key, $value, $useOr);
         }
+
         return true;
     }
 
@@ -1612,5 +2094,82 @@ class Params implements ServiceLocatorAwareInterface
     public function hasDefaultsApplied()
     {
         return $this->defaultsApplied;
+    }
+
+    /**
+     * Initialize checkbox facet settings for the specified configuration sections.
+     *
+     * @param string $facetList Config section containing fields to activate
+     * @param string $cfgFile   Name of configuration to load (null to load
+     * default facets configuration).
+     *
+     * @return bool             True if facets set, false if no settings found
+     */
+    protected function initCheckboxFacets(
+        $facetList = 'CheckboxFacets',
+        $cfgFile = null
+    ) {
+        $facetConfigName = $cfgFile ?? $this->getOptions()->getFacetsIni();
+        $config = ($facetConfigName !== null) ? $this->configManager->getConfigArray($facetConfigName) : [];
+        $retVal = false;
+        // If the section is in reverse order, the tilde will flag this:
+        if (str_starts_with($facetList, '~')) {
+            foreach ($config[substr($facetList, 1)] ?? [] as $value => $key) {
+                $this->addCheckboxFacet($key, $value);
+                $retVal = true;
+            }
+        } else {
+            foreach ($config[$facetList] ?? [] as $key => $value) {
+                $this->addCheckboxFacet($key, $value);
+                $retVal = true;
+            }
+        }
+        return $retVal;
+    }
+
+    /**
+     * Check whether a specific facet supports filtering
+     *
+     * @param string $facet The facet to check
+     *
+     * @return bool
+     */
+    public function supportsFacetFiltering($facet)
+    {
+        $translatedFacets = $this->getOptions()->getTranslatedFacets();
+        return method_exists($this, 'setFacetContains') && !in_array($facet, $translatedFacets);
+    }
+
+    /**
+     * Is this a specialized search (i.e. a customized scenario like new items,
+     * rather than a "normal" backend search)?
+     *
+     * @return bool
+     */
+    public function isSpecializedSearch(): bool
+    {
+        return $this->isSpecializedSearch;
+    }
+
+    /**
+     * Get HiddenSorting patterns matching the given sort
+     *
+     * @param ?string $sort Sort
+     *
+     * @return array Array of associative arrays with keys 'label' and 'pattern'
+     */
+    protected function getMatchingHiddenSortingPatterns(?string $sort): array
+    {
+        if (null === $sort) {
+            return [];
+        }
+        return array_values(
+            array_filter(
+                $this->getOptions()->getHiddenSortOptions(),
+                function ($option) use ($sort) {
+                    return preg_match('/' . $option['pattern'] . '/', $sort);
+                }
+            )
+        );
     }
 }

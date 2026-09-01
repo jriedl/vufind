@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SideFacets Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,32 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
-use Zend\Config\Config;
+
+use VuFind\Config\Config;
+
+use function in_array;
 
 /**
  * SideFacets Recommendations Module
  *
  * This class provides recommendations displaying facets beside search results
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
 abstract class AbstractFacets implements RecommendInterface
 {
@@ -63,24 +68,16 @@ abstract class AbstractFacets implements RecommendInterface
     protected $results;
 
     /**
-     * Configuration loader
-     *
-     * @var \VuFind\Config\PluginManager
-     */
-    protected $configLoader;
-
-    /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Configuration loader
+     * @param \VuFind\Config\ConfigManagerInterface $configManager Configuration manager
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
+    public function __construct(protected \VuFind\Config\ConfigManagerInterface $configManager)
     {
-        $this->configLoader = $configLoader;
     }
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *
@@ -136,7 +133,9 @@ abstract class AbstractFacets implements RecommendInterface
      *
      * @return void
      */
-    protected function loadBooleanConfigs(Config $config, $allFacets,
+    protected function loadBooleanConfigs(
+        Config $config,
+        $allFacets,
         $section = 'Results_Settings'
     ) {
         // Which facets are excludable?
@@ -147,7 +146,7 @@ abstract class AbstractFacets implements RecommendInterface
         }
 
         // Which facets are ORed?
-        if (isset($config->Results_Settings->orFacets)) {
+        if (isset($config->$section->orFacets)) {
             $this->orFacets = ($config->$section->orFacets === '*')
                 ? $allFacets
                 : array_map('trim', explode(',', $config->$section->orFacets));

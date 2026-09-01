@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind "Inject Template" Listener
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,60 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFindTheme;
 
+use function strlen;
+
 /**
- * VuFind "Inject Template" Listener -- this extends the core ZF2 class to adjust
+ * VuFind "Inject Template" Listener -- this extends the core MVC class to adjust
  * default template configurations to something more appropriate for VuFind.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Sebastian Kehr <kehr@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
-class InjectTemplateListener extends \Zend\Mvc\View\Http\InjectTemplateListener
+class InjectTemplateListener extends \Laminas\Mvc\View\Http\InjectTemplateListener
 {
+    /**
+     * List of prefixes for theme files
+     *
+     * @var array $prefixes
+     */
+    protected $prefixes;
+
+    /**
+     * InjectTemplateListener constructor.
+     *
+     * @param string[] $prefixes List of prefixes for theme files
+     */
+    public function __construct(array $prefixes)
+    {
+        $this->prefixes = $prefixes;
+    }
+
+    /**
+     * Get the prefixes recognized by the listener.
+     *
+     * @return string[]
+     */
+    public function getPrefixes(): array
+    {
+        return $this->prefixes;
+    }
+
     /**
      * Inflect a name to a normalized value
      *
@@ -48,23 +80,11 @@ class InjectTemplateListener extends \Zend\Mvc\View\Http\InjectTemplateListener
      */
     protected function inflectName($name)
     {
-        // We want case-insensitive routes, so just lowercase without worrying
-        // about converting camelCase:
+        foreach ($this->prefixes as $prefix) {
+            if (str_starts_with($name, $prefix)) {
+                return strtolower(substr($name, strlen($prefix)));
+            }
+        }
         return strtolower($name);
-    }
-
-    /**
-     * Determine the top-level namespace of the controller
-     *
-     * @param string $controller Controller name
-     *
-     * @return string
-     *
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
-     */
-    protected function deriveModuleNamespace($controller)
-    {
-        // Namespaces just make the theme system more confusing; ignore them:
-        return '';
     }
 }

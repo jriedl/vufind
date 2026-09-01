@@ -1,0 +1,14 @@
+<div class="flash-message alert alert-info" style="margin-top: 20px;">
+    <?=$this->transEsc('shortlink_redirect', ['%%delay%%' => $this->redirectDelay])?> <i class="fa fa-spinner fa-spin"></i>
+</div>
+<?php $this->headMeta()->prependHttpEquiv('refresh', $this->redirectDelay . '; URL=' . $this->redirectTarget); ?>
+<?php
+$jsSnippet = <<<EOD
+  setInterval(function() {
+    let field = document.getElementById("redirectDelay");
+    if (field.innerHTML > 0)
+      --field.innerHTML;
+  }, 1000);
+EOD;
+?>
+<?=$this->assetManager()->outputInlineScriptString($jsSnippet)?>

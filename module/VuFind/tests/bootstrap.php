@@ -1,51 +1,46 @@
 <?php
 
-// Set flag that we're in test mode
-define('VUFIND_PHPUNIT_RUNNING', 1);
+/**
+ * Bootstrap logic for PHPUnit
+ *
+ * PHP version 8
+ *
+ * Copyright (C) Villanova University 2023.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
+ *
+ * @category VuFind
+ * @package  Tests
+ * @author   Demian Katz <demian.katz@villanova.edu>
+ * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
+ */
 
-// Set path to this module
-define('VUFIND_PHPUNIT_MODULE_PATH', __DIR__);
-
-// Define path to application directory
-defined('APPLICATION_PATH') || define('APPLICATION_PATH', realpath(dirname(__DIR__) . '/../..'));
-
-// Define application environment
-defined('APPLICATION_ENV')
-    || define('APPLICATION_ENV', (getenv('VUFIND_ENV') ? getenv('VUFIND_ENV') : 'testing'));
-
-// Define path to local override directory
-defined('LOCAL_OVERRIDE_DIR')
-    || define('LOCAL_OVERRIDE_DIR', (getenv('VUFIND_LOCAL_DIR') ? getenv('VUFIND_LOCAL_DIR') : ''));
+require __DIR__ . '/bootstrap_constants.php';
+require __DIR__ . '/../../../config/constants.config.php';
 
 chdir(APPLICATION_PATH);
 
-// Ensure vendor/ is on include_path; some PEAR components may not load correctly
-// otherwise (i.e. File_MARC may cause a "Cannot redeclare class" error by pulling
-// from the shared PEAR directory instead of the local copy):
-$pathParts = [];
-$pathParts[] = APPLICATION_PATH . '/vendor';
-$pathParts[] = get_include_path();
-set_include_path(implode(PATH_SEPARATOR, $pathParts));
-
 // Composer autoloading
 if (file_exists('vendor/autoload.php')) {
-    $loader = include 'vendor/autoload.php';
-    $loader = new Composer\Autoload\ClassLoader();
-    $loader->add('VuFindTest', __DIR__ . '/unit-tests/src');
-    $loader->add('VuFindTest', __DIR__ . '/../src');
-    // Dynamically discover all module src directories:
-    $modules = opendir(__DIR__ . '/../..');
-    while ($mod = readdir($modules)) {
-        $mod = trim($mod, '.'); // ignore . and ..
-        $dir = empty($mod) ? false : realpath(__DIR__ . "/../../{$mod}/src");
-        if (!empty($dir) && is_dir($dir . '/' . $mod)) {
-            $loader->add($mod, $dir);
-        }
-    }
-    $loader->register();
+    include 'vendor/autoload.php';
 }
 
-define('PHPUNIT_SEARCH_FIXTURES', realpath(__DIR__ . '/../../VuFindSearch/tests/unit-tests/fixtures'));
-
-// Use output buffering -- some tests involve HTTP headers and will fail if there is output.
-ob_start();
+// Make sure local config dir exists:
+if (!defined('LOCAL_OVERRIDE_DIR')) {
+    throw new \Exception('LOCAL_OVERRIDE_DIR must be defined');
+}
+if (!file_exists(LOCAL_OVERRIDE_DIR)) {
+    mkdir(LOCAL_OVERRIDE_DIR, 0o777, true);
+}

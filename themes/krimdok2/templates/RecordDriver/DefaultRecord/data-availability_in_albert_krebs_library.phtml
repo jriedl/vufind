@@ -1,0 +1,11 @@
+<?php $availability = $this->driver->getAlbertKrebsLibraryAvailability(); ?>
+<?php if ($availability !== null): ?>
+  <?php if ($availability['signature'] !== null): ?>
+    <?=$this->escapeHtml($availability['signature'])?>
+  <?php endif; ?>
+ <?php if ($availability['holding'] !== []): ?>
+    <?php if ($availability['signature'] !== null): ?><br><?php endif; ?>
+    <?=join("<br>", array_map($this->escapeHTML, (is_array($availability['holding']) ?
+             $availability['holding'] : [$availability['holding']])))?>
+  <?php endif; ?>
+<?php endif; ?>

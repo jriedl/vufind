@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind SimpleXML enhancement functionality
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2009.
  *
@@ -16,26 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SimpleXML
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind;
+
 use SimpleXMLElement;
 
 /**
  * VuFind SimpleXML enhancement functionality
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SimpleXML
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class SimpleXML
 {
@@ -54,7 +57,7 @@ class SimpleXML
             ? $child->asXML() : $child;
 
         // strip off xml header
-        $mark = strpos($xml, '?' . '>');
+        $mark = strpos($xml, '?>');
         if ($mark > 0 && $mark < 40) {
             $xml = substr($xml, $mark + 2);
         }

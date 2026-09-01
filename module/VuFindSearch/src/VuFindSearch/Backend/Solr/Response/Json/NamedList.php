@@ -3,7 +3,7 @@
 /**
  * SOLR NamedList with parameter json.nl=arrarr.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,18 +17,24 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Solr\Response\Json;
 
-use Countable, Iterator;
+use Countable;
+use Iterator;
+
+use function count;
+use function in_array;
+use function is_array;
 
 /**
  * SOLR NamedList with parameter json.nl=arrarr.
@@ -36,11 +42,11 @@ use Countable, Iterator;
  * A NamedList arrarr represent a NamedList as an array of two element arrays
  * [[name1,val1], [name2, val2], [name3,val3]].
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  * @see      http://wiki.apache.org/solr/SolJSON
  */
 class NamedList implements Countable, Iterator
@@ -92,7 +98,7 @@ class NamedList implements Countable, Iterator
      *
      * @return int
      */
-    public function count()
+    public function count(): int
     {
         return count($this->list);
     }
@@ -104,7 +110,7 @@ class NamedList implements Countable, Iterator
      *
      * @return mixed
      */
-    public function current()
+    public function current(): mixed
     {
         return $this->valid() ? $this->current[1] : null;
     }
@@ -114,7 +120,7 @@ class NamedList implements Countable, Iterator
      *
      * @return string
      */
-    public function key()
+    public function key(): mixed
     {
         return $this->valid() ? $this->current[0] : null;
     }
@@ -124,7 +130,7 @@ class NamedList implements Countable, Iterator
      *
      * @return void
      */
-    public function next()
+    public function next(): void
     {
         $this->current = next($this->list);
     }
@@ -132,9 +138,9 @@ class NamedList implements Countable, Iterator
     /**
      * Return true if the iterator is at a valid position.
      *
-     * @return boolean
+     * @return bool
      */
-    public function valid()
+    public function valid(): bool
     {
         return is_array($this->current);
     }
@@ -144,19 +150,40 @@ class NamedList implements Countable, Iterator
      *
      * @return void
      */
-    public function rewind()
+    public function rewind(): void
     {
         reset($this->list);
         $this->current = current($this->list);
     }
 
     /**
-     * Remove element from list.
+     * Remove single element from list.
+     *
+     * @param string $key Key to remove
      *
      * @return void
      */
-    public function remove()
+    public function removeKey($key)
     {
-        unset($this->list[key($this->list)]);
+        $this->removeKeys([$key]);
+    }
+
+    /**
+     * Remove elements from list.
+     *
+     * @param array $keys Keys to remove
+     *
+     * @return void
+     */
+    public function removeKeys(array $keys)
+    {
+        $newList = [];
+        foreach ($this->list as $current) {
+            if (!in_array($current[0], $keys)) {
+                $newList[] = $current;
+            }
+        }
+        $this->list = $newList;
+        $this->rewind();
     }
 }

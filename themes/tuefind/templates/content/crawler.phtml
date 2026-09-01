@@ -1,0 +1,30 @@
+<h1>University Library Web Crawler</h1>
+
+<p>If you have found this page you may have encountered the user-agent string of our crawler application.</p>
+
+<p>The Tübingen University Library (Universitätsbibliothek Tübingen) maintains several search engines for bibliographic metadata, there being:
+    <ul>
+        <li>1. <a href="https://ixtheo.de" target="_blank">IxTheo</a> (search for theological articles, books etc.)</li>
+        <li>2. <a href="https://relbib.de" target="_blank">RelBib</a> (search for articles, books etc. relating to the study of religion)</li>
+        <li>3. <a href="https://krimdok.uni-tuebingen.de" target="_blank">KrimDok</a> (search for criminological articles, books etc.)</li>
+    </ul>
+</p>
+
+<p>Our crawler harvests metadata which we then use to create additional entries for one or more of these search engines. We try to narrow the crawls to highly relevant pages but may also access additional data.  We do not store or evaluate full text items even if we download them in certain cases.</p>
+
+<p>The following IP address ranges are associated with our crawler:
+<ul>
+    <li>ub28.uni-tuebingen.de (134.2.5.96) - Live environment (current issue/metadata)</li>
+    <li>benu.ub.uni-tuebingen.de (134.2.66.81) - Live environment (back issues/metadata)</li>
+    <li>nu.ub.uni-tuebingen.de (134.2.67.47) - Test environment</li>
+    <li>other machines (134.2.66.XX) - Development environment</li>
+    <li>wwwproxy.uni-tuebingen.de (134.2.6.134) - Generic Web Proxy (for multiple environments)</li>
+</ul>
+</p>
+
+<p>If you have any questions, please feel free to contact us:
+<ul>
+    <li><a href="mailto:<?=$this->systemEmail();?>">For organizational issues/questions</a></li>
+    <li><a href="mailto:<?=$this->tuefind()->getTeamEmail();?>">For purely technical issues/questions</a></li>
+</ul>
+</p>

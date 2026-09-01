@@ -1,8 +1,9 @@
 <?php
+
 /**
- * ZF2 module definition for the VuFind theme system.
+ * Module definition for the VuFind theme system.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -16,40 +17,60 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     https://github.com/dmj/vf2-proxy
+ * @link     https://vufind.org/wiki/development
  */
+
 namespace VuFindTheme;
 
+use Laminas\Mvc\View\Http\InjectTemplateListener as ParentInjectTemplateListener;
+use Laminas\ServiceManager\Factory\InvokableFactory;
+
 /**
- * ZF2 module definition for the VuFind theme system.
+ * Module definition for the VuFind theme system.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     https://github.com/dmj/vf2-proxy
+ * @link     https://vufind.org/wiki/development
  */
 class Module
 {
     /**
-     * Get autoloader configuration
+     * Return generic configuration
      *
-     * @return void
+     * @return array
      */
-    public function getAutoloaderConfig()
+    public function getConfig()
     {
         return [
-            'Zend\Loader\StandardAutoloader' => [
-                'namespaces' => [
-                    __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
-                ],
+            'vufind' => [
+                // VuFind's theme system overrides the default Laminas template
+                // loading behavior based on template name prefixes, which usually
+                // correspond to module names. By default, VuFind will apply the
+                // theme system to all loaded modules. If you need to apply theming
+                // to a controller whose namespace does not directly correspond to a
+                // loaded module, you will need to add it as a prefix in
+                // extra_theme_prefixes (e.g. 'MyNamespace/'). Conversely, if you
+                // are loading a Laminas module that includes templates and does not
+                // follow VuFind's theme conventions, you should add that module name
+                // as a prefix in excluded_theme_prefixes to allow the default
+                // behavior to take effect.
+                //
+                // By default, VuFind assumes that any modules loaded from the
+                // Laminas ecosystem use default Laminas template inflection, and
+                // all other modules follow VuFind conventions. If you need different
+                // behavior, just override the below settings in your local module's
+                // module.config.php configuration.
+                'excluded_theme_prefixes' => ['Laminas'],
+                'extra_theme_prefixes' => [],
             ],
         ];
     }
@@ -62,12 +83,18 @@ class Module
     public function getServiceConfig()
     {
         return [
-            'factories' => [
-                'VuFindTheme\ThemeInfo' => 'VuFindTheme\Module::getThemeInfo',
+            'aliases' => [
+                ParentInjectTemplateListener::class => InjectTemplateListener::class,
             ],
-            'invokables' => [
-                'VuFindTheme\Mobile' => 'VuFindTheme\Mobile',
-                'VuFindTheme\ResourceContainer' => 'VuFindTheme\ResourceContainer',
+            'factories' => [
+                AssetPipeline::class => AssetPipelineFactory::class,
+                InjectTemplateListener::class => InjectTemplateListenerFactory::class,
+                MixinGenerator::class => ThemeInfoInjectorFactory::class,
+                Mobile::class => InvokableFactory::class,
+                ResourceContainer::class => InvokableFactory::class,
+                ThemeCompiler::class => ThemeInfoInjectorFactory::class,
+                ThemeGenerator::class => ThemeGeneratorFactory::class,
+                ThemeInfo::class => ThemeInfoFactory::class,
             ],
         ];
     }
@@ -81,25 +108,23 @@ class Module
     {
         return [
             'factories' => [
-                'headlink' => 'VuFindTheme\View\Helper\Factory::getHeadLink',
-                'headscript' => 'VuFindTheme\View\Helper\Factory::getHeadScript',
-                'headthemeresources' =>
-                    'VuFindTheme\View\Helper\Factory::getHeadThemeResources',
-                'imagelink' => 'VuFindTheme\View\Helper\Factory::getImageLink',
-                'inlinescript' =>
-                    'VuFindTheme\View\Helper\Factory::getInlineScript',
-                'mobileurl' => 'VuFindTheme\View\Helper\Factory::getMobileUrl',
+                View\Helper\AssetManager::class => View\Helper\AssetManagerFactory::class,
+                View\Helper\ImageLink::class => View\Helper\ImageLinkFactory::class,
+                View\Helper\ParentTemplate::class => View\Helper\ParentTemplateFactory::class,
+                View\Helper\Slot::class => InvokableFactory::class,
+                View\Helper\TemplatePath::class => View\Helper\TemplatePathFactory::class,
+                View\Helper\SetupThemeResources::class => View\Helper\SetupThemeResourcesFactory::class,
+            ],
+            'aliases' => [
+                'assetManager' => View\Helper\AssetManager::class,
+                // Legacy alias for compatibility with pre-8.0 templates:
+                'headThemeResources' => View\Helper\SetupThemeResources::class,
+                'imageLink' => View\Helper\ImageLink::class,
+                'parentTemplate' => View\Helper\ParentTemplate::class,
+                'slot' => View\Helper\Slot::class,
+                'templatePath' => View\Helper\TemplatePath::class,
+                'setupThemeResources' => View\Helper\SetupThemeResources::class,
             ],
         ];
-    }
-
-    /**
-     * Factory function for ThemeInfo object.
-     *
-     * @return ThemeInfo
-     */
-    public static function getThemeInfo()
-    {
-        return new ThemeInfo(realpath(__DIR__ . '/../../themes'), 'bootprint3');
     }
 }

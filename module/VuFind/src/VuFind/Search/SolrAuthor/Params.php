@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Author aspect of the Search Multi-class (Params)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,47 +17,50 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\SolrAuthor;
 
 /**
  * Author Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Params extends \VuFind\Search\Solr\Params
 {
     /**
      * Support method for _initSearch() -- handle basic settings.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
-     * @return boolean True if search settings were found, false if not.
+     * @return bool True if search settings were found, false if not.
      */
     protected function initBasicSearch($request)
     {
         // If no lookfor parameter was found, we have no search terms to
         // add to our array!
-        if (is_null($lookfor = $request->get('author'))) {
+        if (null === ($lookfor = $request->get('author'))) {
             return false;
         }
 
-        // Force the search to be a phrase:
-        $lookfor = '"' . str_replace('"', '\"', $lookfor) . '"';
-        
+        // Force the search to be a phrase if it is not already:
+        if (!preg_match('/^".*"$/', $lookfor)) {
+            $lookfor = '"' . str_replace('"', '\"', $lookfor) . '"';
+        }
+
         // Set the search (handler is always Author for this module):
         $this->setBasicSearch($lookfor, 'Author');
         return true;

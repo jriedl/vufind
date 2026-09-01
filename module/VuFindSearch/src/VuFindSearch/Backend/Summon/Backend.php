@@ -3,7 +3,7 @@
 /**
  * Summon backend.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,41 +17,41 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Summon;
 
-use SerialsSolutions\Summon\Zend2 as Connector;
-use SerialsSolutions_Summon_Query as SummonQuery;
 use SerialsSolutions_Summon_Exception as SummonException;
-
-use VuFindSearch\Query\AbstractQuery;
-
-use VuFindSearch\ParamBag;
-
-use VuFindSearch\Feature\RetrieveBatchInterface;
-
-use VuFindSearch\Response\RecordCollectionInterface;
-use VuFindSearch\Response\RecordCollectionFactoryInterface;
-
+use SerialsSolutions_Summon_Query as SummonQuery;
+use VuFind\Exception\RecordMissing as RecordMissingException;
 use VuFindSearch\Backend\AbstractBackend;
 use VuFindSearch\Backend\Exception\BackendException;
+use VuFindSearch\Backend\Summon\GuzzleConnector as Connector;
+use VuFindSearch\Feature\RetrieveBatchInterface;
+use VuFindSearch\ParamBag;
+use VuFindSearch\Query\AbstractQuery;
+use VuFindSearch\Response\RecordCollectionFactoryInterface;
+use VuFindSearch\Response\RecordCollectionInterface;
+
+use function count;
+use function in_array;
 
 /**
  * Summon backend.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class Backend extends AbstractBackend implements RetrieveBatchInterface
 {
@@ -72,14 +72,14 @@ class Backend extends AbstractBackend implements RetrieveBatchInterface
     /**
      * Constructor.
      *
-     * @param Connector                        $connector Summon connector
-     * @param RecordCollectionFactoryInterface $factory   Record collection factory
-     * (null for default)
+     * @param Connector                         $connector Summon connector
+     * @param ?RecordCollectionFactoryInterface $factory   Record collection factory (null for default)
      *
      * @return void
      */
-    public function __construct(Connector $connector,
-        RecordCollectionFactoryInterface $factory = null
+    public function __construct(
+        Connector $connector,
+        ?RecordCollectionFactoryInterface $factory = null
     ) {
         if (null !== $factory) {
             $this->setRecordCollectionFactory($factory);
@@ -92,14 +92,17 @@ class Backend extends AbstractBackend implements RetrieveBatchInterface
      * Perform a search and return record collection.
      *
      * @param AbstractQuery $query  Search query
-     * @param integer       $offset Search offset
-     * @param integer       $limit  Search limit
-     * @param ParamBag      $params Search backend parameters
+     * @param int           $offset Search offset
+     * @param int           $limit  Search limit
+     * @param ?ParamBag     $params Search backend parameters
      *
      * @return RecordCollectionInterface
      */
-    public function search(AbstractQuery $query, $offset, $limit,
-        ParamBag $params = null
+    public function search(
+        AbstractQuery $query,
+        $offset,
+        $limit,
+        ?ParamBag $params = null
     ) {
         $baseParams = $this->getQueryBuilder()->build($query);
         if (null !== $params) {
@@ -127,21 +130,28 @@ class Backend extends AbstractBackend implements RetrieveBatchInterface
     /**
      * Retrieve a single document.
      *
-     * @param string   $id     Document identifier
-     * @param ParamBag $params Search backend parameters
+     * @param string    $id     Document identifier
+     * @param ?ParamBag $params Search backend parameters
      *
      * @return RecordCollectionInterface
+     * @throws RecordMissingException
      */
-    public function retrieve($id, ParamBag $params = null)
+    public function retrieve($id, ?ParamBag $params = null)
     {
+        $finalParams = $params ?: new ParamBag();
+        // We normally look up by ID, but we occasionally need to use bookmarks:
+        $idType = $finalParams->get('summonIdType')[0] ?? Connector::IDENTIFIER_ID;
         try {
-            $response   = $this->connector->getRecord($id);
+            $response = $this->connector->getRecord($id, false, $idType);
         } catch (SummonException $e) {
             throw new BackendException(
                 $e->getMessage(),
                 $e->getCode(),
                 $e
             );
+        }
+        if (empty($response['documents'])) {
+            throw new RecordMissingException('Record does not exist.');
         }
         $collection = $this->createRecordCollection($response);
         $this->injectSourceIdentifier($collection);
@@ -151,12 +161,12 @@ class Backend extends AbstractBackend implements RetrieveBatchInterface
     /**
      * Retrieve a batch of documents.
      *
-     * @param array    $ids    Array of document identifiers
-     * @param ParamBag $params Search backend parameters
+     * @param array     $ids    Array of document identifiers
+     * @param ?ParamBag $params Search backend parameters
      *
      * @return RecordCollectionInterface
      */
-    public function retrieveBatch($ids, ParamBag $params = null)
+    public function retrieveBatch($ids, ?ParamBag $params = null)
     {
         // Load 50 records at a time; this is the limit for Summon.
         $pageSize = 50;
@@ -170,12 +180,19 @@ class Backend extends AbstractBackend implements RetrieveBatchInterface
                 [
                     'idsToFetch' => $currentPage,
                     'pageNumber' => 1,
-                    'pageSize' => $pageSize
+                    'pageSize' => $pageSize,
                 ]
             );
-            $next = $this->createRecordCollection(
-                $this->connector->query($query)
-            );
+            try {
+                $batch = $this->connector->query($query);
+            } catch (SummonException $e) {
+                throw new BackendException(
+                    $e->getMessage(),
+                    $e->getCode(),
+                    $e
+                );
+            }
+            $next = $this->createRecordCollection($batch);
             if (!$results) {
                 $results = $next;
             } else {
@@ -266,7 +283,7 @@ class Backend extends AbstractBackend implements RetrieveBatchInterface
         $params = $params->getArrayCopy();
 
         // Extract the query:
-        $query = isset($params['query'][0]) ? $params['query'][0] : null;
+        $query = $params['query'][0] ?? null;
         unset($params['query']);
 
         // Convert the options:

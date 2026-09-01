@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Helper class to load .ini files from disk.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,26 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Translator
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\I18n\Translator\Loader;
-use Zend\I18n\Translator\TextDomain;
+
+use Laminas\I18n\Translator\TextDomain;
+
+use function is_array;
 
 /**
  * Helper class to load .ini files from disk.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Translator
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class ExtendedIniReader
 {
@@ -59,21 +64,33 @@ class ExtendedIniReader
             foreach ($contents as $current) {
                 // Split the string on the equals sign, keeping a max of two chunks:
                 $parts = explode('=', $current, 2);
-                $key = trim($parts[0]);
-                if ($key != "" && substr($key, 0, 1) != ';') {
-                    // Trim outermost double quotes off the value if present:
+                // Trim off outermost single quotes, if any, from keys (these are
+                // needed by Lokalise in some cases for keys with numeric values)
+                $key = preg_replace(
+                    '/^\'?(.*?)\'?$/',
+                    '$1',
+                    trim($parts[0])
+                );
+                if ($key !== '' && !str_starts_with($key, ';')) {
+                    // Trim outermost matching single or double quotes off the value if present:
                     if (isset($parts[1])) {
-                        $value = preg_replace(
-                            '/^\"?(.*?)\"?$/', '$1', trim($parts[1])
+                        $value = stripslashes(
+                            preg_replace(
+                                '/^(["\'])?(.*?)\1?$/',
+                                '$2',
+                                trim($parts[1])
+                            )
                         );
 
                         // Store the key/value pair (allow empty values -- sometimes
                         // we want to replace a language token with a blank string,
-                        // but Zend translator doesn't support them so replace with
-                        // a zero-width non-joiner):
+                        // but Laminas translator doesn't support them so replace
+                        // with a zero-width non-joiner):
                         if ($convertBlanks && $value === '') {
                             $value = html_entity_decode(
-                                '&#x200C;', ENT_NOQUOTES, 'UTF-8'
+                                '&#x200C;',
+                                ENT_NOQUOTES,
+                                'UTF-8'
                             );
                         }
                         $data[$key] = $value;

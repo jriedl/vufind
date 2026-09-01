@@ -1,8 +1,9 @@
 <?php
+
 /**
  * DisplayLanguageOption view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,59 +17,38 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\I18n\Translator\TranslatorInterface;
+
+use Laminas\Translator\TranslatorInterface;
 
 /**
  * DisplayLanguageOption view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class DisplayLanguageOption extends \Zend\View\Helper\AbstractHelper
+class DisplayLanguageOption extends \Laminas\View\Helper\AbstractHelper
 {
-    /**
-     * Translator (or null if unavailable)
-     *
-     * @var TranslatorInterface
-     */
-    protected $translator = null;
-
     /**
      * Constructor
      *
-     * @param TranslatorInterface $translator Main VuFind translator
+     * @param TranslatorInterface $translator Translator
      */
-    public function __construct(TranslatorInterface $translator)
+    public function __construct(protected TranslatorInterface $translator)
     {
-        $this->translator = $translator;
-        try {
-            $this->translator->addTranslationFile(
-                'ExtendedIni',
-                APPLICATION_PATH  . '/languages/native.ini',
-                'default', 'native'
-            );
-            $this->translator->setLocale('native');
-        } catch (\Zend\Mvc\Exception\BadMethodCallException $e) {
-            if (!extension_loaded('intl')) {
-                throw new \Exception(
-                    'Translation broken due to missing PHP intl extension.'
-                    . ' Please disable translation or install the extension.'
-                );
-            }
-        }
     }
 
     /**
@@ -80,6 +60,8 @@ class DisplayLanguageOption extends \Zend\View\Helper\AbstractHelper
      */
     public function __invoke($str)
     {
-        return $this->view->escapeHtml($this->translator->translate($str));
+        return $this->view->escapeHtml(
+            $this->translator->translate($str, 'default', 'native')
+        );
     }
 }

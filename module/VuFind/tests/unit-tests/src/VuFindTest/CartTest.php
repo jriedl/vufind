@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Cart Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,33 +17,38 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest;
+
+use PHPUnit\Framework\MockObject\MockObject;
 use VuFind\Cookie\CookieManager;
 
 /**
  * Cart Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class CartTest extends \PHPUnit_Framework_TestCase
+class CartTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\WithConsecutiveTrait;
+
     /**
      * Mock record loader
      *
-     * @param \VuFind\Record\Loader
+     * @var MockObject&\VuFind\Record\Loader
      */
     protected $loader;
 
@@ -51,34 +57,40 @@ class CartTest extends \PHPUnit_Framework_TestCase
      *
      * @return void
      */
-    public function setUp()
+    public function setUp(): void
     {
-        $this->loader = $this->getMock(
-            'VuFind\Record\Loader', [],
-            [
-                $this->getMock('VuFindSearch\Service'),
-                $this->getMock('VuFind\RecordDriver\PluginManager')
-            ]
-        );
+        $this->loader = $this->getMockBuilder(\VuFind\Record\Loader::class)
+            ->onlyMethods(['loadBatch'])
+            ->setConstructorArgs(
+                [
+                $this->createMock(\VuFindSearch\Service::class),
+                $this->createMock(\VuFind\RecordDriver\PluginManager::class),
+                ]
+            )->getMock();
     }
 
     /**
      * Build a mock cookie manager.
      *
-     * @param array  $cookies Current cookie values
-     * @param string $path    Cookie base path (default = /)
-     * @param string $domain  Cookie domain
-     * @param bool   $secure  Are cookies secure only? (default = false)
+     * @param array  $cookies  Current cookie values
+     * @param string $path     Cookie base path (default = /)
+     * @param string $domain   Cookie domain
+     * @param bool   $secure   Are cookies secure only? (default = false)
+     * @param bool   $httpOnly Are cookies HTTP only? (default = false)
      *
      * @return CookieManager
      */
-    protected function getMockCookieManager($cookies = [], $path = '/',
-        $domain = null, $secure = false
+    protected function getMockCookieManager(
+        $cookies = [],
+        $path = '/',
+        $domain = null,
+        $secure = false,
+        $httpOnly = false
     ) {
-        return $this->getMock(
-            'VuFind\Cookie\CookieManager', ['set'],
-            [$cookies, $path, $domain, $secure]
-        );
+        return $this->getMockBuilder(\VuFind\Cookie\CookieManager::class)
+            ->onlyMethods(['set'])
+            ->setConstructorArgs([$cookies, $path, $domain, $secure, $httpOnly])
+            ->getMock();
     }
 
     /**
@@ -97,18 +109,6 @@ class CartTest extends \PHPUnit_Framework_TestCase
             $cookies = $this->getMockCookieManager($cookies);
         }
         return new \VuFind\Cart($this->loader, $cookies, $maxSize, $active);
-    }
-
-    /**
-     * Test cookie domain setting.
-     *
-     * @return void
-     */
-    public function testCookieDomain()
-    {
-        $manager = $this->getMockCookieManager([], '/', '.example.com');
-        $cart = $this->getCart(100, true, $manager);
-        $this->assertEquals('.example.com', $cart->getCookieDomain());
     }
 
     /**
@@ -143,12 +143,13 @@ class CartTest extends \PHPUnit_Framework_TestCase
     {
         $cart = $this->getCart(2); // create a very small cart
         $this->assertFalse($cart->isFull());
-        $this->assertEquals(['success' => true], $cart->addItem('VuFind|a'));
+        $this->assertEquals(['success' => true], $cart->addItem('Solr|a'));
         $this->assertFalse($cart->isFull());
-        $this->assertEquals(['success' => true], $cart->addItem('VuFind|b'));
+        $this->assertEquals(['success' => true], $cart->addItem('Solr|b'));
         $this->assertTrue($cart->isFull());
         $this->assertEquals(
-            ['success' => false, 'notAdded' => 1], $cart->addItem('VuFind|c')
+            ['success' => false, 'notAdded' => 1],
+            $cart->addItem('Solr|c')
         );
     }
 
@@ -182,14 +183,9 @@ class CartTest extends \PHPUnit_Framework_TestCase
     public function testCookieWrite()
     {
         $manager = $this->getMockCookieManager();
-        $manager->expects($this->at(0))
-            ->method('set')
-            ->with($this->equalTo('vufind_cart'), $this->equalTo('Aa'));
-        $manager->expects($this->at(1))
-            ->method('set')
-            ->with($this->equalTo('vufind_cart_src'), $this->equalTo('VuFind'));
+        $this->expectConsecutiveCalls($manager, 'set', [['vufind_cart', 'Aa'], ['vufind_cart_src', 'Solr']]);
         $cart = $this->getCart(100, true, $manager);
-        $cart->addItem('VuFind|a');
+        $cart->addItem('Solr|a');
     }
 
     /**
@@ -200,9 +196,9 @@ class CartTest extends \PHPUnit_Framework_TestCase
     public function testContains()
     {
         $cart = $this->getCart();
-        $this->assertFalse($cart->contains('VuFind|a'));
-        $cart->addItem('VuFind|a');
-        $this->assertTrue($cart->contains('VuFind|a'));
+        $this->assertFalse($cart->contains('Solr|a'));
+        $cart->addItem('Solr|a');
+        $this->assertTrue($cart->contains('Solr|a'));
     }
 
     /**
@@ -213,7 +209,7 @@ class CartTest extends \PHPUnit_Framework_TestCase
     public function testCartCanBeEmptied()
     {
         $cart = $this->getCart();
-        $cart->addItem('VuFind|a');
+        $cart->addItem('Solr|a');
         $this->assertFalse($cart->isEmpty());
         $cart->emptyCart();
         $this->assertTrue($cart->isEmpty());
@@ -227,11 +223,11 @@ class CartTest extends \PHPUnit_Framework_TestCase
     public function testRemoveItems()
     {
         $cart = $this->getCart();
-        $cart->addItems(['VuFind|a', 'VuFind|b', 'VuFind|c']);
-        $cart->removeItems(['VuFind|a', 'VuFind|b']);
-        $this->assertTrue($cart->contains('VuFind|c'));
-        $this->assertFalse($cart->contains('VuFind|a'));
-        $this->assertFalse($cart->contains('VuFind|b'));
+        $cart->addItems(['Solr|a', 'Solr|b', 'Solr|c']);
+        $cart->removeItems(['Solr|a', 'Solr|b']);
+        $this->assertTrue($cart->contains('Solr|c'));
+        $this->assertFalse($cart->contains('Solr|a'));
+        $this->assertFalse($cart->contains('Solr|b'));
     }
 
     /**
@@ -243,10 +239,10 @@ class CartTest extends \PHPUnit_Framework_TestCase
     {
         $this->loader->expects($this->once())
             ->method('loadBatch')
-            ->with($this->equalTo(['VuFind|a']))
-            ->will($this->returnValue('success'));
+            ->with($this->equalTo(['Solr|a']))
+            ->willReturn('success');
         $cart = $this->getCart();
-        $cart->addItem('VuFind|a');
+        $cart->addItem('Solr|a');
         $this->assertEquals('success', $cart->getRecordDetails());
     }
 
@@ -258,10 +254,10 @@ class CartTest extends \PHPUnit_Framework_TestCase
     public function testVF1Cookie()
     {
         $cart = $this->getCart(100, true, ['vufind_cart' => "a\tb\tc"]);
-        $this->assertEquals(3, count($cart->getItems()));
-        $this->assertTrue($cart->contains('VuFind|a'));
-        $this->assertTrue($cart->contains('VuFind|b'));
-        $this->assertTrue($cart->contains('VuFind|c'));
+        $this->assertCount(3, $cart->getItems());
+        $this->assertTrue($cart->contains('Solr|a'));
+        $this->assertTrue($cart->contains('Solr|b'));
+        $this->assertTrue($cart->contains('Solr|c'));
     }
 
     /**
@@ -273,11 +269,11 @@ class CartTest extends \PHPUnit_Framework_TestCase
     {
         $cookies = [
             'vufind_cart' => "Aa\tBb\tCc",
-            'vufind_cart_src' => "VuFind\tSummon\tWorldCat"
+            'vufind_cart_src' => "Solr\tSummon\tWorldCat",
         ];
         $cart = $this->getCart(100, true, $cookies);
-        $this->assertEquals(3, count($cart->getItems()));
-        $this->assertTrue($cart->contains('VuFind|a'));
+        $this->assertCount(3, $cart->getItems());
+        $this->assertTrue($cart->contains('Solr|a'));
         $this->assertTrue($cart->contains('Summon|b'));
         $this->assertTrue($cart->contains('WorldCat|c'));
     }

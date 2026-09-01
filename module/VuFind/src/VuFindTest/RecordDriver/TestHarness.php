@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Test harness for simulating record drivers (ignore outside of test suite!)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,37 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\RecordDriver;
 
 /**
  * Test harness for simulating record drivers (ignore outside of test suite!)
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
 class TestHarness extends \VuFind\RecordDriver\AbstractBase
 {
+    /**
+     * Constructor
+     */
+    public function __construct()
+    {
+        $this->setSourceIdentifiers('Solr');
+    }
+
     /**
      * Magic method to set/retrieve fields.
      *
@@ -48,10 +58,10 @@ class TestHarness extends \VuFind\RecordDriver\AbstractBase
      */
     public function __call($method, $params)
     {
-        if (substr($method, 0, 3) == 'get') {
+        if (str_starts_with($method, 'get')) {
             $index = substr($method, 3);
-            return isset($this->fields[$index]) ? $this->fields[$index] : null;
-        } else if (substr($method, 0, 3) == 'set') {
+            return $this->fields[$index] ?? null;
+        } elseif (str_starts_with($method, 'set')) {
             $index = substr($method, 3);
             $this->fields[$index] = $params[0];
         }
@@ -77,5 +87,20 @@ class TestHarness extends \VuFind\RecordDriver\AbstractBase
     public function getUniqueID()
     {
         return $this->__call('getUniqueID', []);
+    }
+
+    /**
+     * Return the source backend identifier.
+     *
+     * @return string
+     */
+    public function getSourceIdentifier()
+    {
+        // For consistency with other methods, allow SourceIdentifier to be
+        // overridden via rawData (but also allow the "normal" method as a
+        // fallback):
+        return isset($this->fields['SourceIdentifier'])
+            ? $this->__call('getSourceIdentifier', [])
+            : parent::getSourceIdentifier();
     }
 }

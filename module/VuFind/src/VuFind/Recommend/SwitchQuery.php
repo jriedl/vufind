@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SwitchQuery Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,30 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
-use VuFind\Search\BackendManager;
+
+use VuFindSearch\Command\GetLuceneHelperCommand;
+use VuFindSearch\Service;
+
+use function in_array;
+use function strlen;
 
 /**
  * SwitchQuery Recommendations Module
  *
  * This class recommends adjusting your search query to yield better results.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
 class SwitchQuery implements RecommendInterface
 {
@@ -51,11 +58,11 @@ class SwitchQuery implements RecommendInterface
     protected $backend;
 
     /**
-     * Search backend plugin manager.
+     * Search service.
      *
-     * @var BackendManager
+     * @var Service
      */
-    protected $backendManager;
+    protected $searchService;
 
     /**
      * Improved query suggestions.
@@ -74,13 +81,11 @@ class SwitchQuery implements RecommendInterface
     protected $skipChecks = [];
 
     /**
-     * Names of transforms to apply. These should correspond
-     * with transform method names -- e.g. to apply the transform found in the
-     * transformTruncateChar() method, you would put 'truncatechar' into this array.
+     * List of 'opt-in' methods (others are 'opt-out' by default).
      *
      * @var array
      */
-    protected $transforms = [];
+    protected $optInMethods = ['fuzzy', 'truncatechar'];
 
     /**
      * Search results object.
@@ -92,11 +97,11 @@ class SwitchQuery implements RecommendInterface
     /**
      * Constructor
      *
-     * @param BackendManager $backendManager Search backend plugin manager
+     * @param Service $searchService Search backend plugin manager
      */
-    public function __construct(BackendManager $backendManager)
+    public function __construct(Service $searchService)
     {
-        $this->backendManager = $backendManager;
+        $this->searchService = $searchService;
     }
 
     /**
@@ -113,20 +118,26 @@ class SwitchQuery implements RecommendInterface
         $callback = function ($i) {
             return trim(strtolower($i));
         };
+        // Get a list of "opt out" preferences from the user...
         $this->skipChecks = !empty($params[1])
             ? array_map($callback, explode(',', $params[1])) : [];
-        $this->transforms = !empty($params[2])
+        $optIns = !empty($params[2])
             ? explode(',', $params[2]) : [];
+        $this->skipChecks = array_merge(
+            $this->skipChecks,
+            array_diff($this->optInMethods, $optIns)
+        );
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -136,7 +147,7 @@ class SwitchQuery implements RecommendInterface
     }
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *
@@ -164,26 +175,11 @@ class SwitchQuery implements RecommendInterface
         // Perform all checks (based on naming convention):
         $methods = get_class_methods($this);
         foreach ($methods as $method) {
-            if (substr($method, 0, 5) == 'check') {
+            if (str_starts_with($method, 'check')) {
                 $currentCheck = strtolower(substr($method, 5));
                 if (!in_array($currentCheck, $this->skipChecks)) {
-                    $result = $this->$method($query);
-                    if ($result) {
+                    if ($result = $this->$method($query)) {
                         $this->suggestions['switchquery_' . $currentCheck] = $result;
-                    }
-                }
-            }
-        }
-
-        // Perform all transforms (based on naming convention):
-        $methods = get_class_methods($this);
-        foreach ($methods as $method) {
-            if (substr($method, 0, 9) == 'transform') {
-                $currTrans = strtolower(substr($method, 9));
-                if (in_array($currTrans, $this->transforms)) {
-                    $result = $this->$method($query);
-                    if ($result) {
-                        $this->suggestions['switchquery_' . $currTrans] = $result;
                     }
                 }
             }
@@ -202,10 +198,28 @@ class SwitchQuery implements RecommendInterface
         // If this is an ID list query, it was probably generated by New Items,
         // Course Reserves, etc., and thus should not be further manipulated by
         // the user.
-        if (substr($query, 0, 3) == 'id:') {
-            return true;
+        return str_starts_with($query, 'id:');
+    }
+
+    /**
+     * Will a fuzzy search help?
+     *
+     * @param string $query Query to check
+     *
+     * @return string|bool
+     */
+    protected function checkFuzzy($query)
+    {
+        // Don't stack tildes:
+        if (str_contains($query, '~')) {
+            return false;
         }
-        return false;
+        $query = trim($query, ' ?*');
+        // Fuzzy search only works for single keywords, not phrases:
+        if (str_ends_with($query, '"')) {
+            return false;
+        }
+        return str_ends_with($query, '~') ? false : $query . '~';
     }
 
     /**
@@ -218,7 +232,7 @@ class SwitchQuery implements RecommendInterface
     protected function checkLowercaseBools($query)
     {
         // This test only applies if booleans are case-sensitive and there is a
-        // capitalizaton method available:
+        // capitalization method available:
         $lh = $this->getLuceneHelper();
         if (!$lh || !$lh->hasCaseSensitiveBooleans()) {
             return false;
@@ -258,7 +272,7 @@ class SwitchQuery implements RecommendInterface
     {
         // Remove escaped quotes as they are of no consequence:
         $query = str_replace('\"', ' ', $query);
-        return (strpos($query, '"') === false)
+        return (!str_contains($query, '"'))
             ? false : trim(str_replace('"', ' ', $query));
     }
 
@@ -271,12 +285,12 @@ class SwitchQuery implements RecommendInterface
      */
     protected function checkWildcard($query)
     {
+        $query = trim($query, ' ?~');
         // Don't pile wildcards on phrases:
-        if (substr($query, -1) == '"') {
+        if (str_ends_with($query, '"')) {
             return false;
         }
-        $query = trim($query, ' ?');
-        return (substr($query, -1) != '*') ? $query . '*' : false;
+        return !str_ends_with($query, '*') ? $query . '*' : false;
     }
 
     /**
@@ -286,10 +300,10 @@ class SwitchQuery implements RecommendInterface
      *
      * @return string|bool
      */
-    protected function transformTruncatechar($query)
+    protected function checkTruncatechar($query)
     {
         // Don't truncate phrases:
-        if (substr($query, -1) == '"') {
+        if (str_ends_with($query, '"')) {
             return false;
         }
         $query = trim($query);
@@ -303,11 +317,8 @@ class SwitchQuery implements RecommendInterface
      */
     protected function getLuceneHelper()
     {
-        $backend = $this->backendManager->get($this->backend);
-        $qb = is_callable([$backend, 'getQueryBuilder'])
-            ? $backend->getQueryBuilder() : false;
-        return $qb && is_callable([$qb, 'getLuceneHelper'])
-            ? $qb->getLuceneHelper() : false;
+        $command = new GetLuceneHelperCommand($this->backend);
+        return $this->searchService->invoke($command)->getResult();
     }
 
     /**

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ServerParam permission provider for VuFind.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,33 +17,39 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authorization
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Jochen Lienhard <lienhard@ub.uni-freiburg.de>
  * @author   Bernd Oberknapp <bo@ub.uni-freiburg.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Role\PermissionProvider;
-use Zend\Http\PhpEnvironment\Request;
+
+use Laminas\Http\PhpEnvironment\Request;
+
+use function count;
+use function in_array;
 
 /**
  * ServerParam permission provider for VuFind.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authorization
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Jochen Lienhard <lienhard@ub.uni-freiburg.de>
  * @author   Bernd Oberknapp <bo@ub.uni-freiburg.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class ServerParam implements PermissionProviderInterface,
-    \Zend\Log\LoggerAwareInterface
+class ServerParam implements
+    PermissionProviderInterface,
+    \Psr\Log\LoggerAwareInterface
 {
     use \VuFind\Log\LoggerAwareTrait;
 
@@ -98,12 +105,12 @@ class ServerParam implements PermissionProviderInterface,
         foreach ((array)$options as $option) {
             $this->debug("getPermissions: option '{$option}'");
             if (!$this->checkServerParam($option)) {
-                $this->debug("getPermissions: result = false");
+                $this->debug('getPermissions: result = false');
                 return [];
             }
-            $this->debug("getPermissions: result = true");
+            $this->debug('getPermissions: result = true');
         }
-        return ['loggedin'];
+        return ['guest', 'loggedin'];
     }
 
     /**
@@ -111,7 +118,7 @@ class ServerParam implements PermissionProviderInterface,
      *
      * @param string $option Option
      *
-     * @return boolean true if a server param matches, false if not
+     * @return bool true if a server param matches, false if not
      */
     protected function checkServerParam($option)
     {
@@ -149,7 +156,9 @@ class ServerParam implements PermissionProviderInterface,
             return false;
         }
         $serverParams = $this->splitString(
-            $serverParamString, $this->serverParamDelimiter, $this->serverParamEscape
+            $serverParamString,
+            $this->serverParamDelimiter,
+            $this->serverParamEscape
         );
 
         $result = false;
@@ -186,18 +195,15 @@ class ServerParam implements PermissionProviderInterface,
             return [$string];
         }
 
-        if ($delimiter === ' ') {
-            $pattern = ' +';
-        } else {
-            $pattern = preg_quote($delimiter, '/');
-        }
+        $pattern = $delimiter === ' ' ? ' +' : preg_quote($delimiter, '/');
 
         if ($escape === '') {
             $pattern = '(?<!' . preg_quote($escape, '/') . ')' . $pattern;
         }
 
         return str_replace(
-            $escape . $delimiter, $delimiter,
+            $escape . $delimiter,
+            $delimiter,
             preg_split('/' . $pattern . '/', $string)
         );
     }

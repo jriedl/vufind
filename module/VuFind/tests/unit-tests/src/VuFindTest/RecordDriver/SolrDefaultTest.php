@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SolrDefault Record Driver Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,32 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Preetha Rao <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\RecordDriver;
+
 use VuFind\RecordDriver\SolrDefault;
 
 /**
  * SolrDefault Record Driver Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   David Maus <maus@hab.de>
  * @author   Preetha Rao <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class SolrDefaultTest extends \VuFindTest\Unit\TestCase
+class SolrDefaultTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+
     /**
      * Test an OpenURL for a book.
      *
@@ -50,7 +55,22 @@ class SolrDefaultTest extends \VuFindTest\Unit\TestCase
     public function testBookOpenURL()
     {
         $driver = $this->getDriver();
-        $this->assertEquals('url_ver=Z39.88-2004&ctx_ver=Z39.88-2004&ctx_enc=info%3Aofi%2Fenc%3AUTF-8&rfr_id=info%3Asid%2Fvufind.svn.sourceforge.net%3Agenerator&rft.title=La+congiura+dei+Principi+Napoletani+1701+%3A+%28prima+e+seconda+stesura%29+%2F&rft.date=1992&rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&rft.genre=book&rft.btitle=La+congiura+dei+Principi+Napoletani+1701+%3A+%28prima+e+seconda+stesura%29+%2F&rft.series=Vico%2C+Giambattista%2C+1668-1744.+Works.+1982+%3B&rft.au=Vico%2C+Giambattista%2C+1668-1744.&rft.pub=Centro+di+Studi+Vichiani%2C&rft.edition=Fictional+edition.&rft.isbn=8820737493', $driver->getOpenURL());
+        $this->assertEquals(
+            $this->getFixture('openurl/book'),
+            $driver->getOpenUrl()
+        );
+    }
+
+    /**
+     * Test a snippet caption.
+     *
+     * @return void
+     */
+    public function testGetSnippetCaption()
+    {
+        $config = ['Snippet_Captions' => ['foo' => 'bar']];
+        $driver = $this->getDriver([], $config);
+        $this->assertEquals('bar', $driver->getSnippetCaption('foo'));
     }
 
     /**
@@ -68,7 +88,10 @@ class SolrDefaultTest extends \VuFindTest\Unit\TestCase
             'container_start_page' => '12',
         ];
         $driver = $this->getDriver($overrides);
-        $this->assertEquals('url_ver=Z39.88-2004&ctx_ver=Z39.88-2004&ctx_enc=info%3Aofi%2Fenc%3AUTF-8&rfr_id=info%3Asid%2Fvufind.svn.sourceforge.net%3Agenerator&rft.date=1992&rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&rft.genre=article&rft.issn=&rft.isbn=8820737493&rft.volume=XVII&rft.issue=6&rft.spage=12&rft.jtitle=Fake+Container&rft.atitle=La+congiura+dei+Principi+Napoletani+1701+%3A+%28prima+e+seconda+stesura%29+%2F&rft.au=Vico%2C+Giambattista%2C+1668-1744.&rft.format=Article&rft.language=Italian', $driver->getOpenURL());
+        $this->assertEquals(
+            $this->getFixture('openurl/article'),
+            $driver->getOpenUrl()
+        );
     }
 
     /**
@@ -83,11 +106,14 @@ class SolrDefaultTest extends \VuFindTest\Unit\TestCase
             'issn' => ['1234-5678'],
         ];
         $driver = $this->getDriver($overrides);
-        $this->assertEquals('url_ver=Z39.88-2004&ctx_ver=Z39.88-2004&ctx_enc=info%3Aofi%2Fenc%3AUTF-8&rfr_id=info%3Asid%2Fvufind.svn.sourceforge.net%3Agenerator&rft.title=La+congiura+dei+Principi+Napoletani+1701+%3A+%28prima+e+seconda+stesura%29+%2F&rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Adc&rft.creator=Vico%2C+Giambattista%2C+1668-1744.&rft.pub=Centro+di+Studi+Vichiani%2C&rft.format=Journal&rft.language=Italian&rft.issn=1234-5678', $driver->getOpenURL());
+        $this->assertEquals(
+            $this->getFixture('openurl/journal'),
+            $driver->getOpenUrl()
+        );
     }
 
     /**
-     * Test an OpenURL for an unknown material type.
+     * Test an OpenURL for an unknown material type with no ISBN or ISSN
      *
      * @return void
      */
@@ -95,30 +121,219 @@ class SolrDefaultTest extends \VuFindTest\Unit\TestCase
     {
         $overrides = [
             'format' => ['Thingie'],
+            'isbn' => [],
         ];
         $driver = $this->getDriver($overrides);
-        $this->assertEquals('url_ver=Z39.88-2004&ctx_ver=Z39.88-2004&ctx_enc=info%3Aofi%2Fenc%3AUTF-8&rfr_id=info%3Asid%2Fvufind.svn.sourceforge.net%3Agenerator&rft.title=La+congiura+dei+Principi+Napoletani+1701+%3A+%28prima+e+seconda+stesura%29+%2F&rft.date=1992&rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Adc&rft.creator=Vico%2C+Giambattista%2C+1668-1744.&rft.pub=Centro+di+Studi+Vichiani%2C&rft.format=Thingie&rft.language=Italian', $driver->getOpenURL());
+        $this->assertEquals(
+            $this->getFixture('openurl/unknown'),
+            $driver->getOpenUrl()
+        );
+    }
+
+    /**
+     * Test an OpenURL for an unknown material type with only ISBNs
+     *
+     * @return void
+     */
+    public function testUnknownTypeOnlyISBNsOpenURL()
+    {
+        $overrides = [
+            'format' => ['Thingie'],
+        ];
+        $driver = $this->getDriver($overrides);
+        $this->assertEquals(
+            $this->getFixture('openurl/unknown-isbn'),
+            $driver->getOpenUrl()
+        );
+    }
+
+    /**
+     * Test an OpenURL for an unknown material type with both ISBN and ISSN
+     *
+     * @return void
+     */
+    public function testUnknownTypeBothISBNsandISSNsOpenURL()
+    {
+        $overrides = [
+            'format' => ['Thingie'],
+            'issn' => ['1234-5678'],
+        ];
+        $driver = $this->getDriver($overrides);
+        $this->assertEquals(
+            $this->getFixture('openurl/unknown-isbn-issn'),
+            $driver->getOpenUrl()
+        );
+    }
+
+    /**
+     * Test Dublin Core conversion.
+     *
+     * @return void
+     */
+    public function testDublinCore()
+    {
+        $expected = $this->getFixture('oai/dc.xml');
+        $xml = $this->getDriver()->getXML('oai_dc');
+        $this->assertEquals($expected, $xml);
+    }
+
+    /**
+     * Test getContainerRecordID for a record.
+     *
+     * @return void
+     */
+    public function testGetContainerRecordID()
+    {
+        $this->assertEquals('', $this->getDriver()->getContainerRecordID());
+    }
+
+    /**
+     * Test getChildRecordCount for a record.
+     *
+     * @return void
+     */
+    public function testGetChildRecordCount()
+    {
+        $this->assertEquals(0, $this->getDriver()->getChildRecordCount());
+    }
+
+    /**
+     * Test getHighlightedTitle for a record.
+     *
+     * @return void
+     */
+    public function testGetHighlightedTitle()
+    {
+        $this->assertEquals('', $this->getDriver()->getHighlightedTitle());
+    }
+
+    /**
+     * Test getHighlightedSnippet for an empty record.
+     *
+     * @return void
+     */
+    public function testEmptyGetHighlightedSnippet()
+    {
+        $this->assertEquals(false, $this->getDriver()->getHighlightedSnippet());
+    }
+
+    /**
+     * Test getHighlightedSnippet for a record when empty snippet data is given.
+     *
+     * @return void
+     */
+    public function testGetHighlightedSnippetAllEmpty()
+    {
+        $overrides = [
+            'General' => ['snippets' => true],
+        ];
+        $driver = $this->getDriver([], $overrides);
+        $details = ['topic' => ['']];
+        $driver->setHighlightDetails($details);
+        $this->assertEquals(false, $driver->getHighlightedSnippet());
+    }
+
+    /**
+     * Test getHighlightedSnippet for a record when the first snippet is empty.
+     *
+     * @return void
+     */
+    public function testGetHighlightedSnippetFirstEmpty()
+    {
+        $overrides = [
+            'General' => ['snippets' => true],
+        ];
+        $driver = $this->getDriver([], $overrides);
+        // Note that the first topic result is empty, it should return the first non-empty one
+        $details = ['topic' => ['', 'Testing {{{{START_HILITE}}}}Snippets{{{{END_HILITE}}}} highlighting']];
+        $driver->setHighlightDetails($details);
+        $this->assertEquals(
+            ['snippet' => 'Testing {{{{START_HILITE}}}}Snippets{{{{END_HILITE}}}} highlighting', 'caption' => false],
+            $driver->getHighlightedSnippet()
+        );
+    }
+
+    /**
+     * Test getHighlightedSnippet for a record when multiple preferred snippet fields exist.
+     *
+     * @return void
+     */
+    public function testGetHighlightedSnippetInPreferredFieldOrder()
+    {
+        $overrides = [
+            'General' => ['snippets' => true],
+        ];
+        $driver = $this->getDriver([], $overrides);
+        $details = [
+            'topic' => ['', 'Testing topic {{{{START_HILITE}}}}snippet{{{{END_HILITE}}}}'],
+            'contents' => ['Testing content {{{{START_HILITE}}}}snippet{{{{END_HILITE}}}}'],
+        ];
+        $driver->setHighlightDetails($details);
+        // Should return the snippet from contents since that is the first item in preferredSnippetFields
+        $this->assertEquals(
+            ['snippet' => 'Testing content {{{{START_HILITE}}}}snippet{{{{END_HILITE}}}}', 'caption' => false],
+            $driver->getHighlightedSnippet()
+        );
+    }
+
+    /**
+     * Test getHighlightedSnippet for a record when no preferred snippet fields exist.
+     *
+     * @return void
+     */
+    public function testGetHighlightedSnippetNonForbiddenField()
+    {
+        $overrides = [
+            'General' => ['snippets' => true],
+        ];
+        $driver = $this->getDriver([], $overrides);
+        $details = [
+            'author' => ['', 'Testing author {{{{START_HILITE}}}}snippet{{{{END_HILITE}}}}'],
+            'toast' => ['Testing toast {{{{START_HILITE}}}}snippet{{{{END_HILITE}}}}'],
+        ];
+        $driver->setHighlightDetails($details);
+        // Should ignore the 'author' snippet since that is forbidden, and return 'toast' instead
+        $this->assertEquals(
+            ['snippet' => 'Testing toast {{{{START_HILITE}}}}snippet{{{{END_HILITE}}}}', 'caption' => false],
+            $driver->getHighlightedSnippet()
+        );
+    }
+
+    /**
+     * Test HighlightDetails for a record.
+     *
+     * @return void
+     */
+    public function testHighlightDetails()
+    {
+        $details = ['author' => 'test'];
+        $driver = $this->getDriver();
+        $driver->setHighlightDetails($details);
+        $this->assertEquals($details, $driver->getHighlightDetails());
+    }
+
+    /**
+     * Test getRawAuthorHighlights for a record.
+     *
+     * @return void
+     */
+    public function testGetRawAuthorHighlights()
+    {
+        $this->assertEquals([], $this->getDriver()->getRawAuthorHighlights());
     }
 
     /**
      * Get a record driver with fake data.
      *
-     * @param array $overrides Fixture fields to override.
+     * @param array $overrides    Fixture fields to override.
+     * @param array $searchConfig Search configuration.
      *
      * @return SolrDefault
      */
-    protected function getDriver($overrides = [])
+    protected function getDriver($overrides = [], $searchConfig = [])
     {
-        $fixture = json_decode(
-            file_get_contents(
-                realpath(
-                    VUFIND_PHPUNIT_MODULE_PATH . '/fixtures/misc/testbug2.json'
-                )
-            ),
-            true
-        );
-
-        $record = new SolrDefault();
+        $fixture = $this->getJsonFixture('misc/testbug2.json');
+        $record = new SolrDefault(null, null, new \VuFind\Config\Config($searchConfig));
         $record->setRawData($overrides + $fixture['response']['docs'][0]);
         return $record;
     }

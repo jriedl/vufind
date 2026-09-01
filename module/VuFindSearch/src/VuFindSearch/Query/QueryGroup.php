@@ -3,7 +3,7 @@
 /**
  * A group of single/simples queries, joined by boolean operator.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,27 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Query;
 
 use VuFindSearch\Exception\InvalidArgumentException;
 
+use function in_array;
+
 /**
  * A group of single/simples queries, joined by boolean operator.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class QueryGroup extends AbstractQuery
 {
@@ -51,7 +54,7 @@ class QueryGroup extends AbstractQuery
     /**
      * Name of the handler to be used if the query group is reduced.
      *
-     * @see VuFindSearch\Backend\Solr\QueryBuilder::reduceQueryGroup()
+     * @see \VuFindSearch\Backend\Solr\QueryBuilder::reduceQueryGroup()
      *
      * @var string
      *
@@ -69,7 +72,7 @@ class QueryGroup extends AbstractQuery
     /**
      * Is the query group negated?
      *
-     * @var boolean
+     * @var bool
      */
     protected $negation;
 
@@ -89,7 +92,9 @@ class QueryGroup extends AbstractQuery
      *
      * @return void
      */
-    public function __construct($operator, array $queries = [],
+    public function __construct(
+        $operator,
+        array $queries = [],
         $reducedHandler = null
     ) {
         $this->setOperator($operator);
@@ -106,7 +111,7 @@ class QueryGroup extends AbstractQuery
     {
         $new = [];
         foreach ($this->queries as $q) {
-            $new[] = clone($q);
+            $new[] = clone $q;
         }
         $this->queries = $new;
     }
@@ -146,7 +151,7 @@ class QueryGroup extends AbstractQuery
     /**
      * Add a query to the group.
      *
-     * @param \VuFind\Search\AbstractQuery $query Query to add
+     * @param AbstractQuery $query Query to add
      *
      * @return void
      */
@@ -229,7 +234,7 @@ class QueryGroup extends AbstractQuery
     /**
      * Return true if group is an exclusion group.
      *
-     * @return boolean
+     * @return bool
      */
     public function isNegated()
     {
@@ -237,16 +242,19 @@ class QueryGroup extends AbstractQuery
     }
 
     /**
-     * Does the query contain the specified term?
+     * Does the query contain the specified term? An optional normalizer can be
+     * provided to allow for fuzzier matching.
      *
-     * @param string $needle Term to check
+     * @param string   $needle     Term to check
+     * @param callable $normalizer Function to normalize text strings (null for
+     * no normalization)
      *
      * @return bool
      */
-    public function containsTerm($needle)
+    public function containsTerm($needle, $normalizer = null)
     {
         foreach ($this->getQueries() as $q) {
-            if ($q->containsTerm($needle)) {
+            if ($q->containsTerm($needle, $normalizer)) {
                 return true;
             }
         }
@@ -270,15 +278,17 @@ class QueryGroup extends AbstractQuery
     /**
      * Replace a term.
      *
-     * @param string $from Search term to find
-     * @param string $to   Search term to insert
+     * @param string   $from       Search term to find
+     * @param string   $to         Search term to insert
+     * @param callable $normalizer Function to normalize text strings (null for
+     * no normalization)
      *
      * @return void
      */
-    public function replaceTerm($from, $to)
+    public function replaceTerm($from, $to, $normalizer = null)
     {
         foreach ($this->getQueries() as $q) {
-            $q->replaceTerm($from, $to);
+            $q->replaceTerm($from, $to, $normalizer);
         }
     }
 }

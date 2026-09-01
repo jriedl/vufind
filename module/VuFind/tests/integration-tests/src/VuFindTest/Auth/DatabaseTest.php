@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Database authentication test class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,29 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTest\Auth;
+
 use VuFind\Auth\Database;
 
 /**
  * Database authentication test class.
  *
- * @category VuFind2
+ * Class must be final due to use of "new static()" by LiveDatabaseTrait.
+ *
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class DatabaseTest extends \VuFindTest\Unit\DbTestCase
+final class DatabaseTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\LiveDatabaseTrait;
+    use \VuFindTest\Feature\LiveDetectionTrait;
+
     /**
      * Object to test
      *
@@ -51,21 +59,9 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public static function setUpBeforeClass()
+    public static function setUpBeforeClass(): void
     {
-        // If CI is not running, all tests were skipped, so no work is necessary:
-        $test = new DatabaseTest();
-        if (!$test->continuousIntegrationRunning()) {
-            return;
-        }
-        // Fail if there are already users in the database (we don't want to run this
-        // on a real system -- it's only meant for the continuous integration server)
-        $userTable = $test->getTable('User');
-        if (count($userTable->select()) > 0) {
-            return self::markTestSkipped(
-                'Test cannot run with pre-existing user data!'
-            );
-        }
+        static::failIfDataExists();
     }
 
     /**
@@ -73,13 +69,25 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function setUp()
+    public function setUp(): void
     {
         // Give up if we're not running in CI:
         if (!$this->continuousIntegrationRunning()) {
-            return $this->markTestSkipped('Continuous integration not running.');
+            $this->markTestSkipped('Continuous integration not running.');
+            return;
         }
-        $this->auth = $this->getAuthManager()->get('Database');
+        $this->auth = new Database();
+        $this->auth->setDbServiceManager($this->getLiveDbServiceManager());
+    }
+
+    /**
+     * Standard teardown method.
+     *
+     * @return void
+     */
+    public function tearDown(): void
+    {
+        $this->tearDownLiveDatabaseContainer();
     }
 
     /**
@@ -98,12 +106,12 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      *
      * @param array $post Associative array of POST parameters.
      *
-     * @return \Zend\Http\Request
+     * @return \Laminas\Http\Request
      */
     protected function getRequest($post)
     {
-        $request = new \Zend\Http\Request();
-        $request->setPost(new \Zend\Stdlib\Parameters($post));
+        $request = new \Laminas\Http\Request();
+        $request->setPost(new \Laminas\Stdlib\Parameters($post));
         return $request;
     }
 
@@ -113,14 +121,14 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      *
      * @param array $overrides Associative array of parameters to override.
      *
-     * @return \Zend\Http\Request
+     * @return \Laminas\Http\Request
      */
     protected function getAccountCreationRequest($overrides = [])
     {
         $post = $overrides + [
             'username' => 'testuser', 'email' => 'user@test.com',
             'password' => 'testpass', 'password2' => 'testpass',
-            'firstname' => 'Test', 'lastname' => 'User'
+            'firstname' => 'Test', 'lastname' => 'User',
         ];
         return $this->getRequest($post);
     }
@@ -131,12 +139,12 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      *
      * @param array $overrides Associative array of parameters to override.
      *
-     * @return \Zend\Http\Request
+     * @return \Laminas\Http\Request
      */
     protected function getLoginRequest($overrides = [])
     {
         $post = $overrides + [
-            'username' => 'testuser', 'password' => 'testpass'
+            'username' => 'testuser', 'password' => 'testpass',
         ];
         return $this->getRequest($post);
     }
@@ -148,7 +156,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testCreationWithBlankUsername()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getAccountCreationRequest(['username' => '']);
         $this->auth->create($request);
     }
@@ -160,7 +169,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testCreationWithBlankPassword()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getAccountCreationRequest(['password' => '']);
         $this->auth->create($request);
     }
@@ -172,7 +182,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testCreationWithPasswordMismatch()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getAccountCreationRequest(['password2' => '']);
         $this->auth->create($request);
     }
@@ -184,20 +195,27 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testCreationWithInvalidEmail()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getAccountCreationRequest(['email' => 'garbage']);
         $this->auth->create($request);
     }
 
     /**
-     * Test password mismatch.
+     * Test successful account creation.
      *
      * @return void
      */
     public function testSuccessfulCreation()
     {
         $request = $this->getAccountCreationRequest();
-        $this->auth->create($request);
+        $newUser = $this->auth->create($request)->toArray();
+        foreach ($request->getPost() as $key => $value) {
+            // Skip the password confirmation value!
+            if ($key !== 'password2') {
+                $this->assertEquals($value, $newUser[$key]);
+            }
+        }
     }
 
     /**
@@ -207,7 +225,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testCreationWithDuplicateUsername()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getAccountCreationRequest(['email' => 'user2@test.com']);
         $this->auth->create($request);
     }
@@ -219,7 +238,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testCreationWithDuplicateEmail()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getAccountCreationRequest(['username' => 'testuser2']);
         $this->auth->create($request);
     }
@@ -231,7 +251,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testLoginWithBlankUsername()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['username' => '']);
         $this->auth->authenticate($request);
     }
@@ -243,7 +264,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testLoginWithBlankPassword()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['password' => '']);
         $this->auth->authenticate($request);
     }
@@ -255,7 +277,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testLoginWithUnrecognizedUsername()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['username' => 'unknown']);
         $this->auth->authenticate($request);
     }
@@ -267,7 +290,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      */
     public function testLoginWithBadPassword()
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['password' => "' OR 1=1 LIMIT 1"]);
         $this->auth->authenticate($request);
     }
@@ -280,8 +304,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
     public function testLogin()
     {
         $user = $this->auth->authenticate($this->getLoginRequest());
-        $this->assertEquals('testuser', $user->username);
-        $this->assertEquals('user@test.com', $user->email);
+        $this->assertEquals('testuser', $user->getUsername());
+        $this->assertEquals('user@test.com', $user->getEmail());
     }
 
     /**
@@ -289,21 +313,8 @@ class DatabaseTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public static function tearDownAfterClass()
+    public static function tearDownAfterClass(): void
     {
-        // If CI is not running, all tests were skipped, so no work is necessary:
-        $test = new DatabaseTest();
-        if (!$test->continuousIntegrationRunning()) {
-            return;
-        }
-
-        // Delete test user
-        $test = new DatabaseTest();
-        $userTable = $test->getTable('User');
-        $user = $userTable->getByUsername('testuser', false);
-        if (empty($user)) {
-            throw new \Exception('Problem deleting expected user.');
-        }
-        $user->delete();
+        static::removeUsers('testuser');
     }
 }

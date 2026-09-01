@@ -1,8 +1,9 @@
 <?php
+
 /**
  * MultiAuth Authentication plugin
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,18 +17,27 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Anna Headley <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:authentication_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:authentication_handlers Wiki
  */
+
 namespace VuFind\Auth;
-use VuFind\Db\Row\User, VuFind\Exception\Auth as AuthException;
-use Zend\Http\PhpEnvironment\Request;
+
+use Laminas\Http\PhpEnvironment\Request;
+use VuFind\Db\Entity\UserEntityInterface;
+use VuFind\Exception\Auth as AuthException;
+
+use function call_user_func_array;
+use function func_get_args;
+use function in_array;
+use function is_callable;
+use function strlen;
 
 /**
  * ChoiceAuth Authentication plugin
@@ -37,11 +47,11 @@ use Zend\Http\PhpEnvironment\Request;
  *
  * See config.ini for more details
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Anna Headley <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:authentication_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:authentication_handlers Wiki
  */
 class ChoiceAuth extends AbstractBase
 {
@@ -69,23 +79,25 @@ class ChoiceAuth extends AbstractBase
     /**
      * Session container
      *
-     * @var \Zend\Session\Container
+     * @var \Laminas\Session\Container
      */
     protected $session;
 
     /**
      * Constructor
+     *
+     * @param \Laminas\Session\Container $container Session container for retaining
+     * user choices.
      */
-    public function __construct()
+    public function __construct(\Laminas\Session\Container $container)
     {
         // Set up session container and load cached strategy (if found):
-        $this->session = new \Zend\Session\Container('ChoiceAuth');
-        $this->strategy = isset($this->session->auth_method)
-            ? $this->session->auth_method : false;
+        $this->session = $container;
+        $this->strategy = $this->session->auth_method ?? false;
     }
 
     /**
-     * Validate configuration parameters.  This is a support method for getConfig(),
+     * Validate configuration parameters. This is a support method for getConfig(),
      * so the configuration MUST be accessed using $this->config; do not call
      * $this->getConfig() from within this method!
      *
@@ -94,12 +106,13 @@ class ChoiceAuth extends AbstractBase
      */
     protected function validateConfig()
     {
-        if (!isset($this->config->ChoiceAuth->choice_order)
+        if (
+            !isset($this->config->ChoiceAuth->choice_order)
             || !strlen($this->config->ChoiceAuth->choice_order)
         ) {
             throw new AuthException(
-                "One or more ChoiceAuth parameters are missing. " .
-                "Check your config.ini!"
+                'One or more ChoiceAuth parameters are missing. ' .
+                'Check your config.ini!'
             );
         }
     }
@@ -107,7 +120,7 @@ class ChoiceAuth extends AbstractBase
     /**
      * Set configuration; throw an exception if it is invalid.
      *
-     * @param \Zend\Config\Config $config Configuration to set
+     * @param \VuFind\Config\Config $config Configuration to set
      *
      * @throws AuthException
      * @return void
@@ -116,23 +129,54 @@ class ChoiceAuth extends AbstractBase
     {
         parent::setConfig($config);
         $this->strategies = array_map(
-            'trim', explode(',', $this->getConfig()->ChoiceAuth->choice_order)
+            'trim',
+            explode(',', $this->getConfig()->ChoiceAuth->choice_order)
         );
     }
 
     /**
-     * Attempt to authenticate the current user.  Throws exception if login fails.
+     * Inspect the user's request prior to processing a login request; this is
+     * essentially an event hook which most auth modules can ignore. See
+     * ChoiceAuth for a use case example.
+     *
+     * @param Request $request Request object.
+     *
+     * @throws AuthException
+     * @return void
+     */
+    public function preLoginCheck($request)
+    {
+        $this->setStrategyFromRequest($request);
+    }
+
+    /**
+     * Reset any internal status; this is essentially an event hook which most auth
+     * modules can ignore. See ChoiceAuth for a use case example.
+     *
+     * @return void
+     */
+    public function clearLoginState()
+    {
+        // clear user's login choice, if necessary:
+        if (isset($this->session->auth_method)) {
+            unset($this->session->auth_method);
+        }
+        $this->strategy = false;
+    }
+
+    /**
+     * Attempt to authenticate the current user. Throws exception if login fails.
      *
      * @param Request $request Request object containing account credentials.
      *
      * @throws AuthException
-     * @return User Object representing logged-in user.
+     * @return UserEntityInterface Object representing logged-in user.
      */
     public function authenticate($request)
     {
         try {
             return $this->proxyUserLoad($request, 'authenticate', func_get_args());
-        } catch (AuthException $e) {
+        } catch (\Exception $e) {
             // If an exception was thrown during login, we need to clear the
             // stored strategy to ensure that we display the full ChoiceAuth
             // form rather than the form for only the method that the user
@@ -148,7 +192,7 @@ class ChoiceAuth extends AbstractBase
      * @param Request $request Request object containing new account details.
      *
      * @throws AuthException
-     * @return User New user row.
+     * @return UserEntityInterface New user entity.
      */
     public function create($request)
     {
@@ -203,46 +247,41 @@ class ChoiceAuth extends AbstractBase
     }
 
     /**
-     * Perform cleanup at logout time.
+     * Get URL users should be redirected to for logout in external services if necessary.
      *
-     * @param string $url URL to redirect user to after logging out.
+     * @param string $url Internal URL to redirect user to after logging out.
      *
-     * @throws InvalidArgumentException
-     * @return string     Redirect URL (usually same as $url, but modified in
-     * some authentication modules).
+     * @return string Redirect URL (usually same as $url, but modified in some authentication modules).
      */
-    public function logout($url)
+    public function getLogoutRedirectUrl(string $url): string
     {
-        // clear user's login choice, if necessary:
-        if (isset($this->session->auth_method)) {
-            unset($this->session->auth_method);
-        }
-
         // If we have a selected strategy, proxy the appropriate class; otherwise,
         // perform default behavior of returning unmodified URL:
-        try {
-            return $this->strategy
-                ? $this->proxyAuthMethod('logout', func_get_args()) : $url;
-        } catch (InvalidArgumentException $e) {
-            // If we're in an invalid state (due to an illegal login method),
-            // we should just clear everything out so the user can try again.
-            $this->strategy = false;
-            return false;
-        }
+        return $this->strategy ? $this->proxyAuthMethod('getLogoutRedirectUrl', func_get_args()) : $url;
+    }
+
+    /**
+     * Check if session initiator is used.
+     *
+     * @return bool
+     */
+    public function hasSessionInitiator(): bool
+    {
+        return $this->proxyAuthMethod('hasSessionInitiator', func_get_args());
     }
 
     /**
      * Get the URL to establish a session (needed when the internal VuFind login
-     * form is inadequate).  Returns false when no session initiator is needed.
+     * form is inadequate). Returns false when no session initiator is needed.
      *
      * @param string $target Full URL where external authentication strategy should
      * send user after login (some drivers may override this).
      *
-     * @return bool|string
+     * @return ?string
      */
-    public function getSessionInitiator($target)
+    public function getSessionInitiator(string $target): ?string
     {
-        return $this->proxyAuthMethod('getSessionInitiator', func_get_args());
+        return $this->proxyAuthMethod('getSessionInitiator', func_get_args()) ?: null;
     }
 
     /**
@@ -258,21 +297,35 @@ class ChoiceAuth extends AbstractBase
     /**
      * Does this authentication method support password recovery
      *
+     * @param ?string $target Authentication target for methods that support target selection
+     *
      * @return bool
      */
-    public function supportsPasswordRecovery()
+    public function supportsPasswordRecovery(?string $target = null)
     {
         return $this->proxyAuthMethod('supportsPasswordRecovery', func_get_args());
     }
 
     /**
-     * Password policy for a new password (e.g. minLength, maxLength)
+     * Username policy for a new account (e.g. minLength, maxLength)
      *
      * @return array
      */
-    public function getPasswordPolicy()
+    public function getUsernamePolicy()
     {
-        return $this->proxyAuthMethod('getPasswordPolicy', func_get_args());
+        return $this->proxyAuthMethod('getUsernamePolicy', func_get_args()) ?: [];
+    }
+
+    /**
+     * Password policy for a new password (e.g. minLength, maxLength)
+     *
+     * @param ?string $target Authentication target for methods that support target selection
+     *
+     * @return array
+     */
+    public function getPasswordPolicy(?string $target = null): array
+    {
+        return $this->proxyAuthMethod('getPasswordPolicy', func_get_args()) ?: [];
     }
 
     /**
@@ -281,7 +334,7 @@ class ChoiceAuth extends AbstractBase
      * @param Request $request Request object containing password change details.
      *
      * @throws AuthException
-     * @return User New user row.
+     * @return UserEntityInterface Updated user entity.
      */
     public function updatePassword($request)
     {
@@ -290,6 +343,34 @@ class ChoiceAuth extends AbstractBase
         // strategy yet -- thus we should check for it.
         $this->setStrategyFromRequest($request);
         return $this->proxyAuthMethod('updatePassword', func_get_args());
+    }
+
+    /**
+     * Returns any authentication method this request should be delegated to.
+     *
+     * @param Request $request Request object.
+     *
+     * @return string|bool
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
+    public function getDelegateAuthMethod(Request $request)
+    {
+        return $this->proxyAuthMethod('getDelegateAuthMethod', func_get_args());
+    }
+
+    /**
+     * Is the configured strategy on the list of legal options?
+     *
+     * @return bool
+     */
+    protected function hasLegalStrategy()
+    {
+        // Do a case-insensitive search of the strategy list:
+        return in_array(
+            strtolower($this->strategy),
+            array_map('strtolower', $this->strategies)
+        );
     }
 
     /**
@@ -309,7 +390,7 @@ class ChoiceAuth extends AbstractBase
             return false;
         }
 
-        if (!in_array($this->strategy, $this->strategies)) {
+        if (!$this->hasLegalStrategy()) {
             throw new InvalidArgumentException("Illegal setting: {$this->strategy}");
         }
         $authenticator = $this->getPluginManager()->get($this->strategy);
@@ -322,7 +403,7 @@ class ChoiceAuth extends AbstractBase
 
     /**
      * Proxy auth method that checks the request for an active method and then
-     * loads a User object from the database (e.g. authenticate or create).
+     * loads a UserEntityInterface object from the database (e.g. authenticate or create).
      *
      * @param Request $request Request object to check.
      * @param string  $method  the method to proxy
@@ -354,11 +435,11 @@ class ChoiceAuth extends AbstractBase
     {
         // Set new strategy; fall back to old one if there is a problem:
         $defaultStrategy = $this->strategy;
-        $this->strategy = trim($request->getPost()->get('auth_method'));
-        if (empty($this->strategy)) {
-            $this->strategy = trim($request->getQuery()->get('auth_method'));
+        $this->strategy = trim($request->getPost()->get('auth_method', ''));
+        if (!$this->strategy) {
+            $this->strategy = trim($request->getQuery()->get('auth_method', ''));
         }
-        if (empty($this->strategy)) {
+        if (!$this->strategy || !in_array($this->strategy, $this->strategies)) {
             $this->strategy = $defaultStrategy;
             if (empty($this->strategy)) {
                 throw new AuthException('authentication_error_technical');
@@ -367,12 +448,24 @@ class ChoiceAuth extends AbstractBase
     }
 
     /**
+     * Set the active strategy
+     *
+     * @param string $strategy New strategy
+     *
+     * @return void
+     */
+    public function setStrategy($strategy)
+    {
+        $this->strategy = $strategy;
+        $this->session->auth_method = $strategy;
+    }
+
+    /**
      * Validate the credentials in the provided request, but do not change the state
      * of the current logged-in user. Return true for valid credentials, false
      * otherwise.
      *
-     * @param \Zend\Http\PhpEnvironment\Request $request Request object containing
-     * account credentials.
+     * @param Request $request Request object containing account credentials.
      *
      * @throws AuthException
      * @return bool
@@ -387,6 +480,23 @@ class ChoiceAuth extends AbstractBase
         } catch (AuthException $e) {
             return false;
         }
-        return isset($user) && $user instanceof User;
+        return isset($user) && $user instanceof UserEntityInterface;
+    }
+
+    /**
+     * Whether this authentication method needs CSRF checking for the request.
+     *
+     * @param Request $request Request object.
+     *
+     * @return bool
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
+    public function needsCsrfCheck($request)
+    {
+        if (!$this->strategy) {
+            return true;
+        }
+        return $this->proxyAuthMethod('needsCsrfCheck', func_get_args());
     }
 }

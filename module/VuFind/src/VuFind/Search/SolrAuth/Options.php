@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Solr Authority aspect of the Search Multi-class (Options)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,38 +17,52 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuth
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\SolrAuth;
+
+use VuFind\Config\ConfigManagerInterface;
 
 /**
  * Solr Authority Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuth
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Options extends \VuFind\Search\Solr\Options
 {
     /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Config loader
+     * @param ConfigManagerInterface $configManager Config manager
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
+    public function __construct(ConfigManagerInterface $configManager)
     {
         $this->facetsIni = $this->searchIni = 'authority';
-        parent::__construct($configLoader);
+        parent::__construct($configManager);
         $this->spellcheck = false;
+    }
+
+    /**
+     * Return the route name for the facet list action. Returns false to cover
+     * unimplemented support.
+     *
+     * @return string|bool
+     */
+    public function getFacetListAction()
+    {
+        return 'authority-facetlist';
     }
 
     /**

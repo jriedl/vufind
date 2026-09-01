@@ -3,9 +3,9 @@
 /**
  * Unit tests for Socialstats controller.
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2014.
+ * Copyright (C) Villanova University 2014-2024.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -17,52 +17,90 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Controller;
+
+use VuFind\Db\Service\CommentsServiceInterface;
+use VuFind\Db\Service\RatingsServiceInterface;
+use VuFind\Db\Service\UserResourceServiceInterface;
+use VuFind\Tags\TagsService;
 
 /**
  * Unit tests for Socialstats controller.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class SocialstatsControllerTest extends \VuFindTest\Unit\TestCase
+class SocialstatsControllerTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test language mappings.
      *
      * @return void
      */
-    public function testHome()
+    public function testHome(): void
     {
-        // Create mocks to simulate database lookups:
-        $c = $this->getMock('VuFindAdmin\Controller\SocialstatsController', ['getTable']);
-        $comments = $this->getMock('VuFind\Db\Table\Comments', ['getStatistics']);
-        $comments->expects($this->once())->method('getStatistics')->will($this->returnValue('comments-data'));
-        $c->expects($this->at(0))->method('getTable')->with($this->equalTo('comments'))->will($this->returnValue($comments));
-        $userresource = $this->getMock('VuFind\Db\Table\UserResource', ['getStatistics']);
-        $userresource->expects($this->once())->method('getStatistics')->will($this->returnValue('userresource-data'));
-        $c->expects($this->at(1))->method('getTable')->with($this->equalTo('userresource'))->will($this->returnValue($userresource));
-        $resourcetags = $this->getMock('VuFind\Db\Table\ResourceTags', ['getStatistics']);
-        $resourcetags->expects($this->once())->method('getStatistics')->will($this->returnValue('resourcetags-data'));
-        $c->expects($this->at(2))->method('getTable')->with($this->equalTo('resourcetags'))->will($this->returnValue($resourcetags));
+        // Create mock containers for fetching database-related services:
+        $container = new \VuFindTest\Container\MockContainer($this);
+        $dbServices = new \VuFindTest\Container\MockContainer($this);
+        $container->set(\VuFind\Db\Service\PluginManager::class, $dbServices);
+
+        $mockCommentsStats = ['users' => 5, 'resources' => 7, 'total' => 23];
+        $commentsService = $this->createMock(CommentsServiceInterface::class);
+        $commentsService->expects($this->once())->method('getStatistics')
+            ->willReturn($mockCommentsStats);
+        $dbServices->set(CommentsServiceInterface::class, $commentsService);
+
+        $userResourceStats = ['users' => 5,
+            'lists' => 4,
+            'resources' => 7,
+            'total' => 23,
+        ];
+        $userResourceService = $this->createMock(UserResourceServiceInterface::class);
+        $userResourceService->expects($this->once())->method('getStatistics')
+            ->willReturn($userResourceStats);
+        $dbServices->set(UserResourceServiceInterface::class, $userResourceService);
+
+        $mockRatingsStats = ['users' => 1, 'resources' => 2, 'total' => 3];
+        $ratingsService = $this->createMock(RatingsServiceInterface::class);
+        $ratingsService->expects($this->any())->method('getStatistics')
+            ->willReturn($mockRatingsStats);
+        $dbServices->set(RatingsServiceInterface::class, $ratingsService);
+
+        $mockTagStats = ['users' => 31, 'resources' => 32, 'total' => 33];
+        $tagService = $this->createMock(TagsService::class);
+        $tagService->expects($this->once())->method('getStatistics')
+            ->willReturn($mockTagStats);
+        $container->set(TagsService::class, $tagService);
+        $viewRenderer = $this->getMockBuilder(\Laminas\View\Renderer\PhpRenderer::class)
+            ->onlyMethods(['getEngine', 'setResolver', 'render', 'plugin'])->getMock();
+        $viewRenderer->expects($this->once())->method('plugin')->withAnyParameters()
+            ->willReturn(function (/*$input*/) {
+                return 'url';
+            });
+        $container->set('ViewRenderer', $viewRenderer);
+
+        // Build the controller to test:
+        $c = new \VuFindAdmin\Controller\SocialstatsController($container);
 
         // Confirm properly-constructed view object:
         $view = $c->homeAction();
         $this->assertEquals('admin/socialstats/home', $view->getTemplate());
-        $this->assertEquals('comments-data', $view->comments);
-        $this->assertEquals('userresource-data', $view->favorites);
-        $this->assertEquals('resourcetags-data', $view->tags);
+        $this->assertEquals($mockCommentsStats, $view->comments);
+        $this->assertEquals($userResourceStats, $view->favorites);
+        $this->assertEquals($mockTagStats, $view->tags);
+        $this->assertEquals($mockRatingsStats, $view->ratings);
     }
 }

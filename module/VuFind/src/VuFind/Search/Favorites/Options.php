@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Favorites aspect of the Search Multi-class (Options)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,42 +17,62 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Favorites
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\Favorites;
+
+use VuFind\Config\ConfigManagerInterface;
 
 /**
  * Search Favorites Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Favorites
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Options extends \VuFind\Search\Base\Options
 {
+    use \VuFind\Config\Feature\ExplodeSettingTrait;
+
     /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Config loader
+     * @param ConfigManagerInterface $configManager Config manager
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
+    public function __construct(ConfigManagerInterface $configManager)
     {
-        parent::__construct($configLoader);
+        parent::__construct($configManager);
 
         $this->defaultSort = 'title';
         $this->sortOptions = [
             'title' => 'sort_title', 'author' => 'sort_author',
-            'year DESC' => 'sort_year', 'year' => 'sort_year asc'
+            'year DESC' => 'sort_year', 'year' => 'sort_year_asc',
+            'last_saved DESC' => 'sort_saved', 'last_saved' => 'sort_saved_asc',
         ];
+
+        if (null !== ($limit = $this->mainConfig['Social']['lists_default_limit'] ?? null)) {
+            $this->defaultLimit = $limit;
+        }
+        if (null !== ($limitOptions = $this->mainConfig['Social']['lists_limit_options'] ?? null)) {
+            $this->limitOptions = $this->explodeListSetting($limitOptions);
+        }
+        if (null !== ($view = $this->mainConfig['Social']['lists_view'] ?? null)) {
+            $this->listviewOption = $view;
+        }
+        if ($sortOptions = $this->mainConfig['List_Sorting'] ?? null) {
+            $this->sortOptions = (array)$sortOptions;
+            $this->defaultSort = array_keys($this->sortOptions)[0];
+        }
     }
 
     /**
@@ -65,7 +86,7 @@ class Options extends \VuFind\Search\Base\Options
     }
 
     /**
-     * Load all recommendation settings from the relevant ini file.  Returns an
+     * Load all recommendation settings from the relevant ini file. Returns an
      * associative array where the key is the location of the recommendations (top
      * or side) and the value is the settings found in the file (which may be either
      * a single string or an array of strings).

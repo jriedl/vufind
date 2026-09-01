@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Primo Central Search Options
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,35 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Primo
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\Primo;
+
+use VuFind\Config\ConfigManagerInterface;
 
 /**
  * Primo Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Primo
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Options extends \VuFind\Search\Base\Options
 {
-    /**
-     * Maximum number of results
-     *
-     * @var int
-     */
-    protected $resultLimit = 3980;
-
     /**
      * Advanced search operators
      *
@@ -55,101 +52,22 @@ class Options extends \VuFind\Search\Base\Options
     /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Config loader
+     * @param ConfigManagerInterface $configManager Config manager
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
+    public function __construct(ConfigManagerInterface $configManager)
     {
-        parent::__construct($configLoader);
         $this->searchIni = $this->facetsIni = 'Primo';
-        // Load facet preferences:
-        $facetSettings = $configLoader->get($this->facetsIni);
-        if (isset($facetSettings->Advanced_Facet_Settings->translated_facets)
-            && count($facetSettings->Advanced_Facet_Settings->translated_facets) > 0
-        ) {
-            $list = $facetSettings->Advanced_Facet_Settings->translated_facets;
-            foreach ($list as $c) {
-                $this->translatedFacets[] = $c;
-            }
-        }
-        if (isset($facetSettings->Advanced_Facet_Settings->special_facets)) {
-            $this->specialAdvancedFacets
-                = $facetSettings->Advanced_Facet_Settings->special_facets;
-        }
+        $this->advancedFacetSettingsSection = 'Advanced_Facet_Settings';
 
-        // Load the search configuration file:
-        $searchSettings = $configLoader->get($this->searchIni);
+        // Override the default result limit with a value that we can support also with blending enabled in Primo:
+        $this->defaultResultLimit = 3980;
 
-        // Set up limit preferences
-        if (isset($searchSettings->General->default_limit)) {
-            $this->defaultLimit = $searchSettings->General->default_limit;
-        }
-        if (isset($searchSettings->General->limit_options)) {
-            $this->limitOptions
-                = explode(",", $searchSettings->General->limit_options);
-        }
+        parent::__construct($configManager);
 
-        // Load search preferences:
-        if (isset($searchSettings->General->retain_filters_by_default)) {
-            $this->retainFiltersByDefault
-                = $searchSettings->General->retain_filters_by_default;
-        }
-        if (isset($searchSettings->General->default_filters)) {
-            $this->defaultFilters = $searchSettings->General->default_filters
-                ->toArray();
-        }
+        $this->highlight = !empty($this->searchSettings->General->highlighting);
 
-        // Result limit:
-        if (isset($searchSettings->General->result_limit)) {
-            $this->resultLimit = $searchSettings->General->result_limit;
-        }
-
-        // Search handler setup:
-        if (isset($searchSettings->Basic_Searches)) {
-            foreach ($searchSettings->Basic_Searches as $key => $value) {
-                $this->basicHandlers[$key] = $value;
-            }
-        }
-        if (isset($searchSettings->Advanced_Searches)) {
-            foreach ($searchSettings->Advanced_Searches as $key => $value) {
-                $this->advancedHandlers[$key] = $value;
-            }
-        }
-
-        // Advanced operator setup:
-        if (isset($searchSettings->Advanced_Operators)) {
-            foreach ($searchSettings->Advanced_Operators as $key => $value) {
-                $this->advancedOperators[$key] = $value;
-            }
-        }
-
-        // Load sort preferences:
-        if (isset($searchSettings->Sorting)) {
-            foreach ($searchSettings->Sorting as $key => $value) {
-                $this->sortOptions[$key] = $value;
-            }
-        }
-        if (isset($searchSettings->General->default_sort)) {
-            $this->defaultSort = $searchSettings->General->default_sort;
-        }
-        if (isset($searchSettings->DefaultSortingByType)
-            && count($searchSettings->DefaultSortingByType) > 0
-        ) {
-            foreach ($searchSettings->DefaultSortingByType as $key => $val) {
-                $this->defaultSortByHandler[$key] = $val;
-            }
-        }
-    }
-
-    /**
-     * If there is a limit to how many search results a user can access, this
-     * method will return that limit.  If there is no limit, this will return
-     * -1.
-     *
-     * @return int
-     */
-    public function getVisibleSearchResultLimit()
-    {
-        return intval($this->resultLimit);
+        // Advanced operators:
+        $this->advancedOperators = $this->searchSettings['Advanced_Operators'] ?? [];
     }
 
     /**
@@ -171,6 +89,28 @@ class Options extends \VuFind\Search\Base\Options
     public function getAdvancedSearchAction()
     {
         return 'primo-advanced';
+    }
+
+    /**
+     * Return the route name for the "cites" search action. Returns false to cover
+     * unimplemented support.
+     *
+     * @return string|bool
+     */
+    public function getCitesAction()
+    {
+        return 'primo-cites';
+    }
+
+    /**
+     * Return the route name for the "cited by" search action. Returns false to cover
+     * unimplemented support.
+     *
+     * @return string|bool
+     */
+    public function getCitedByAction()
+    {
+        return 'primo-citedby';
     }
 
     /**

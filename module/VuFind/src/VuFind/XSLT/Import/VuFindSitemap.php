@@ -1,8 +1,9 @@
 <?php
+
 /**
  * XSLT importer support methods for sitemaps.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (c) Demian Katz 2010.
  *
@@ -16,27 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Import_Tools
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/importing_records Wiki
+ * @link     https://vufind.org/wiki/indexing Wiki
  */
+
 namespace VuFind\XSLT\Import;
+
+use function chr;
+use function is_array;
 
 /**
  * XSLT support class -- all methods of this class must be public and static;
  * they will be automatically made available to your XSL stylesheet for use
  * with the php:function() function.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Import_Tools
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/importing_records Wiki
+ * @link     https://vufind.org/wiki/indexing Wiki
  */
 class VuFindSitemap extends VuFind
 {
@@ -63,26 +68,27 @@ class VuFindSitemap extends VuFind
         @unlink($xmlFile);
         preg_match('/<plainTextContent[^>]*>([^<]*)</ms', $xml, $matches);
         $final = isset($matches[1]) ?
-            html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8') : '';
+            trim(html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8')) : '';
 
         // Extract the title from the XML:
         preg_match('/<title[^>]*>([^<]*)</ms', $xml, $matches);
         $title = isset($matches[1]) ?
-            html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8') : '';
+            trim(html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8')) : '';
 
         // Extract the keywords from the XML:
         preg_match_all('/<keyword[^>]*>([^<]*)</ms', $xml, $matches);
         $keywords = [];
         if (isset($matches[1])) {
             foreach ($matches[1] as $current) {
-                $keywords[] = html_entity_decode($current, ENT_QUOTES, 'UTF-8');
+                $keywords[]
+                    = trim(html_entity_decode($current, ENT_QUOTES, 'UTF-8'));
             }
         }
 
         // Extract the description from the XML:
         preg_match('/<description[^>]*>([^<]*)</ms', $xml, $matches);
         $description = isset($matches[1])
-            ? html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8') : '';
+            ? trim(html_entity_decode($matches[1], ENT_QUOTES, 'UTF-8')) : '';
 
         // Send back the extracted fields:
         return [
@@ -112,7 +118,9 @@ class VuFindSitemap extends VuFind
 
         // Extract the keywords from the XML:
         preg_match_all(
-            '/<meta name="keywords" content="([^"]*)"/ms', $xml, $matches
+            '/<meta name="keywords" content="([^"]*)"/ms',
+            $xml,
+            $matches
         );
         $keywords = [];
         if (isset($matches[1])) {
@@ -149,7 +157,9 @@ class VuFindSitemap extends VuFind
     {
         // Extract the subjects from the HTML:
         preg_match_all(
-            '/<meta name="subject" content="([^"]*)"/ms', $html, $matches
+            '/<meta name="subject" content="([^"]*)"/ms',
+            $html,
+            $matches
         );
         $subjects = [];
         if (isset($matches[1])) {
@@ -160,7 +170,9 @@ class VuFindSitemap extends VuFind
 
         // Extract the link types from the HTML:
         preg_match_all(
-            '/<meta name="category" content="([^"]*)"/ms', $html, $matches
+            '/<meta name="category" content="([^"]*)"/ms',
+            $html,
+            $matches
         );
         $categories = [];
         if (isset($matches[1])) {
@@ -171,9 +183,11 @@ class VuFindSitemap extends VuFind
 
         // Extract the use count from the HTML:
         preg_match_all(
-            '/<meta name="useCount" content="([^"]*)"/ms', $html, $matches
+            '/<meta name="useCount" content="([^"]*)"/ms',
+            $html,
+            $matches
         );
-        $useCount = isset($matches[1][0]) ? $matches[1][0] : 1;
+        $useCount = $matches[1][0] ?? 1;
 
         return [
             'category' => $categories,
@@ -205,10 +219,9 @@ class VuFindSitemap extends VuFind
     }
 
     /**
-     * Harvest the contents of a document file (PDF, Word, etc.) using Aperture.
-     * This method will only work if Aperture is properly configured in the
-     * web/conf/fulltext.ini file.  Without proper configuration, this will
-     * simply return an empty string.
+     * Harvest the contents of a document file (PDF, Word, etc.). This method will
+     * only work if a full text extractor is properly configured in the fulltext.ini
+     * file. Without proper configuration, this will simply return an empty string.
      *
      * @param string $url URL of file to retrieve.
      *
@@ -241,14 +254,14 @@ class VuFindSitemap extends VuFind
 
         // Use the appropriate full text parser:
         switch ($parser) {
-        case 'Aperture':
-            $fields = static::getApertureFields($htmlFile);
-            break;
-        case 'Tika':
-            $fields = static::getTikaFields($htmlFile);
-            break;
-        default:
-            throw new \Exception('Unexpected parser: ' . $parser);
+            case 'Aperture':
+                $fields = static::getApertureFields($htmlFile);
+                break;
+            case 'Tika':
+                $fields = static::getTikaFields($htmlFile);
+                break;
+            default:
+                throw new \Exception('Unexpected parser: ' . $parser);
         }
 
         // Clean up HTML file:
@@ -260,7 +273,9 @@ class VuFindSitemap extends VuFind
         // Clean up/normalize full text:
         $fields['fulltext'] = trim(
             preg_replace(
-                '/\s+/', ' ', static::stripBadChars($fields['fulltext'])
+                '/\s+/',
+                ' ',
+                static::stripBadChars($fields['fulltext'])
             )
         );
 

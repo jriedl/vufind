@@ -1,10 +1,12 @@
 <?php
+
 /**
  * "Search tabs" view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
+ * Copyright (C) The National Library of Finland 2015-2016.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,29 +18,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use VuFind\Search\Results\PluginManager, Zend\View\Helper\Url;
+
+use Laminas\Http\Request;
+use Laminas\View\Helper\Url;
+use VuFind\Search\Base\Results;
+use VuFind\Search\Results\PluginManager;
+use VuFind\Search\SearchTabsHelper;
+use VuFind\Search\UrlQueryHelper;
 
 /**
  * "Search tabs" view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class SearchTabs extends \Zend\View\Helper\AbstractHelper
+class SearchTabs extends \Laminas\View\Helper\AbstractHelper implements \Psr\Log\LoggerAwareInterface
 {
+    use \VuFind\Log\LoggerAwareTrait;
+
     /**
      * Search manager
      *
@@ -47,31 +60,55 @@ class SearchTabs extends \Zend\View\Helper\AbstractHelper
     protected $results;
 
     /**
-     * Tab configuration
+     * Request
      *
-     * @var array
+     * @var Request
      */
-    protected $config;
+    protected $request;
 
     /**
-     * URL helper
+     * Url
      *
      * @var Url
      */
     protected $url;
 
     /**
+     * Search tab helper
+     *
+     * @var SearchTabsHelper
+     */
+    protected $helper;
+
+    /**
+     * Cached hidden filter url params
+     *
+     * @var array
+     */
+    protected $cachedHiddenFilterParams = [];
+
+    /**
+     * Should we force getCurrentHiddenFilterParams() to return an empty string?
+     *
+     * @var bool
+     */
+    protected $currentHiddenFilterParamsDisabled = false;
+
+    /**
      * Constructor
      *
-     * @param PluginManager $results Search results plugin manager
-     * @param array         $config  Tab configuration
-     * @param Url           $url     URL helper
+     * @param PluginManager    $results Search results plugin manager
+     * @param Url              $url     URL helper
+     * @param SearchTabsHelper $helper  Search tabs helper
      */
-    public function __construct(PluginManager $results, array $config, Url $url)
-    {
+    public function __construct(
+        PluginManager $results,
+        Url $url,
+        SearchTabsHelper $helper
+    ) {
         $this->results = $results;
-        $this->config = $config;
         $this->url = $url;
+        $this->helper = $helper;
     }
 
     /**
@@ -81,47 +118,185 @@ class SearchTabs extends \Zend\View\Helper\AbstractHelper
      * @param string $query             The current search query
      * @param string $handler           The current search handler
      * @param string $type              The current search type (basic/advanced)
+     * @param array  $hiddenFilters     The current hidden filters
      *
      * @return array
      */
-    public function __invoke($activeSearchClass, $query, $handler, $type = 'basic')
-    {
-        $retVal = [];
-        foreach ($this->config as $class => $label) {
-            if ($class == $activeSearchClass) {
-                $retVal[] = $this->createSelectedTab($class, $label);
-            } else if ($type == 'basic') {
-                if (!isset($activeOptions)) {
-                    $activeOptions
-                        = $this->results->get($activeSearchClass)->getOptions();
+    public function getTabConfig(
+        $activeSearchClass,
+        $query,
+        $handler,
+        $type = 'basic',
+        $hiddenFilters = []
+    ) {
+        $retVal = ['tabs' => []];
+        $allFilters = $this->helper->getTabFilterConfig();
+        $allPermissions = $this->helper->getTabPermissionConfig();
+        $allSettings = $this->helper->getSettings();
+        $retVal['showCounts'] = $allSettings['show_result_counts'] ?? false;
+        foreach ($this->helper->getTabConfig() as $key => $label) {
+            $permissionName = null;
+            if (isset($allPermissions[$key])) {
+                $permissionName = $allPermissions[$key];
+            }
+            $class = $this->helper->extractClassName($key);
+            $filters = isset($allFilters[$key]) ? (array)$allFilters[$key] : [];
+            $selected = $class == $activeSearchClass && $this->helper->filtersMatch($class, $hiddenFilters, $filters);
+            try {
+                if ($type == 'basic') {
+                    if (!isset($activeOptions)) {
+                        $activeOptions
+                            = $this->results->get($activeSearchClass)->getOptions();
+                    }
+                    $url = $this->remapBasicSearch(
+                        $activeOptions,
+                        $class,
+                        $query,
+                        $handler,
+                        $filters,
+                    );
+                } elseif ($type == 'advanced') {
+                    $url = $this->getAdvancedTabUrl(
+                        $class,
+                        $filters,
+                    );
+                } else {
+                    $url = $this->getHomeTabUrl(
+                        $class,
+                        $filters,
+                    );
                 }
-                $newUrl = $this
-                    ->remapBasicSearch($activeOptions, $class, $query, $handler);
-                $retVal[] = $this->createBasicTab($class, $label, $newUrl);
-            } else if ($type == 'advanced') {
-                $retVal[] = $this->createAdvancedTab($class, $label);
-            } else {
-                $retVal[] = $this->createHomeTab($class, $label);
+            } catch (\Exception $e) {
+                // Log the error and just don't add tabs that we couldn't get the data for
+                $baseMsg = "Could not add tab for {$key}.";
+                $shortDetails = $e->getMessage();
+                $fullDetails = (string)$e;
+                $this->logError(
+                    $baseMsg,
+                    [
+                        'details' => [
+                            1 => "$baseMsg $shortDetails",
+                            2 => "$baseMsg $shortDetails",
+                            3 => "$baseMsg $shortDetails",
+                            4 => "$baseMsg $fullDetails",
+                            5 => "$baseMsg $fullDetails",
+                        ],
+                    ]
+                );
+                continue;
+            }
+            $tab = [
+                'id' => $key,
+                'class' => $class,
+                'label' => $label,
+                'permission' => $permissionName,
+                'selected' => $selected,
+                'url' => $url,
+            ];
+            $retVal['tabs'][] = $tab;
+            if ($selected) {
+                $retVal['selected'] = $tab;
             }
         }
+
         return $retVal;
     }
 
     /**
-     * Create information representing a selected tab.
+     * Get the tab configuration
      *
-     * @param string $class Search class ID
-     * @param string $label Display text for tab
+     * @param \VuFind\Search\Base\Params $params Search parameters
      *
      * @return array
      */
-    protected function createSelectedTab($class, $label)
+    public function getTabConfigForParams($params)
     {
-        return [
-            'class' => $class,
-            'label' => $label,
-            'selected' => true
-        ];
+        $tabConfig = $this->getTabConfig(
+            $params->getSearchClassId(),
+            $params->getDisplayQuery(),
+            $params->getSearchHandler(),
+            $params->getSearchType(),
+            $params->getHiddenFilters()
+        );
+        return $tabConfig['tabs'];
+    }
+
+    /**
+     * Get an array of hidden filters
+     *
+     * @param string $searchClassId         Active search class
+     * @param bool   $returnDefaultsIfEmpty Whether to return default tab filters if
+     * no filters are currently active
+     * @param bool   $ignoreCurrentRequest  Whether to ignore hidden filters in
+     * the current request
+     *
+     * @return array
+     */
+    public function getHiddenFilters(
+        $searchClassId,
+        $returnDefaultsIfEmpty = true,
+        $ignoreCurrentRequest = false
+    ) {
+        return $this->helper->getHiddenFilters(
+            $searchClassId,
+            $returnDefaultsIfEmpty,
+            $ignoreCurrentRequest
+        );
+    }
+
+    /**
+     * Get current hidden filters as a string suitable for search URLs
+     *
+     * @param string $searchClassId            Active search class
+     * @param bool   $ignoreHiddenFilterMemory Whether to ignore hidden filters in search memory
+     * @param string $prepend                  String to prepend to the hidden filters if they're not empty
+     *
+     * @return string
+     */
+    public function getCurrentHiddenFilterParams(
+        $searchClassId,
+        $ignoreHiddenFilterMemory = false,
+        $prepend = '&amp;'
+    ) {
+        if ($this->currentHiddenFilterParamsDisabled) {
+            return '';
+        }
+        if (!isset($this->cachedHiddenFilterParams[$searchClassId])) {
+            $view = $this->getView();
+            $hiddenFilters = $this->getHiddenFilters(
+                $searchClassId,
+                $ignoreHiddenFilterMemory
+            );
+            if (empty($hiddenFilters) && !$ignoreHiddenFilterMemory) {
+                $hiddenFilters = $view->plugin('searchMemory')
+                    ->getLastHiddenFilters($searchClassId);
+                if (empty($hiddenFilters)) {
+                    $hiddenFilters = $this->getHiddenFilters($searchClassId);
+                }
+            }
+
+            $results = $this->results->get($searchClassId);
+            $params = $results->getParams();
+            foreach ($hiddenFilters as $field => $filter) {
+                foreach ($filter as $value) {
+                    $params->addHiddenFilterForField($field, $value);
+                }
+            }
+            if ($hiddenFilters = $params->getHiddenFiltersAsQueryParams()) {
+                $this->cachedHiddenFilterParams[$searchClassId]
+                    = UrlQueryHelper::buildQueryString(
+                        [
+                            'hiddenFilters' => $hiddenFilters,
+                        ]
+                    );
+            } else {
+                $this->cachedHiddenFilterParams[$searchClassId] = '';
+            }
+        }
+        if ('' !== ($filters = $this->cachedHiddenFilterParams[$searchClassId])) {
+            return $prepend . $filters;
+        }
+        return '';
     }
 
     /**
@@ -131,89 +306,112 @@ class SearchTabs extends \Zend\View\Helper\AbstractHelper
      * @param string                      $targetClass   Search class ID for target
      * @param string                      $query         Search query to map
      * @param string                      $handler       Search handler to map
+     * @param array                       $filters       Tab filters
      *
      * @return string
      */
-    protected function remapBasicSearch($activeOptions, $targetClass, $query,
-        $handler
+    protected function remapBasicSearch(
+        $activeOptions,
+        $targetClass,
+        $query,
+        $handler,
+        $filters
     ) {
         // Set up results object for URL building:
         $results = $this->results->get($targetClass);
-        $options = $results->getOptions();
+        $params = $results->getParams();
+        foreach ($filters as $filter) {
+            $params->addHiddenFilter($filter);
+        }
 
         // Find matching handler for new query (and use default if no match):
+        $options = $results->getOptions();
         $targetHandler = $options->getHandlerForLabel(
             $activeOptions->getLabelForBasicHandler($handler)
         );
 
         // Build new URL:
         $results->getParams()->setBasicSearch($query, $targetHandler);
-        return $this->url->__invoke($options->getSearchAction())
+        return ($this->url)($options->getSearchAction())
             . $results->getUrlQuery()->getParams(false);
     }
 
     /**
-     * Create information representing a basic search tab.
+     * Get an url to "search home".
      *
-     * @param string $class  Search class ID
-     * @param string $label  Display text for tab
-     * @param string $newUrl Target search URL
+     * @param string $class   Search class ID
+     * @param array  $filters Tab filters
      *
-     * @return array
+     * @return string
      */
-    protected function createBasicTab($class, $label, $newUrl)
-    {
-        return [
-            'class' => $class,
-            'label' => $label,
-            'selected' => false,
-            'url' => $newUrl
-        ];
-    }
-
-    /**
-     * Create information representing a tab linking to "search home."
-     *
-     * @param string $class Search class ID
-     * @param string $label Display text for tab
-     *
-     * @return array
-     */
-    protected function createHomeTab($class, $label)
+    protected function getHomeTabUrl($class, $filters)
     {
         // If an advanced search is available, link there; otherwise, just go
         // to the search home:
-        $options = $this->results->get($class)->getOptions();
-        $url = $this->url->__invoke($options->getSearchHomeAction());
-        return [
-            'class' => $class,
-            'label' => $label,
-            'selected' => false,
-            'url' => $url
-        ];
+        $results = $this->results->get($class);
+        $url = ($this->url)($results->getOptions()->getSearchHomeAction())
+            . $this->buildUrlHiddenFilters($results, $filters);
+        return $url;
     }
 
     /**
-     * Create information representing an advanced search tab.
+     * Get url for an advanced search tab.
      *
-     * @param string $class Search class ID
-     * @param string $label Display text for tab
+     * @param string $class   Search class ID
+     * @param array  $filters Tab filters
      *
-     * @return array
+     * @return string
      */
-    protected function createAdvancedTab($class, $label)
+    protected function getAdvancedTabUrl($class, $filters)
     {
         // If an advanced search is available, link there; otherwise, just go
         // to the search home:
-        $options = $this->results->get($class)->getOptions();
+        $results = $this->results->get($class);
+        $options = $results->getOptions();
         $advSearch = $options->getAdvancedSearchAction();
-        $url = $this->url
-            ->__invoke($advSearch ? $advSearch : $options->getSearchHomeAction());
-        return [
-            'class' => $class,
-            'label' => $label,
-            'selected' => false,
-            'url' => $url
-        ];
+        return ($this->url)($advSearch ?: $options->getSearchHomeAction())
+            . $this->buildUrlHiddenFilters($results, $filters);
+    }
+
+    /**
+     * Build a hidden filter query fragment from the given filters
+     *
+     * @param Results $results Search results
+     * @param array   $filters Filters
+     * @param string  $prepend String to prepend to the hidden filters if they're not
+     * empty
+     *
+     * @return string Query parameters
+     */
+    protected function buildUrlHiddenFilters(
+        Results $results,
+        array $filters,
+        string $prepend = '?'
+    ): string {
+        // Set up results object for URL building:
+        $params = $results->getParams();
+        foreach ($filters as $filter) {
+            $params->addHiddenFilter($filter);
+        }
+        if ($hiddenFilters = $params->getHiddenFiltersAsQueryParams()) {
+            return $prepend . UrlQueryHelper::buildQueryString(
+                [
+                    'hiddenFilters' => $hiddenFilters,
+                ],
+                false
+            );
+        }
+        return '';
+    }
+
+    /**
+     * Force getCurrentHiddenFilterParams() to return an empty string (used in contexts like
+     * New Items where we don't want to persist hidden filters through links).
+     *
+     * @return void
+     */
+    public function disableCurrentHiddenFilterParams(): void
+    {
+        $this->currentHiddenFilterParamsDisabled = true;
     }
 }

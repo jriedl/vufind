@@ -1,0 +1,40 @@
+<?php
+    $this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/awesome.css');
+    $this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/solid.css');
+?>
+
+<section class="cw-p-2">
+    <div id="map" class="map"></div>
+    <?php $jsSnippet = <<<EOD
+    $(function () {
+        IxTheo2.loadMap('bibliotheken');
+    });
+    EOD;
+    ?>
+<?=$this->assetManager()->outputInlineScriptString($jsSnippet)?>
+</section>
+<div class="cw-row">
+    <div class="cw-col-lg-12 cw-ml-lg-4">
+        <div class="cw-text-block"><br>
+            <h1 class="cw-h1">Libraries</h1>
+            <p>Theologically relevant collections from various libraries are included in the Index Theologicus (IxTheo). Furthermore, the Fachinformationsdienst Theologie works on several projects together with other libraries.</p>
+            <p>IxTheo is currently working with the following libraries:</p>
+            <ul>
+                <li>Augustijns Historisch Instituut (AHI), Leuven (Heverlee) </li>
+                <li>Bibliothek des Internationalen Katholischen Missionswerkes missio e.V. (mikado), Aachen [in planning]</li>
+                <li>Diözesanbibliothek Münster</li>
+                <li>Erzbischöfliche Diözesan- und Dombibliothek Köln mit Bibliothek St. Albertus Magnus</li>
+				<li>Evangelische Hochschul- und Zentralbibliothek Württemberg (EHZ-Bibliothek)</li>
+                <li>Forschungsbibliothek Gotha </li>
+                <li>Franckesche Stiftungen zu Halle </li>
+                <li>Institut für Theologie und Frieden (ithf), Hamburg</li>
+                <li>Johannes a Lasco Bibliothek, Emden</li>
+                <li>Maurits-Sabbe-Bibliothek, Leuven</li>
+                <li>Princeton Theological Seminary</li>
+                <li>Reformationsgeschichtliche Forschungsbibliothek Wittenberg</li>
+                <li>Zentrum für Augustinus-Forschung (ZAF), Würzburg</li>
+            </ul>
+            <p>IxTheo is always interested in new cooperations and partnerships with other libraries. If you are interested in working with us, please contact us at: <a href="mailto:ixtheo@ub.uni-tuebingen.de">ixtheo@ub.uni-tuebingen.de</a>.</p>
+        </div>
+    </div>
+</div>

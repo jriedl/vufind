@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Syndetics author notes content loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content\AuthorNotes;
 
 /**
  * Syndetics author notes content loader.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Syndetics extends \VuFind\Content\AbstractSyndetics
 {
@@ -47,8 +49,8 @@ class Syndetics extends \VuFind\Content\AbstractSyndetics
         'ANOTES' => [
             'title' => 'Author Notes',
             'file' => 'ANOTES.XML',
-            'div' => '<div id="syn_anotes"></div>'
-        ]
+            'div' => '<div id="syn_anotes"></div>',
+        ],
     ];
 
     /**
@@ -105,23 +107,18 @@ class Syndetics extends \VuFind\Content\AbstractSyndetics
                     throw new \Exception('Invalid XML');
                 }
 
-                // If we have syndetics plus, we don't actually want the content
-                // we'll just stick in the relevant div
-                if ($this->usePlus) {
-                    $anotes[$i]['Content'] = $sourceInfo['div'];
-                } else {
-                    // Get the marc field for author notes (980)
-                    $nodes = $xmldoc2->GetElementsbyTagName("Fld980");
-                    if (!$nodes->length) {
-                        // Skip fields with missing text
-                        continue;
-                    }
-                    // Decode the content and strip unwanted <a> tags:
-                    $anotes[$i]['Content'] = preg_replace(
-                        '/<a>|<a [^>]*>|<\/a>/', '',
-                        html_entity_decode($xmldoc2->saveXML($nodes->item(0)))
-                    );
+                // Get the marc field for author notes (980)
+                $nodes = $xmldoc2->GetElementsbyTagName('Fld980');
+                if (!$nodes->length) {
+                    // Skip fields with missing text
+                    continue;
                 }
+                // Decode the content and strip unwanted <a> tags:
+                $anotes[$i]['Content'] = preg_replace(
+                    '/<a>|<a [^>]*>|<\/a>/',
+                    '',
+                    html_entity_decode($xmldoc2->saveXML($nodes->item(0)))
+                );
 
                 // change the xml to actual title:
                 $anotes[$i]['Source'] = $sourceInfo['title'];

@@ -9,16 +9,16 @@ goto end
 
 rem Make sure VUFIND_HOME is set:
 if not "!%VUFIND_HOME%!"=="!!" goto vufindhomefound
-rem VUFIND_HOME not set -- try to call vufind.bat to 
+rem VUFIND_HOME not set -- try to call env.bat to 
 rem fix the problem before we give up completely
-if exist %0\..\..\vufind.bat goto usevufindbat
-rem If vufind.bat doesn't exist, the user hasn't run the installer yet.
-echo ERROR: vufind.bat does not exist -- could not set up environment.
+if exist %0\..\..\env.bat goto useenvbat
+rem If env.bat doesn't exist, the user hasn't run the installer yet.
+echo ERROR: env.bat does not exist -- could not set up environment.
 echo Please run install.php to correct this problem.
 goto end
-:usevufindbat
+:useenvbat
 cd %0\..\..
-call vufind > nul
+call env > nul
 cd %0\..
 if not "!%VUFIND_HOME%!"=="!!" goto vufindhomefound
 echo You need to set the VUFIND_HOME environmental variable before running this script.
@@ -44,6 +44,7 @@ if "%1"=="-d" goto dswitch
 if "%1"=="-h" goto helpmessage
 if "%1"=="-m" goto mswitch
 if "%1"=="-p" goto pswitch
+if "%1"=="-x" goto xswitch
 if "%1"=="-z" goto zswitch
 goto switchloopend
 :dswitch
@@ -59,6 +60,10 @@ set PROPERTIES_FILE=%2
 shift
 shift
 goto switchloop
+:xswitch
+echo The -x switch is not currently supported under Windows.
+echo See https://vufind.org/jira/browse/VUFIND-1626 for more details.
+goto end
 :zswitch
 set LOGGING=0
 shift
@@ -109,17 +114,27 @@ md %BASEPATH%\processed
 :processedfound
 
 rem Process all the files in the target directory:
-for %%a in (%BASEPATH%\*.xml %BASEPATH%\*.mrc) do (
-  if "%LOGGING%"=="0" (
-    call %VUFIND_HOME%\import-marc.bat %%a
-  )
-  rem Capture solrmarc output to log
-  if "%LOGGING%"=="1" (
-    call %VUFIND_HOME%\import-marc.bat %%a 2> %BASEPATH%\log\%%~nxa.log
-  )
-  if "%MOVE_DATA%"=="1" (
-    move %%a %BASEPATH%\processed\ > nul
+for %%a in (%BASEPATH%\*.xml %BASEPATH%\*.mrc %BASEPATH%\*.marc) do (
+  call :run_command %%a %BASEPATH%\log\%%~nxa.log
+  if not errorlevel 1 (
+    if "%MOVE_DATA%"=="1" (
+      move %%a %BASEPATH%\processed\ > nul
+    )
   )
 )
+goto :end
+
+rem Subroutine to do the SolrMarc ingest
+:run_command
+if "%LOGGING%"=="0" (
+  call %VUFIND_HOME%\import-marc.bat %1
+  if not errorlevel 1 exit /b 0
+)
+rem Capture solrmarc output to log
+if "%LOGGING%"=="1" (
+  call %VUFIND_HOME%\import-marc.bat %1 2> %2
+  if not errorlevel 1 exit /b 0
+)
+exit /b 1
 
 :end

@@ -1,10 +1,12 @@
 <?php
+
 /**
  * Base class for session handling
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2010.
+ * Copyright (C) Villanova University 2010,
+ *               Leipzig University Library <info@ub.uni-leipzig.de> 2018.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,33 +18,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Session_Handlers
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Sebastian Kehr <kehr@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:session_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:session_handlers Wiki
  */
+
 namespace VuFind\Session;
-use Zend\Session\SaveHandler\SaveHandlerInterface;
+
+use VuFind\Config\Config;
+use VuFind\Db\Service\DbServiceAwareTrait;
+use VuFind\Db\Service\ExternalSessionServiceInterface;
+use VuFind\Db\Service\SearchServiceInterface;
 
 /**
  * Base class for session handling
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Session_Handlers
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Sebastian Kehr <kehr@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:session_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:session_handlers Wiki
  */
-abstract class AbstractBase implements SaveHandlerInterface,
-    \VuFind\Db\Table\DbTableAwareInterface
+abstract class AbstractBase implements HandlerInterface
 {
-    use \VuFind\Db\Table\DbTableAwareTrait {
-        getDbTable as getTable;
-    }
+    // Note that we intentionally omit the DbServiceAwareInterface above; the service
+    // manager is injected by AbstractBaseFactory explicitly for compatibility with
+    // the secure delegator factory, so we don't need to auto-inject it.
+    use DbServiceAwareTrait;
 
     /**
      * Session lifetime in seconds
@@ -52,26 +61,44 @@ abstract class AbstractBase implements SaveHandlerInterface,
     protected $lifetime = 3600;
 
     /**
-     * Session configuration settings
+     * Whether writes are disabled, i.e. any changes to the session are not written
+     * to the storage
      *
-     * @var \Zend\Config\Config
+     * @var bool
      */
-    protected $config = null;
+    protected $writesDisabled = false;
 
     /**
-     * Set configuration.
+     * Constructor
      *
-     * @param \Zend\Config\Config $config Session configuration ([Session] section of
+     * @param ?Config $config Session configuration ([Session] section of
      * config.ini)
-     *
-     * @return void
      */
-    public function setConfig($config)
+    public function __construct(?Config $config = null)
     {
         if (isset($config->lifetime)) {
             $this->lifetime = $config->lifetime;
         }
-        $this->config = $config;
+    }
+
+    /**
+     * Enable session writing (default)
+     *
+     * @return void
+     */
+    public function enableWrites()
+    {
+        $this->writesDisabled = false;
+    }
+
+    /**
+     * Disable session writing, i.e. make it read-only
+     *
+     * @return void
+     */
+    public function disableWrites()
+    {
+        $this->writesDisabled = true;
     }
 
     /**
@@ -81,11 +108,11 @@ abstract class AbstractBase implements SaveHandlerInterface,
      * @param string $sess_path Session save path
      * @param string $sess_name Session name
      *
-     * @return void
+     * @return bool
      *
      * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function open($sess_path, $sess_name)
+    public function open($sess_path, $sess_name): bool
     {
         return true;
     }
@@ -94,9 +121,9 @@ abstract class AbstractBase implements SaveHandlerInterface,
      * Close function, this works like a destructor in classes and is executed
      * when the session operation is done.
      *
-     * @return void
+     * @return bool
      */
-    public function close()
+    public function close(): bool
     {
         return true;
     }
@@ -106,30 +133,31 @@ abstract class AbstractBase implements SaveHandlerInterface,
      * session_destroy() and takes the session id as its only parameter.
      *
      * IMPORTANT:  The functionality defined in this method is global to all session
-     *             mechanisms.  If you override this method, be sure to still call
+     *             mechanisms. If you override this method, be sure to still call
      *             parent::destroy() in addition to any new behavior.
      *
-     * @param string $sess_id The session ID to destroy
+     * @param string $sessId The session ID to destroy
      *
-     * @return void
+     * @return bool
      */
-    public function destroy($sess_id)
+    public function destroy($sessId): bool
     {
-        $table = $this->getTable('Search');
-        $table->destroySession($sess_id);
+        $this->getDbService(SearchServiceInterface::class)->destroySession($sessId);
+        $this->getDbService(ExternalSessionServiceInterface::class)->destroySession($sessId);
+        return true;
     }
 
     /**
      * The garbage collector, this is executed when the session garbage collector
      * is executed and takes the max session lifetime as its only parameter.
      *
-     * @param int $sess_maxlifetime Maximum session lifetime.
+     * @param int $sessMaxLifetime Maximum session lifetime.
      *
-     * @return void
+     * @return int|false
      *
      * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function gc($sess_maxlifetime)
+    public function gc($sessMaxLifetime): int|false
     {
         // how often does this get called (if at all)?
 
@@ -142,5 +170,32 @@ abstract class AbstractBase implements SaveHandlerInterface,
         // Anecdotal testing Today and Yesterday seems to indicate destroy()
         //   is called by the garbage collector and everything is good.
         // Something to keep in mind though.
+        return 0;
     }
+
+    /**
+     * Write function that is called when session data is to be saved.
+     *
+     * @param string $sessId The current session ID
+     * @param string $data   The session data to write
+     *
+     * @return bool
+     */
+    public function write($sessId, $data): bool
+    {
+        if ($this->writesDisabled) {
+            return true;
+        }
+        return $this->saveSession($sessId, $data);
+    }
+
+    /**
+     * A function that is called internally when session data is to be saved.
+     *
+     * @param string $sessId The current session ID
+     * @param string $data   The session data to write
+     *
+     * @return bool
+     */
+    abstract protected function saveSession($sessId, $data): bool;
 }

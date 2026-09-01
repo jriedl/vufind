@@ -3,7 +3,7 @@
 /**
  * Unit tests for SOLR query builder
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,31 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Solr;
 
+use VuFindSearch\Backend\Solr\QueryBuilder;
+use VuFindSearch\ParamBag;
 use VuFindSearch\Query\Query;
 use VuFindSearch\Query\QueryGroup;
-use VuFindSearch\Backend\Solr\QueryBuilder;
 
 /**
  * Unit tests for SOLR query builder
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class QueryBuilderTest extends \VuFindTest\Unit\TestCase
+class QueryBuilderTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test normalization of unusual queries.
@@ -51,13 +53,12 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
     public function testNormalization()
     {
         // Set up an array of expected inputs and outputs:
-        // @codingStandardsIgnoreStart
         $tests = [
-            ["", "*:*"],                         // empty query
-            ["()", "*:*"],                       // empty parens
-            ["((()))", "*:*"],                   // nested empty parens
-            ["((())", "*:*"],                    // mismatched parens
-            ["this that ()", "this that"],       // text mixed w/ empty parens
+            ['', '*:*'],                         // empty query
+            ['()', '*:*'],                       // empty parens
+            ['((()))', '*:*'],                   // nested empty parens
+            ['((())', '*:*'],                    // mismatched parens
+            ['this that ()', 'this that'],       // text mixed w/ empty parens
             ['"()"', '"()"'],                    // empty parens in quotes
             ['title - sub', 'title sub'],        // freestanding hyphen
             ['"title - sub"', '"title - sub"'],  // freestanding hyphen in quotes
@@ -75,10 +76,9 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
             ['^10', '10'],                       // invalid boosts
             ['test^ test^6', 'test test6'],      // invalid boosts
             ['test^1 test^2', 'test^1 test^2'],  // valid boosts
-            ['this / that', 'this that'],        // freestanding slash
+            ['this / that', 'this "/" that'],    // freestanding slash
             ['/ this', 'this'],                  // leading slash
             ['title /', 'title'],                // trailing slash
-            ['this - that', 'this that'],        // freestanding hyphen
             ['- this', 'this'],                  // leading hyphen
             ['title -', 'title'],                // trailing hyphen
             ['AND', 'and'],                      // freestanding operator
@@ -87,17 +87,134 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
             ['*bad', 'bad'],                     // leading wildcard
             ['?bad', 'bad'],                     // leading wildcard
             ["\xE2\x80\x9Ca\xE2\x80\x9D", '"a"'],// fancy quotes
-            ['a:{a TO b} [ }', 'a:{a TO b}'],    // floating braces/brackets
+            // improperly escaped floating braces/brackets:
+            ['a:{a TO b} [ }', 'a:{a TO b} \[ \}'],
+            // properly escaped floating braces/brackets:
+            ['a:{a TO b} \[ \}', 'a:{a TO b} \[ \}'],
         ];
-        // @codingStandardsIgnoreEnd
 
         $qb = new QueryBuilder();
         foreach ($tests as $test) {
-            list($input, $output) = $test;
+            [$input, $output] = $test;
             $q = new Query($input);
             $response = $qb->build($q);
             $processedQ = $response->get('q');
             $this->assertEquals($output, $processedQ[0]);
+        }
+    }
+
+    /**
+     * Return array of [test query, expected result] arrays.
+     *
+     * @return array
+     */
+    protected function getQuestionTests()
+    {
+        // Format: [input, expected output, flags array]
+        return [
+            // trailing question mark:
+            ['this?', '(this?) OR (this\?)', []],
+            // question mark after first word:
+            ['this? that', '((this?) OR (this\?)) that', []],
+            // question mark after the middle word:
+            ['start this? that', 'start ((this?) OR (this\?)) that', []],
+            // question mark with boolean operators:
+            ['start AND this? AND that', 'start AND ((this?) OR (this\?)) AND that', []],
+            // question mark as a wildcard in the middle of a word:
+            ['start t?his that', 'start t?his that', []],
+            // multiple ? terms:
+            ['start? this?', '((start?) OR (start\?)) ((this?) OR (this\?))', []],
+            // ? term in field-specific context:
+            ['xyzzy:this?', 'xyzzy:((this?) OR (this\?))', []],
+            // ? term in field-specific context w/ extra term:
+            ['xyzzy:(this? that)', 'xyzzy:(((this?) OR (this\?)) that)', []],
+            // Multiple fields, one w/ ? term:
+            ['foo:this? OR bar:tha?t', 'foo:((this?) OR (this\?)) OR bar:tha?t', []],
+            // repeating ? term:
+            ['this? that? this?', '((this?) OR (this\?)) ((that?) OR (that\?)) ((this?) OR (this\?))', []],
+            // ? terms inside quoted phrase (basic flag set to indicate that
+            // this does not contain any syntax unsupported by basic Dismax):
+            ['"this? that?"', '"this? that?"', ['basic' => true]],
+        ];
+    }
+
+    /**
+     * Run a test case through a basic query.
+     *
+     * @param QueryBuilder $qb      Query builder
+     * @param string       $handler Search handler: dismax|edismax|standard
+     * @param array        $test    Test to run
+     *
+     * @return void
+     */
+    protected function runBasicQuestionTest($qb, $handler, $test)
+    {
+        [$input, $output, $flags] = $test;
+        if (
+            $handler === 'standard'
+            || ($handler === 'dismax' && empty($flags['basic']))
+        ) {
+            // We expect an extra set of parentheses to be added, unless the
+            // string contains a colon, in which case some processing will be
+            // skipped due to field-specific query behavior.
+            $basicOutput = strstr($output, ':') ? $output : '(' . $output . ')';
+        } else {
+            $basicOutput = $output;
+        }
+        $q = new Query($input, 'test');
+        $before = $q->getString();
+        $response = $qb->build($q);
+        // Make sure the query builder had no side effects on the query object:
+        $this->assertEquals($before, $q->getString());
+        $processedQ = $response->get('q');
+        $this->assertEquals($basicOutput, $processedQ[0]);
+    }
+
+    /**
+     * Run a test case through an advanced query.
+     *
+     * @param QueryBuilder $qb      Query builder
+     * @param string       $handler Search handler: dismax|edismax|standard
+     * @param array        $test    Test to run
+     *
+     * @return void
+     */
+    protected function runAdvancedQuestionTest($qb, $handler, $test)
+    {
+        [$input, $output, $flags] = $test;
+        if (
+            $handler === 'standard'
+            || ($handler === 'dismax' && empty($flags['basic']))
+        ) {
+            $advOutput = '((' . $output . '))';
+        } else {
+            $mm = $handler == 'dismax' ? '100%' : '0%';
+            $advOutput = "((_query_:\"{!$handler qf=\\\"foo\\\" mm=\\'$mm\\'}"
+                . addslashes($output) . '"))';
+        }
+        $advancedQ = new QueryGroup('AND', [new Query($input, 'test')]);
+        $advResponse = $qb->build($advancedQ);
+        $advProcessedQ = $advResponse->get('q');
+        $this->assertEquals($advOutput, $advProcessedQ[0]);
+    }
+
+    /**
+     * Run the standard suite of question mark tests, accounting for differences
+     * between standard Lucene, basic Dismax and eDismax handlers.
+     *
+     * @param array  $builderParams Parameters for QueryBuilder constructor
+     * @param string $handler       Search handler: dismax|edismax|standard
+     *
+     * @return void
+     */
+    protected function runQuestionTests($builderParams, $handler)
+    {
+        // Set up an array of expected inputs and outputs:
+        $tests = $this->getQuestionTests();
+        $qb = new QueryBuilder($builderParams);
+        foreach ($tests as $test) {
+            $this->runBasicQuestionTest($qb, $handler, $test);
+            $this->runAdvancedQuestionTest($qb, $handler, $test);
         }
     }
 
@@ -108,25 +225,42 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
      */
     public function testQueryHandler()
     {
-        // Set up an array of expected inputs and outputs:
-        // @codingStandardsIgnoreStart
-        $tests = [
-            ['this?', '((this?) OR (this\?))'],// trailing question mark
-        ];
-        // @codingStandardsIgnoreEnd
-
-        $qb = new QueryBuilder(
+        $this->runQuestionTests(
             [
-                'test' => []
-            ]
+                'test' => [],
+            ],
+            'standard'
         );
-        foreach ($tests as $test) {
-            list($input, $output) = $test;
-            $q = new Query($input, 'test');
-            $response = $qb->build($q);
-            $processedQ = $response->get('q');
-            $this->assertEquals($output, $processedQ[0]);
-        }
+    }
+
+    /**
+     * Test generation with a query handler with regular dismax
+     *
+     * @return void
+     */
+    public function testQueryHandlerWithDismax()
+    {
+        $this->runQuestionTests(
+            [
+                'test' => ['DismaxHandler' => 'dismax', 'DismaxFields' => ['foo']],
+            ],
+            'dismax'
+        );
+    }
+
+    /**
+     * Test generation with a query handler with edismax
+     *
+     * @return void
+     */
+    public function testQueryHandlerWithEdismax()
+    {
+        $this->runQuestionTests(
+            [
+                'test' => ['DismaxHandler' => 'edismax', 'DismaxFields' => ['foo']],
+            ],
+            'edismax'
+        );
     }
 
     /**
@@ -142,9 +276,9 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
                 'test' => [
                     'DismaxFields' => ['a', 'b'],
                     'ExactSettings' => [
-                        'DismaxFields' => ['c', 'd']
-                    ]
-                ]
+                        'DismaxFields' => ['c', 'd'],
+                    ],
+                ],
             ]
         );
 
@@ -170,7 +304,7 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
     {
         $qb = new QueryBuilder(
             [
-                'test' => ['DismaxFields' => ['a'], 'FilterQuery' => 'a:filter']
+                'test' => ['DismaxFields' => ['a'], 'FilterQuery' => 'a:filter'],
             ]
         );
         $q = new Query('q', 'test');
@@ -188,7 +322,7 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
     {
         $qb = new QueryBuilder(
             [
-                'test' => ['FilterQuery' => 'a:filter']
+                'test' => ['FilterQuery' => 'a:filter'],
             ]
         );
         $q = new Query('q', 'test');
@@ -207,7 +341,7 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
     {
         $qb = new QueryBuilder(
             [
-                'test' => ['FilterQuery' => 'a:filter']
+                'test' => ['FilterQuery' => 'a:filter'],
             ]
         );
         $q = new Query('*:*', 'test');
@@ -217,49 +351,89 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
     }
 
     /**
-     * Test generation with highlighting
+     * Test hl.q edge case: when we are in dismax (not edismax) mode, and a boost
+     * is set, and a query contains advanced syntax, VuFind manipulates the query
+     * to trigger the boost and sets hl.q to prevent the highlighter from matching
+     * the wrong words.
      *
      * @return void
      */
-    public function testHighlighting()
+    public function testHlQ()
     {
         $qb = new QueryBuilder(
             [
                 'test' => [
-                    'DismaxFields' => ['test1'],
-                    'DismaxParams' => [['bq', 'boost']]
-                ]
+                    'DismaxFields' => ['test'],
+                    'DismaxHandler' => 'dismax',
+                    'DismaxParams' => [['bq', 'boost']],
+                ],
             ]
         );
 
-        $q = new Query('*:*', 'test');
+        $q = new Query('my friend*', 'test');
 
-        // No hl.q if highlighting query disabled:
-        $qb->setCreateHighlightingQuery(false);
+        $qb->setFieldsToHighlight('*');
         $response = $qb->build($q);
-        $hlQ = $response->get('hl.q');
-        $this->assertEquals(null, $hlQ[0]);
-
-        // hl.q if highlighting query enabled:
-        $qb->setCreateHighlightingQuery(true);
-        $response = $qb->build($q);
-        $hlQ = $response->get('hl.q');
-        $this->assertEquals('*:*', $hlQ[0]);
+        $hlq = $response->get('hl.q');
+        $q = $response->get('q');
+        $this->assertEquals('(my friend*)', $hlq[0]);
+        $this->assertEquals('((my friend*)) AND (*:* OR boost)', $q[0]);
     }
 
     /**
-     * Test generation with spelling
+     * Test generation with highlighting, using the setFieldsToHighlight() method.
      *
      * @return void
      */
-    public function testSpelling()
+    public function testSetFieldsToHighlight()
+    {
+        $qb = new QueryBuilder(
+            [
+                'test' => [
+                    'QueryFields' => ['test1' => []],
+                    'DismaxFields' => ['test2', 'test3^10000'],
+                ],
+            ]
+        );
+
+        $q = new Query('my friend', 'test');
+
+        // Map of field list to expected hl.fl output.
+        $tests = [
+            // No hl.fl if highlight field list is empty:
+            '' => null,
+            // hl.fl set when field list is wildcard:
+            '*' => 'test1,test2,test3',
+            // No hl.fl if field list doesn't match handler list:
+            'test4,test5' => null,
+            // hl.fl contains intersection of field list and handler list
+            // (testing with a comma-separated field list)
+            'test1,test2,test6' => 'test1,test2',
+            // hl.fl contains intersection of field list and handler list
+            // (testing with a space-separated field list)
+            'test1 test3 test5' => 'test1,test3',
+        ];
+        foreach ($tests as $input => $output) {
+            $qb->setFieldsToHighlight($input);
+            $response = $qb->build($q);
+            $hlfl = $response->get('hl.fl');
+            $this->assertEquals($output, $hlfl[0] ?? null);
+        }
+    }
+
+    /**
+     * Test generation with spelling, using the setCreateSpellingQuery() method.
+     *
+     * @return void
+     */
+    public function testSetCreateSpellingQuery()
     {
         $qb = new QueryBuilder(
             [
                 'test' => [
                     'DismaxFields' => ['test1'],
-                    'DismaxParams' => [['bq', 'boost']]
-                ]
+                    'DismaxParams' => [['bq', 'boost']],
+                ],
             ]
         );
 
@@ -267,15 +441,15 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
 
         // No spellcheck.q if spellcheck query disabled:
         $qb->setCreateSpellingQuery(false);
-        $response = $qb->build($q);
-        $spQ = $response->get('spellcheck.q');
-        $this->assertEquals(null, $spQ[0]);
+        $response1 = $qb->build($q);
+        $spQ1 = $response1->get('spellcheck.q');
+        $this->assertFalse(isset($spQ1[0]));
 
         // spellcheck.q if spellcheck query enabled:
         $qb->setCreateSpellingQuery(true);
-        $response = $qb->build($q);
-        $spQ = $response->get('spellcheck.q');
-        $this->assertEquals('my friend', $spQ[0]);
+        $response2 = $qb->build($q);
+        $spQ2 = $response2->get('spellcheck.q');
+        $this->assertEquals('my friend', $spQ2[0]);
     }
 
     /**
@@ -292,7 +466,7 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
                 ],
                 'b' => [
                     'DismaxFields' => ['field_b'],
-                ]
+                ],
             ]
         );
 
@@ -302,7 +476,11 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
 
         $response = $qb->build($q);
         $processedQ = $response->get('q');
-        $this->assertEquals('((_query_:"{!dismax qf=\"field_a\" }value1") OR (_query_:"{!dismax qf=\"field_b\" }value2"))', $processedQ[0]);
+        $this->assertEquals(
+            '((_query_:"{!dismax qf=\"field_a\" mm=\\\'100%\\\'}value1") OR '
+            . '(_query_:"{!dismax qf=\"field_b\" mm=\\\'100%\\\'}value2"))',
+            $processedQ[0]
+        );
     }
 
     /**
@@ -318,12 +496,12 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
                     'DismaxFields' => ['field_a'],
                     'QueryFields' => [
                         'field_a' => [['and', 100]],
-                        'field_c' => [['and', 200]]
-                    ]
+                        'field_c' => [['and', 200]],
+                    ],
                 ],
                 'b' => [
                     'DismaxFields' => ['field_b'],
-                ]
+                ],
             ]
         );
 
@@ -333,7 +511,11 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
 
         $response = $qb->build($q);
         $processedQ = $response->get('q');
-        $this->assertEquals('((field_a:(value*)^100 OR field_c:(value*)^200) OR (_query_:"{!dismax qf=\"field_b\" }value2"))', $processedQ[0]);
+        $this->assertEquals(
+            '((field_a:(value*)^100 OR field_c:(value*)^200) OR '
+            . '(_query_:"{!dismax qf=\"field_b\" mm=\\\'100%\\\'}value2"))',
+            $processedQ[0]
+        );
     }
 
     /**
@@ -348,8 +530,8 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
                 'a' => [
                     'QueryFields' => [
                         'field_a' => [['or', '~']],
-                    ]
-                ]
+                    ],
+                ],
             ]
         );
 
@@ -372,8 +554,8 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
                 'a' => [
                     'QueryFields' => [
                         'field_a' => [['or', '~']],
-                    ]
-                ]
+                    ],
+                ],
             ]
         );
 
@@ -396,8 +578,8 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
                 'a' => [
                     'QueryFields' => [
                         'field_a' => [['or', '~']],
-                    ]
-                ]
+                    ],
+                ],
             ]
         );
 
@@ -406,5 +588,460 @@ class QueryBuilderTest extends \VuFindTest\Unit\TestCase
         $response = $qb->build($q);
         $processedQ = $response->get('q');
         $this->assertEquals('(field_a:(708396 OR "708398" OR 708399 OR "foo\"bar"))', $processedQ[0]);
+    }
+
+    /**
+     * Data provider for testIndividualQueryHandlerWithGlobalExtraParams().
+     *
+     * @return array
+     */
+    public static function globalExtraParamsIndividualQueryDataProvider(): array
+    {
+        return [
+            'Single value, no extra params' => [
+                'globalExtraParams' => null,
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => null,
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => null,
+                ],
+            ],
+            'Single value' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => ['a:foo'],
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => ['a:foo'],
+                ],
+            ],
+            'Two values' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => [
+                            'a:foo',
+                            'a:bar',
+                        ],
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => [
+                        'a:foo',
+                        'a:bar',
+                    ],
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => [
+                        'a:foo',
+                        'a:bar',
+                    ],
+                ],
+            ],
+            'Value with SearchTypeIn condition' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'SearchTypeIn' => [
+                                    'test',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => ['a:foo'],
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => null,
+                ],
+            ],
+            'Value with SearchTypeNotIn condition' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'SearchTypeNotIn' => [
+                                    'test',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => null,
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => ['a:foo'],
+                ],
+            ],
+            'Value with NoDisMaxParams = [bf] condition' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'NoDismaxParams' => ['bf'],
+                            ],
+                        ],
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => null,
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => ['a:foo'],
+                ],
+            ],
+            'Value with SortIn condition' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'SortIn' => [
+                                    'score desc',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => ['a:foo'],
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => null,
+                ],
+            ],
+            'Value with SortNotIn condition' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'SortNotIn' => [
+                                    'score desc',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'expected1' => [
+                    'bf' => ['a:filter'],
+                    'bq' => null,
+                ],
+                'expected2' => [
+                    'bf' => null,
+                    'bq' => ['a:foo'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Test generation with GlobalExtraParams using individual queries.
+     *
+     * @param array $globalExtraParams Global extra parameters
+     * @param array $expected1         First set of expected fields
+     * @param array $expected2         Second set of expected fields
+     *
+     * @return void
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('globalExtraParamsIndividualQueryDataProvider')]
+    public function testIndividualQueryHandlerWithGlobalExtraParams(
+        $globalExtraParams,
+        $expected1,
+        $expected2
+    ) {
+        $q1 = new Query('q', 'test');
+        $params1 = new ParamBag(['sort' => 'score desc']);
+        $q2 = new Query('q', 'test2');
+        $params2 = new ParamBag(['sort' => 'title asc']);
+
+        $specs = [
+            'test' => [
+                'DismaxFields' => ['a'],
+                'DismaxParams' => [
+                    ['bf', 'a:filter'],
+                ],
+            ],
+        ];
+        if (!empty($globalExtraParams)) {
+            $specs['GlobalExtraParams'] = $globalExtraParams;
+        }
+
+        $qb = new QueryBuilder($specs);
+        $response = $qb->build($q1, $params1);
+        foreach ($expected1 as $field => $expected) {
+            $values = $response->get($field);
+            $this->assertEquals(
+                $expected,
+                $values,
+                'query 1'
+            );
+        }
+        $response = $qb->build($q2, $params2);
+        foreach ($expected2 as $field => $expected) {
+            $values = $response->get($field);
+            $this->assertEquals(
+                $expected,
+                $values,
+                'query 2'
+            );
+        }
+    }
+
+    /**
+     * Data provider for testGroupedQueryHandlerWithGlobalExtraParams().
+     *
+     * @return array
+     */
+    public static function globalExtraParamsGroupedQueryDataProvider(): array
+    {
+        return [
+            'Search type in [test]' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'SearchTypeIn' => ['test'],
+                            ],
+                        ],
+                    ],
+                ],
+                'expectedFields' => [
+                    'bq' => ['a:foo'],
+                ],
+            ],
+            'All search types in [test, test2]' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'AllSearchTypesIn' => ['test', 'test2'],
+                            ],
+                        ],
+                    ],
+                ],
+                'expectedFields' => [
+                    'bq' => ['a:foo'],
+                ],
+            ],
+            'All search types in [test, no]' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'AllSearchTypesIn' => ['test', 'no'],
+                            ],
+                        ],
+                    ],
+                ],
+                'expectedFields' => [
+                    'bq' => null,
+                ],
+            ],
+            'All search types in [test, test2, no]' => [
+                'globalExtraParams' => [
+                    [
+                        'param' => 'bq',
+                        'value' => 'a:foo',
+                        'conditions' => [
+                            [
+                                'AllSearchTypesIn' => ['test', 'test2', 'no'],
+                            ],
+                        ],
+                    ],
+                ],
+                'expectedFields' => [
+                    'bq' => ['a:foo'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Test generation with GlobalExtraParams using a grouped query.
+     *
+     * @param array $globalExtraParams Global extra parameters
+     * @param array $expectedFields    Expected fields
+     *
+     * @return void
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('globalExtraParamsGroupedQueryDataProvider')]
+    public function testGroupedQueryHandlerWithGlobalExtraParams(
+        $globalExtraParams,
+        $expectedFields
+    ) {
+        $q1 = new Query('q', 'test');
+        $q2 = new Query('q', 'test2');
+        $group = new QueryGroup('AND', [$q1, $q2]);
+        $specs = [
+            'test' => [
+                'DismaxFields' => ['a'],
+                'DismaxParams' => [
+                    ['bf', 'a:filter'],
+                ],
+            ],
+        ];
+        if (!empty($globalExtraParams)) {
+            $specs['GlobalExtraParams'] = $globalExtraParams;
+        }
+
+        $qb = new QueryBuilder($specs);
+        $response = $qb->build($group);
+        foreach ($expectedFields as $field => $expected) {
+            $values = $response->get($field);
+            $this->assertEquals(
+                $expected,
+                $values
+            );
+        }
+    }
+
+    /**
+     * Test a fully negated query.
+     *
+     * @return void
+     */
+    public function testNegatedQuery()
+    {
+        $group = new QueryGroup('NOT', [new Query('q')]);
+        $qb = new QueryBuilder([]);
+        $response = $qb->build($group);
+        $this->assertEquals(['(*:* NOT (q))'], $response->get('q'));
+    }
+
+    /**
+     * Test a negated clause of an AND query.
+     *
+     * @return void
+     */
+    public function testNegatedAndQuery()
+    {
+        $subgroup1 = new QueryGroup('NOT', [new Query('q1'), new Query('q2')]);
+        $subgroup2 = new QueryGroup('AND', [new Query('q3'), new Query('q4')]);
+        $group = new QueryGroup('AND', [$subgroup1, $subgroup2]);
+        $qb = new QueryBuilder([]);
+        $response = $qb->build($group);
+        $this->assertEquals(
+            ['((*:* NOT (q1 OR q2)) AND (q3 AND q4))'],
+            $response->get('q')
+        );
+    }
+
+    /**
+     * Test a negated clause of an OR query.
+     *
+     * @return void
+     */
+    public function testNegatedOrQuery()
+    {
+        $subgroup1 = new QueryGroup('NOT', [new Query('q1'), new Query('q2')]);
+        $subgroup2 = new QueryGroup('AND', [new Query('q3'), new Query('q4')]);
+        $group = new QueryGroup('OR', [$subgroup1, $subgroup2]);
+        $qb = new QueryBuilder([]);
+        $response = $qb->build($group);
+        $this->assertEquals(
+            ['((*:* NOT (q1 OR q2)) OR (q3 AND q4))'],
+            $response->get('q')
+        );
+    }
+
+    /**
+     * Test dismax munge.
+     *
+     * @return void
+     */
+    public function testDismaxMunge()
+    {
+        // Set up an array of expected inputs and outputs:
+        $tests = [
+            ['title - sub', 'title sub'],        // normalization of freestanding hyphen
+            ['test + test', 'test and test'],    // freestanding plus with munge
+            ['test+test', 'test+test'],          // non-freestanding plus
+            ['test~0.9', 'test0.9'],             // munge for removing char
+            ['test~10', 'test 10'],              // more specific munge followed by normalization
+            ['TEST', 'test'],                    // lc munge
+        ];
+        $specs = [
+            'test' => [
+                'DismaxFields' => ['foo'],
+                'DismaxMunge' => [
+                    ['preg_replace', '/\s[\+]\s/', ' and '],
+                    ['preg_replace', '/~1/', ' + 1'],
+                    ['preg_replace', '/~/', ''],
+                    ['lowercase'],
+                ],
+            ],
+        ];
+        $qb = new QueryBuilder($specs);
+        foreach ($tests as $test) {
+            [$input, $output] = $test;
+            $q = new Query($input, 'test');
+            $response = $qb->build($q);
+            $processedQ = $response->get('q');
+            $this->assertEquals($output, $processedQ[0]);
+        }
+    }
+
+    /**
+     * Test that dismax munge is only applied once in query group.
+     *
+     * @return void
+     */
+    public function testDismaxMungeQueryGroupOnlyOnce()
+    {
+        $specs = [
+            'test' => [
+                'DismaxFields' => ['foo'],
+                'DismaxMunge' => [
+                    ['preg_replace', '/^(.*)$/', '22@$1'],
+                ],
+            ],
+        ];
+        $qb = new QueryBuilder($specs);
+        $query = new QueryGroup(
+            'AND',
+            [ new Query('some-coded-value', 'test') ]
+        );
+        $response = $qb->build($query);
+        $processedQ = $response->get('q');
+        $this->assertEquals(1, preg_match('/\}22@some-coded-value"/', $processedQ[0]));
+        $this->assertEquals(0, preg_match('/\}22@22@some-coded-value"/', $processedQ[0]));
     }
 }

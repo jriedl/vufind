@@ -3,7 +3,7 @@
 /**
  * SOLR optimize document class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,15 +17,17 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Solr\Document;
 
 use XMLWriter;
@@ -33,58 +35,57 @@ use XMLWriter;
 /**
  * SOLR optimize document class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class OptimizeDocument extends AbstractDocument
+class OptimizeDocument implements DocumentInterface
 {
     /**
      * Value for waitFlush attribute
      *
-     * @var boolean
+     * @var ?bool
      */
     protected $waitFlush;
 
     /**
      * Value for waitSearch attribute
      *
-     * @var boolean
+     * @var ?bool
      */
     protected $waitSearcher;
 
     /**
      * Constructor.
      *
-     * @param bool $waitFlush    waitFlush attribute value
-     * @param bool $waitSearcher waitSearcher attribute value
-     *
-     * @return void
+     * @param ?bool $waitFlush    waitFlush attribute value
+     * @param ?bool $waitSearcher waitSearcher attribute value
      */
-    public function __construct($waitFlush = null, $waitSearcher = null)
+    public function __construct(?bool $waitFlush = null, ?bool $waitSearcher = null)
     {
         $this->waitFlush    = $waitFlush;
         $this->waitSearcher = $waitSearcher;
     }
 
     /**
-     * Return serialized JSON representation.
+     * Return content MIME type.
      *
      * @return string
      */
-    public function asJSON()
+    public function getContentType(): string
     {
-        // @todo Implement
+        return 'text/xml; charset=UTF-8';
     }
 
     /**
-     * Return serialized XML representation.
+     * Return serialized representation.
      *
      * @return string
      */
-    public function asXML()
+    public function getContent(): string
     {
         $writer = new XMLWriter();
         $writer->openMemory();
@@ -92,17 +93,18 @@ class OptimizeDocument extends AbstractDocument
         $writer->startElement('optimize');
         if ($this->waitFlush !== null) {
             $writer->writeAttribute(
-                'waitFlush', $this->waitFlush ? 'true' : 'false'
+                'waitFlush',
+                $this->waitFlush ? 'true' : 'false'
             );
         }
         if ($this->waitSearcher !== null) {
             $writer->writeAttribute(
-                'waitSearcher', $this->waitSearcher ? 'true' : 'false'
+                'waitSearcher',
+                $this->waitSearcher ? 'true' : 'false'
             );
         }
         $writer->endElement();
         $writer->endDocument();
         return $writer->flush();
     }
-
 }

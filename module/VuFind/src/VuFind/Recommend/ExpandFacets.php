@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ExpandFacets Module Controller
  *
- * PHP Version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA    02111-1307    USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Mark Triggs <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Recommend;
 
 /**
  * Recommendation class to expand recommendation interfaces
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class ExpandFacets implements RecommendInterface
 {
@@ -60,31 +62,16 @@ class ExpandFacets implements RecommendInterface
     protected $searchObject;
 
     /**
-     * Configuration loader
-     *
-     * @var \VuFind\Config\PluginManager
-     */
-    protected $configLoader;
-
-    /**
-     * Empty result set (used by the template as the basis for URL generation)
-     *
-     * @var \VuFind\Search\Solr\Results
-     */
-    protected $emptyResults;
-
-    /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Configuration loader
-     * @param \VuFind\Search\Solr\Results  $emptyResults Empty result set (used
+     * @param \VuFind\Config\ConfigManagerInterface $configManager Configuration manager
+     * @param \VuFind\Search\Solr\Results           $emptyResults  Empty result set (used
      * by the template as the basis for URL generation)
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader,
-        \VuFind\Search\Solr\Results $emptyResults
+    public function __construct(
+        protected \VuFind\Config\ConfigManagerInterface $configManager,
+        protected \VuFind\Search\Solr\Results $emptyResults
     ) {
-        $this->configLoader = $configLoader;
-        $this->emptyResults = $emptyResults;
     }
 
     /**
@@ -102,24 +89,24 @@ class ExpandFacets implements RecommendInterface
         // Parse the additional settings:
         $settings = explode(':', $settings);
         $mainSection = empty($settings[0]) ? 'Results' : $settings[0];
-        $iniName = isset($settings[1]) ? $settings[1] : 'facets';
+        $iniName = $settings[1] ?? 'facets';
 
         // Load the desired facet information...
-        $config = $this->configLoader->get($iniName);
+        $config = $this->configManager->getConfigArray($iniName);
 
         // All standard facets to display:
-        $this->facets = isset($config->$mainSection) ?
-            $config->$mainSection->toArray() : [];
+        $this->facets = $config[$mainSection] ?? [];
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -133,7 +120,7 @@ class ExpandFacets implements RecommendInterface
     }
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *

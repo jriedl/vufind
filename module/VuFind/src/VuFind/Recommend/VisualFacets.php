@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VisualFacets Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Julia Bauder 2014.
  *
@@ -16,16 +17,19 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
+
+use function is_callable;
 
 /**
  * VisualFacets Recommendations Module
@@ -36,11 +40,11 @@ namespace VuFind\Recommend;
  * It must be used in combination with a template file including the necessary
  * Javascript in order to display the visualization to the user.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
 class VisualFacets extends AbstractFacets
 {
@@ -66,22 +70,23 @@ class VisualFacets extends AbstractFacets
     {
         $settings = explode(':', $settings);
         $mainSection = empty($settings[0]) ? 'Visual_Settings' : $settings[0];
-        $iniName = isset($settings[1]) ? $settings[1] : 'facets';
+        $iniName = $settings[1] ?? 'facets';
 
         // Load the desired facet information:
-        $config = $this->configLoader->get($iniName);
-        $this->facets = isset($config->$mainSection->visual_facets)
-            ? $config->$mainSection->visual_facets : 'callnumber-first,topic_facet';
+        $config = $this->configManager->getConfigArray($iniName);
+        $this->facets = $config[$mainSection]['visual_facets']
+            ?? 'callnumber-first,topic_facet';
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void

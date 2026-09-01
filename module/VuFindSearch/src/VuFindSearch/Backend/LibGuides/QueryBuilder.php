@@ -3,7 +3,7 @@
 /**
  * LibGuides QueryBuilder.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,59 +17,85 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Chelsea Lobdell <clobdel1@swarthmore.edu>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\LibGuides;
 
-use VuFindSearch\Query\AbstractQuery;
-use VuFindSearch\Query\QueryGroup;
-use VuFindSearch\Query\Query;
-
 use VuFindSearch\ParamBag;
+use VuFindSearch\Query\AbstractQuery;
+use VuFindSearch\Query\Query;
+use VuFindSearch\Query\QueryGroup;
 
 /**
  * LibGuides QueryBuilder.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Chelsea Lobdell <clobdel1@swarthmore.edu>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class QueryBuilder
 {
+    /**
+     * LibGuides widget type
+     *
+     * 1 = Research Guides
+     * 2 = Database A-Z List
+     *
+     * @var string
+     */
+    protected $widgetType = '1';
+
     /// Public API
 
     /**
      * Return LibGuides search parameters based on a user query and params.
      *
-     * @param AbstractQuery $query User query
+     * @param AbstractQuery $query  User query
+     * @param ?ParamBag     $params Search backend parameters
      *
      * @return ParamBag
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function build(AbstractQuery $query)
+    public function build(AbstractQuery $query, ?ParamBag $params = null)
     {
         // Send back results
-        $params = new ParamBag();
+        $newParams = new ParamBag();
 
         // Convert the query to an array, then flatten that to a string
         // (right now, we're ignoring a lot of data -- we may want to
         // revisit this and see if more detail can be utilized).
         $array = $this->abstractQueryToArray($query);
         if (isset($array[0]['lookfor'])) {
-            $params->set('search', $array[0]['lookfor']);
+            $newParams->set('search', $array[0]['lookfor']);
         }
+        $newParams->set('widget_type', $this->widgetType);
 
-        return $params;
+        return $newParams;
+    }
+
+    /**
+     * Set the widget type for this QueryBuilder instance.  See $widgetType.
+     *
+     * @param string $type Widget type
+     *
+     * @return void
+     */
+    public function setDefaultWidgetType($type)
+    {
+        $this->widgetType = $type;
     }
 
     /// Internal API

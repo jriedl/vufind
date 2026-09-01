@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Google cover content loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,52 +17,42 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content\Covers;
+
+use Psr\Http\Message\ResponseInterface;
+use VuFind\Exception\HttpDownloadException;
+use VuFindCode\ISBN;
 
 /**
  * Google cover content loader.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class Google extends \VuFind\Content\AbstractCover
-    implements \VuFindHttp\HttpServiceAwareInterface
+class Google extends \VuFind\Content\AbstractCover implements \VuFind\Http\CachingDownloaderAwareInterface
 {
-    use \VuFindHttp\HttpServiceAwareTrait;
+    use \VuFind\Http\CachingDownloaderAwareTrait;
 
     /**
      * Constructor
      */
     public function __construct()
     {
-        $this->supportsIsbn = true;
-    }
-
-    /**
-     * Get an HTTP client
-     *
-     * @param string $url URL for client to use
-     *
-     * @return \Zend\Http\Client
-     */
-    protected function getHttpClient($url)
-    {
-        if (null === $this->httpService) {
-            throw new \Exception('HTTP service missing.');
-        }
-        return $this->httpService->createClient($url);
+        $this->supportsIsbn = $this->supportsOclc = true;
+        $this->cacheOptionsSection = 'GoogleCover';
     }
 
     /**
@@ -72,57 +63,81 @@ class Google extends \VuFind\Content\AbstractCover
      * @param array  $ids  Associative array of identifiers (keys may include 'isbn'
      * pointing to an ISBN object and 'issn' pointing to a string)
      *
-     * @return string|bool
+     * @return string|bool URL of the image, or false if no valid image is found
      *
      * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
     public function getUrl($key, $size, $ids)
     {
-        // Don't bother trying if we can't read JSON:
-        if (!is_callable('json_decode')) {
+        // Get an array of ISBNs; note that (array) casting won't have the desired
+        // effect here, so we need to explicitly check for ISBN objects:
+        $isbns = $ids['isbns'] ?? $ids['isbn'] ?? [];
+        $isbns = $isbns instanceof ISBN ? [$isbns] : $isbns;
+
+        // Initialize the identifiers list from our ISBNs; add OCLC number if available:
+        $identifiers = array_map(fn ($isbn) => "ISBN:{$isbn->get13()}", $isbns);
+        if (isset($ids['oclc'])) {
+            $identifiers[] = "OCLC:{$ids['oclc']}";
+        }
+
+        if (empty($identifiers)) {
             return false;
         }
-        if (!isset($ids['isbn'])) {
-            return false;
-        }
-        $isbn = $ids['isbn']->get13();
 
-        // Construct the request URL:
-        $url = 'http://books.google.com/books?jscmd=viewapi&' .
-               'bibkeys=ISBN:' . $isbn . '&callback=addTheCover';
+        // Construct the request URL and make the HTTP request, using a single URL with all identifiers
+        $url = 'https://books.google.com/books?jscmd=viewapi&bibkeys='
+            . urlencode(implode(',', $identifiers)) . '&callback=addTheCover';
 
-        // Make the HTTP request:
-        $result = $this->getHttpClient($url)->send();
-
-        // Was the request successful?
-        if ($result->isSuccess()) {
-            // grab the response:
-            $json = $result->getBody();
-
-            // extract the useful JSON from the response:
-            $count = preg_match('/^[^{]*({.*})[^}]*$/', $json, $matches);
-            if ($count < 1) {
-                return false;
+        $decodeCallback = function (ResponseInterface $response, string $url) {
+            $body = $response->getBody()->getContents();
+            if (
+                !preg_match(
+                    '/^[^{]*({.*})[^}]*$/',
+                    $body,
+                    $matches
+                )
+            ) {
+                throw new HttpDownloadException(
+                    'Invalid response body (raw)',
+                    $url,
+                    $response->getStatusCode(),
+                    $response->getHeaders(),
+                    $body
+                );
             }
-            $json = $matches[1];
 
             // convert \x26 or \u0026 to &
-            $json = str_replace(["\\x26", "\\u0026"], "&", $json);
+            $json = json_decode(
+                str_replace(['\\x26', '\\u0026'], '&', $matches[1]),
+                true
+            );
 
-            // decode the object:
-            $json = json_decode($json, true);
-
-            // convert a flat object to an array -- probably unnecessary, but
-            // retained just in case the response format changes:
-            if (isset($json['thumbnail_url'])) {
-                $json = [$json];
+            if ($json === null) {
+                throw new HttpDownloadException(
+                    'Invalid response body (json)',
+                    $url,
+                    $response->getStatusCode(),
+                    $response->getHeaders(),
+                    $body
+                );
             }
 
-            // find the first thumbnail URL and process it:
-            foreach ($json as $current) {
-                if (isset($current['thumbnail_url'])) {
-                    return $current['thumbnail_url'];
+            return $json;
+        };
+
+        if (!isset($this->cachingDownloader)) {
+            throw new \Exception('CachingDownloader initialization failed.');
+        }
+
+        $json = $this->cachingDownloader->download($url, [], $decodeCallback);
+        // find the first thumbnail URL and process it:
+        foreach ((array)$json as $current) {
+            if (isset($current['thumbnail_url'])) {
+                $imageUrl = $current['thumbnail_url'];
+                if ($size == 'medium' || $size == 'large') {
+                    $imageUrl = str_replace('zoom=5', 'zoom=1', $imageUrl);
                 }
+                return $imageUrl;
             }
         }
         return false;

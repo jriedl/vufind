@@ -9,14 +9,14 @@
   </xsl:template>
 
   <xsl:template match="marc:record">
-      <table class="citation table table-striped">
+      <table class="staff-view--marc table table-striped">
         <tr class="pace-car">
-          <th width="15%"/>
-          <td width="5%"/>
-          <td width="5%"/>
-          <td width="*"/>
+          <th class="marc__tag"/>
+          <td class="marc__ind"/>
+          <td class="marc__ind"/>
+          <td class="marc__field"/>
         </tr>
-        <tr>
+        <tr class="marc-row-LEADER">
           <th>LEADER</th>
           <td colspan="3"><xsl:value-of select="//marc:leader"/></td>
         </tr>
@@ -25,8 +25,8 @@
   </xsl:template>
 
   <xsl:template match="//marc:controlfield">
-      <tr>
-        <th>
+      <tr class="marc-row-{@tag}">
+        <th class="marc__tag">
           <xsl:value-of select="@tag"/>
         </th>
         <td colspan="3"><xsl:value-of select="."/></td>
@@ -34,13 +34,13 @@
   </xsl:template>
 
   <xsl:template match="//marc:datafield">
-      <tr>
-        <th>
+      <tr class="marc-row-{@tag}">
+        <th class="marc__tag">
           <xsl:value-of select="@tag"/>
         </th>
-        <td><xsl:value-of select="@ind1"/></td>
-        <td><xsl:value-of select="@ind2"/></td>
-        <td>
+        <td class="marc__ind"><xsl:value-of select="@ind1"/></td>
+        <td class="marc__ind"><xsl:value-of select="@ind2"/></td>
+        <td class="marc__field">
           <xsl:apply-templates select="marc:subfield"/>
         </td>
       </tr>

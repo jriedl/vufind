@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Author aspect of the Search Multi-class (Results)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,42 +17,39 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\SolrAuthor;
+
 use VuFind\Search\Solr\Results as SolrResults;
 
 /**
  * Author Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Results extends SolrResults
 {
     /**
-     * Constructor
+     * Options for UrlQueryHelper
      *
-     * @param \VuFind\Search\Base\Params $params Object representing user search
-     * parameters.
+     * @return array
      */
-    public function __construct($params)
+    protected function getUrlQueryHelperOptions()
     {
-        // Call parent constructor:
-        parent::__construct($params);
-
-        // Set up URL helper to use appropriate search parameter:
-        $this->getUrlQuery()->setBasicSearchParam('author');
+        return ['basicSearchParam' => 'author'];
     }
 
     /**

@@ -3,7 +3,7 @@
 /**
  * HTTP error exception.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,29 +17,29 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Exception;
 
-use Zend\Http\Response;
-
 use Exception;
+use Laminas\Http\Response;
 
 /**
  * HTTP error exception.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 abstract class HttpErrorException extends BackendException
 {
@@ -66,11 +66,15 @@ abstract class HttpErrorException extends BackendException
         $phrase = $response->getReasonPhrase();
         if ($status >= 500) {
             return new RemoteErrorException(
-                $status . ' ' . $phrase, $status, $response
+                $status . ' ' . $phrase,
+                $status,
+                $response
             );
         } else {
             return new RequestErrorException(
-                $status . ' ' . $phrase, $status, $response
+                $status . ' ' . $phrase,
+                $status,
+                $response
             );
         }
     }
@@ -78,15 +82,18 @@ abstract class HttpErrorException extends BackendException
     /**
      * Constructor.
      *
-     * @param string    $message  Exception message
-     * @param int       $code     Exception code
-     * @param Response  $response Server response
-     * @param Exception $prev     Previous exception
+     * @param string     $message  Exception message
+     * @param int        $code     Exception code
+     * @param Response   $response Server response
+     * @param ?Exception $prev     Previous exception
      *
      * @return void
      */
-    public function __construct($message, $code, Response $response,
-        Exception $prev = null
+    public function __construct(
+        $message,
+        $code,
+        Response $response,
+        ?Exception $prev = null
     ) {
         parent::__construct($message, $code, $prev);
         $this->response = $response;

@@ -1,10 +1,11 @@
 <?php
+
 /**
  * SRU Search Interface
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Andrew Nagy 2008.
+ * Copyright (C) Villanova University 2024.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,34 +17,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SRU
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
+ * @author   Maccabee Levine <msl321@lehigh.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFindSearch\Backend\SRU;
 
-use VuFindSearch\Backend\Exception\HttpErrorException;
-use VuFindSearch\Backend\Exception\BackendException;
-
 use VuFind\XSLT\Processor as XSLTProcessor;
+use VuFindSearch\Backend\Exception\BackendException;
+use VuFindSearch\Backend\Exception\HttpErrorException;
+
+use function is_array;
+use function sprintf;
 
 /**
  * SRU Search Interface
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SRU
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
+ * @author   Maccabee Levine <msl321@lehigh.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class Connector implements \Zend\Log\LoggerAwareInterface
+class Connector implements \Psr\Log\LoggerAwareInterface
 {
     use \VuFind\Log\LoggerAwareTrait;
+    use \VuFindSearch\Backend\Feature\ConnectorCacheTrait;
 
     /**
      * Whether to Serialize to a PHP Array or not.
@@ -55,7 +62,7 @@ class Connector implements \Zend\Log\LoggerAwareInterface
     /**
      * The HTTP_Request object used for REST transactions
      *
-     * @var \Zend\Http\Client
+     * @var \Laminas\Http\Client
      */
     protected $client;
 
@@ -78,10 +85,10 @@ class Connector implements \Zend\Log\LoggerAwareInterface
      *
      * Sets up the SOAP Client
      *
-     * @param string            $host   The URL of the SRU Server
-     * @param \Zend\Http\Client $client An HTTP client object
+     * @param string               $host   The URL of the SRU Server
+     * @param \Laminas\Http\Client $client An HTTP client object
      */
-    public function __construct($host, \Zend\Http\Client $client)
+    public function __construct($host, \Laminas\Http\Client $client)
     {
         // Initialize properties needed for HTTP connection:
         $this->host = $host;
@@ -110,7 +117,7 @@ class Connector implements \Zend\Log\LoggerAwareInterface
                          'startRecord' => 1,
                          'recordSchema' => 'marcxml'];
 
-        $this->debug('More Like This Query: ' . print_r($query, true));
+        $this->debug('More Like This Query: ' . $query);
 
         return $this->call('GET', $options);
     }
@@ -128,10 +135,10 @@ class Connector implements \Zend\Log\LoggerAwareInterface
     {
         $options = ['operation' => 'scan',
                          'scanClause' => $clause];
-        if (!is_null($pos)) {
+        if (null !== $pos) {
             $options['responsePosition'] = $pos;
         }
-        if (!is_null($maxTerms)) {
+        if (null !== $maxTerms) {
             $options['maximumTerms'] = $maxTerms;
         }
 
@@ -150,21 +157,26 @@ class Connector implements \Zend\Log\LoggerAwareInterface
      *
      * @return array          An array of query results
      */
-    public function sruSearch($query, $start = 1, $limit = null, $sortBy = null,
-        $schema = 'marcxml', $process = true
+    public function sruSearch(
+        $query,
+        $start = 1,
+        $limit = null,
+        $sortBy = null,
+        $schema = 'marcxml',
+        $process = true
     ) {
-        $this->debug('Query: ' . print_r($query, true));
+        $this->debug('Query: ' . $query);
 
         // Query String Parameters
         $options = ['operation' => 'searchRetrieve',
                          'query' => $query,
                          'startRecord' => ($start) ? $start : 1,
                          'recordSchema' => $schema];
-        if (!is_null($limit)) {
+        if (null !== $limit) {
             $options['maximumRecords'] = $limit;
         }
-        if (!is_null($sortBy)) {
-            $options['sortKeys'] = $sortBy;
+        if (null !== $sortBy) {
+            $options['query'] .= " sortBy {$sortBy}";
         }
 
         return $this->call('GET', $options, $process);
@@ -173,7 +185,7 @@ class Connector implements \Zend\Log\LoggerAwareInterface
     /**
      * Check for HTTP errors in a response.
      *
-     * @param \Zend\Http\Response $result The response to check.
+     * @param \Laminas\Http\Response $result The response to check.
      *
      * @throws BackendException
      * @return void
@@ -186,16 +198,37 @@ class Connector implements \Zend\Log\LoggerAwareInterface
     }
 
     /**
+     * Check for SRU Diagnostics error in a response.
+     * See https://www.loc.gov/standards/sru/diagnostics/diagnosticsList.html
+     *
+     * @param string $resultBody The response body to check.
+     *
+     * @throws BackendException
+     * @return void
+     */
+    public function checkForSRUDiagnosticsError($resultBody)
+    {
+        if (str_contains($resultBody, 'info:srw/diagnostic')) {
+            $xmlDoc = simplexml_load_string($resultBody);
+            throw new BackendException(
+                "Diagnostic error {$xmlDoc?->diagnostic?->uri} from SRU backend: {$xmlDoc?->diagnostic?->message}"
+            );
+        }
+    }
+
+    /**
      * Submit REST Request
      *
      * @param string $method  HTTP Method to use: GET or POST
+     * @param string $path    URL path following $this->host
      * @param array  $params  An array of parameters for the request
      * @param bool   $process Should we convert the MARCXML?
      *
      * @return string|SimpleXMLElement The response from the XServer
      */
-    protected function call($method = 'GET', $params = null, $process = true)
+    protected function call($method = 'GET', $path = '', $params = null, $process = true)
     {
+        $queryString = '';
         if ($params) {
             $query = ['version=' . $this->sruVersion];
             foreach ($params as $function => $value) {
@@ -212,20 +245,40 @@ class Connector implements \Zend\Log\LoggerAwareInterface
             $queryString = implode('&', $query);
         }
 
-        $this->debug('Connect: ' . print_r($this->host . '?' . $queryString, true));
+        $url = $this->host . $path . '?' . $queryString;
+        $this->debug('Connect: ' . $url);
 
         // Send Request
         $this->client->resetParameters();
-        $this->client->setUri($this->host . '?' . $queryString);
-        $result = $this->client->setMethod($method)->send();
-        $this->checkForHttpError($result);
+        $this->client->setUri($url);
+
+        // Check cache:
+        $cacheKey = null;
+        $resultBody = null;
+        if ($this->cache) {
+            $cacheKey = $this->getCacheKey($this->client);
+            $resultBody = $this->getCachedData($cacheKey);
+        }
+
+        if (!$resultBody) {
+            $result = $this->client->setMethod($method)->send();
+            $this->checkForHttpError($result);
+            $resultBody = $result->getBody();
+            $this->checkForSRUDiagnosticsError($resultBody);
+            if ($cacheKey) {
+                $this->putCachedData($cacheKey, $resultBody);
+            }
+        }
 
         // Return processed or unprocessed response, as appropriate:
-        return $process ? $this->process($result->getBody()) : $result->getBody();
+        if ($process) {
+            $resultBody = $this->process($resultBody);
+        }
+        return $resultBody;
     }
 
     /**
-     * Process an SRU response.  Returns either the raw XML string or a
+     * Process an SRU response. Returns either the raw XML string or a
      * SimpleXMLElement based on the contents of the class' raw property.
      *
      * @param string $response SRU response
@@ -235,7 +288,7 @@ class Connector implements \Zend\Log\LoggerAwareInterface
     protected function process($response)
     {
         // Send back either the raw XML or a SimpleXML object, as requested:
-        $result = XSLTProcessor::process('sru-convert.xsl', $response);
+        $result = XSLTProcessor::process('sru-convert-simple.xsl', $response);
         if (!$result) {
             throw new BackendException(
                 sprintf('Error processing SRU response: %20s', $response)

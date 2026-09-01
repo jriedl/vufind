@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ResultFeed Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,39 +17,47 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Integration\View\Helper\Root;
+
 use VuFind\View\Helper\Root\ResultFeed;
 
 /**
  * ResultFeed Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ResultFeedTest extends \VuFindTest\Unit\ViewHelperTestCase
+class ResultFeedTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\LiveDetectionTrait;
+    use \VuFindTest\Feature\LiveSolrTrait;
+    use \VuFindTest\Feature\ViewTrait;
+    use \VuFindTest\Feature\TranslatorTrait;
+
     /**
      * Standard setup method.
      *
      * @return void
      */
-    public function setUp()
+    public function setUp(): void
     {
         // Give up if we're not running in CI:
         if (!$this->continuousIntegrationRunning()) {
-            return $this->markTestSkipped('Continuous integration not running.');
+            $this->markTestSkipped('Continuous integration not running.');
+            return;
         }
     }
 
@@ -57,58 +66,85 @@ class ResultFeedTest extends \VuFindTest\Unit\ViewHelperTestCase
      *
      * @return array
      */
-    protected function getPlugins()
+    protected function getPlugins(): array
     {
-        $currentPath = $this->getMock('VuFind\View\Helper\Root\CurrentPath');
-        $currentPath->expects($this->any())->method('__invoke')
-            ->will($this->returnValue('/test/path'));
+        $currentPath = $this->createMock(\VuFind\View\Helper\Root\CurrentPath::class);
+        $currentPath->expects($this->any())->method('__invoke')->willReturn('/test/path');
 
-        $recordLink = $this->getMock(
-            'VuFind\View\Helper\Root\RecordLink', [],
-            [new \VuFind\Record\Router(
-                $this->getServiceManager()->get('VuFind\RecordLoader'),
-                new \Zend\Config\Config([])
-            )
-            ]
-        );
-        $recordLink->expects($this->any())->method('getUrl')
-            ->will($this->returnValue('test/url'));
+        $record = $this->createMock(\VuFind\View\Helper\Root\Record::class);
+        $record->method('__invoke')->willReturn($record);
+        $record->method('getLinkDetails')->willReturn([['url' => 'http://driver-url']]);
 
-        $serverUrl = $this->getMock('Zend\View\Helper\ServerUrl');
-        $serverUrl->expects($this->any())->method('__invoke')
-            ->will($this->returnValue('http://server/url'));
+        $recordLinker = $this->getMockBuilder(\VuFind\View\Helper\Root\RecordLinker::class)
+            ->setConstructorArgs(
+                [
+                    new \VuFind\Record\Router(
+                        new \VuFind\Config\Config([])
+                    ),
+                ]
+            )->getMock();
+        $recordLinker->expects($this->any())->method('getUrl')->willReturn('test/url');
 
+        $serverUrl = $this->createMock(\Laminas\View\Helper\ServerUrl::class);
+        $serverUrl->expects($this->any())->method('__invoke')->willReturn('http://server/url');
+
+        return compact('currentPath', 'record', 'recordLinker') + ['serverurl' => $serverUrl];
+    }
+
+    /**
+     * Data provider for testRSS.
+     *
+     * @return array[]
+     */
+    public static function rssProvider(): array
+    {
+        $routeLink = 'http://server/url';
+        $driverLink = 'http://driver-url';
         return [
-            'currentpath' => $currentPath,
-            'recordlink' => $recordLink,
-            'serverurl' => $serverUrl
+            'default options' => [[], $routeLink],
+            'prioritizeRecordDriverLinks = false' => [['prioritizeRecordDriverLinks' => false], $routeLink],
+            'prioritizeRecordDriverLinks = true' => [['prioritizeRecordDriverLinks' => true], $driverLink],
         ];
     }
 
     /**
      * Test feed generation
      *
+     * @param array  $options      Options to pass to the ResultFeed object.
+     * @param string $expectedLink The link URL we expect to find in the first result in the feed.
+     *
      * @return void
      */
-    public function testRSS()
+    #[\PHPUnit\Framework\Attributes\DataProvider('rssProvider')]
+    public function testRSS(array $options, string $expectedLink): void
     {
         // Set up a request -- we'll sort by title to ensure a predictable order
         // for the result list (relevance or last_indexed may lead to unstable test
         // cases).
-        $request = new \Zend\Stdlib\Parameters();
+        $request = new \Laminas\Stdlib\Parameters();
         $request->set('lookfor', 'id:testbug2 OR id:testsample1');
         $request->set('skip_rss_sort', 1);
         $request->set('sort', 'title');
         $request->set('view', 'rss');
 
-        $results = $this->getServiceManager()
-            ->get('VuFind\SearchResultsPluginManager')->get('Solr');
+        $results = $this->getResultsObject();
         $results->getParams()->initFromRequest($request);
 
-        $helper = new ResultFeed();
+        $helper = new ResultFeed($options);
+        $helper->registerExtensions(new \VuFindTest\Container\MockContainer($this));
+        $translator = $this->getMockTranslator(
+            [
+                'default' => [
+                    'Results for' => 'Results for',
+                    'showing_results_of_html' => 'Showing <strong>%%start%% - %%end%%'
+                        . '</strong> results of <strong>%%total%%</strong>',
+                ],
+            ]
+        );
+        $helper->setTranslator($translator);
         $helper->setView($this->getPhpRenderer($this->getPlugins()));
-        $feed = $helper->__invoke($results, '/test/path');
-        $this->assertTrue(is_object($feed));
+        $feed = $helper($results, '/test/path');
+        $this->assertIsObject($feed);
         $rss = $feed->export('rss');
 
         // Make sure it's really an RSS feed:
@@ -117,10 +153,14 @@ class ResultFeedTest extends \VuFindTest\Unit\ViewHelperTestCase
         // Make sure custom Dublin Core elements are present:
         $this->assertTrue(strstr($rss, 'dc:format') !== false);
 
+        // Make sure custom Atom link elements are present:
+        $this->assertTrue(strstr($rss, 'atom:link') !== false);
+
         // Now re-parse it and check for some expected values:
-        $parsedFeed = \Zend\Feed\Reader\Reader::importString($rss);
+        $parsedFeed = \Laminas\Feed\Reader\Reader::importString($rss);
         $this->assertEquals(
-            'Showing 1-2 of 2', $parsedFeed->getDescription()
+            'Showing 1 - 2 results of 2',
+            $parsedFeed->getDescription()
         );
         $items = [];
         $i = 0;
@@ -132,5 +172,6 @@ class ResultFeedTest extends \VuFindTest\Unit\ViewHelperTestCase
             . 'the journal of the Institute for Rational-Emotive Therapy.',
             $items[1]->getTitle()
         );
+        $this->assertEquals($expectedLink, $items[1]->getLink());
     }
 }

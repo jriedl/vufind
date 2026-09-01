@@ -3,7 +3,7 @@
 /**
  * Conditional Filter listener.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,31 +17,34 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Oliver Goldschmidt <o.goldschmidt@tuhh.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\Solr;
 
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\EventManager\EventInterface;
+use Laminas\EventManager\EventInterface;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Lmc\Rbac\Mvc\Service\AuthorizationServiceAwareTrait;
+use VuFindSearch\Backend\BackendInterface;
+use VuFindSearch\Service;
 
-use ZfcRbac\Service\AuthorizationServiceAwareInterface,
-    ZfcRbac\Service\AuthorizationServiceAwareTrait;
+use function is_array;
 
 /**
  * Conditional Filter listener.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Oliver Goldschmidt <o.goldschmidt@tuhh.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class InjectConditionalFilterListener
 {
@@ -64,11 +67,12 @@ class InjectConditionalFilterListener
     /**
      * Constructor.
      *
-     * @param array $searchConf Search configuration parameters
+     * @param BackendInterface $backend    Backend
+     * @param array            $searchConf Search configuration parameters
      *
      * @return void
      */
-    public function __construct($searchConf)
+    public function __construct(protected BackendInterface $backend, $searchConf)
     {
         $this->filters = $searchConf;
         $this->filterList = [];
@@ -83,7 +87,11 @@ class InjectConditionalFilterListener
      */
     public function attach(SharedEventManagerInterface $manager)
     {
-        $manager->attach('VuFind\Search', 'pre', [$this, 'onSearchPre']);
+        $manager->attach(
+            Service::class,
+            Service::EVENT_PRE,
+            [$this, 'onSearchPre']
+        );
     }
 
     /**
@@ -107,7 +115,7 @@ class InjectConditionalFilterListener
 
         // if the filter condition starts with a minus (-), it should not match
         // to get the filter applied
-        if (substr($filterCondition, 0, 1) == '-') {
+        if (str_starts_with($filterCondition, '-')) {
             if (!$authService->isGranted(substr($filterCondition, 1))) {
                 $this->filterList[] = $filter;
             }
@@ -128,12 +136,17 @@ class InjectConditionalFilterListener
      */
     public function onSearchPre(EventInterface $event)
     {
+        $command = $event->getParam('command');
+        if ($command->getTargetIdentifier() !== $this->backend->getIdentifier()) {
+            return $event;
+        }
+
         // Add conditional filters
         foreach ($this->filters as $fc) {
             $this->addConditionalFilter($fc);
         }
 
-        $params = $event->getParam('params');
+        $params = $command->getSearchParameters();
         $fq = $params->get('fq');
         if (!is_array($fq)) {
             $fq = [];
@@ -143,5 +156,4 @@ class InjectConditionalFilterListener
 
         return $event;
     }
-
 }

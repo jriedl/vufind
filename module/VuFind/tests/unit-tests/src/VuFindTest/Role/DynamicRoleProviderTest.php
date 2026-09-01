@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Dynamic Role Provider Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Role;
-use VuFind\Role\DynamicRoleProvider, VuFind\Role\PermissionProvider\PluginManager;
+
+use VuFind\Role\DynamicRoleProvider;
+use VuFind\Role\PermissionProvider\PluginManager;
 
 /**
  * Dynamic Role Provider Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class DynamicRoleProviderTest extends \VuFindTest\Unit\TestCase
+class DynamicRoleProviderTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test that configurations get processed correctly
@@ -65,11 +69,23 @@ class DynamicRoleProviderTest extends \VuFindTest\Unit\TestCase
             ],
         ];
         $pm = $this->getFakePluginManager();
-        $pm->get('a')->expects($this->any())->method('getPermissions')->with($this->equalTo('foo'))->will($this->returnValue([]));
-        $pm->get('b')->expects($this->any())->method('getPermissions')->with($this->equalTo('bar'))->will($this->returnValue(['role']));
-        $pm->get('c')->expects($this->any())->method('getPermissions')->with($this->equalTo([1, 2, 3]))->will($this->returnValue(['role']));
+        $pm->get('a')
+            ->expects($this->any())
+            ->method('getPermissions')
+            ->with($this->equalTo('foo'))
+            ->willReturn([]);
+        $pm->get('b')
+            ->expects($this->any())
+            ->method('getPermissions')
+            ->with($this->equalTo('bar'))
+            ->willReturn(['role']);
+        $pm->get('c')
+            ->expects($this->any())
+            ->method('getPermissions')
+            ->with($this->equalTo([1, 2, 3]))
+            ->willReturn(['role']);
         $result = $this->getDynamicRoleProvider($pm, $config)->getRoles(['role']);
-        $this->assertEquals(1, count($result));
+        $this->assertCount(1, $result);
         $this->assertEquals('role', $result[0]->getName());
         $this->assertTrue($result[0]->hasPermission('perm1'));
         $this->assertFalse($result[0]->hasPermission('perm2'));
@@ -99,9 +115,12 @@ class DynamicRoleProviderTest extends \VuFindTest\Unit\TestCase
      */
     protected function getFakePluginManager()
     {
-        $pm = new PluginManager();
+        $pm = new PluginManager(new \VuFindTest\Container\MockContainer($this));
         foreach (['a', 'b', 'c'] as $name) {
-            $pm->setService($name, $this->getMock('VuFind\Role\PermissionProvider\PermissionProviderInterface'));
+            $pm->setService(
+                $name,
+                $this->createMock(\VuFind\Role\PermissionProvider\PermissionProviderInterface::class)
+            );
         }
         return $pm;
     }

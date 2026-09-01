@@ -1,0 +1,49 @@
+<?php if ($this->accountCapabilities()->getPublicationSetting() === 'enabled'): ?>
+<?php
+  $routeParams = $this->tuefind()->getRouteParams();
+  $recordId = $routeParams['id'];
+  $config = $this->tuefind()->getConfig('tuefind');
+  $publication = $this->tuefind()->getPublicationByControlNumber($recordId);
+  $authorsIds = $this->driver->getPrimaryAuthorsIds();
+  $secondaryAuthorsIds = $this->driver->getSecondaryAuthorsIds();
+  $corporateAuthorsIds = $this->driver->getCorporateAuthorsIds();
+  $primaryAndCorporateAuthorsIds = array_merge($authorsIds, $corporateAuthorsIds);
+  $showPublishButton = $this->tuefind()->getUserAccessPublishButton($primaryAndCorporateAuthorsIds);
+  $showSecondaryAuthorsButton = $this->tuefind()->showSecondaryAuthorsButton($secondaryAuthorsIds);
+
+  $showDspaceLink = false;
+  $showPublicationLink = false;
+  if (isset($publication)) {
+    $showPublicationLink = true;
+    $dspaceServer = $config->Publication->dspace_url_base;
+    if (!strpos($publication->getExternalDocumentId(), '/')) {
+      $dspaceLink = $dspaceServer."/items/".$publication->getExternalDocumentGuid();
+    } else {
+      $dspaceLink = $dspaceServer."/xmlui/handle/".$publication->getExternalDocumentId();
+    }
+  }
+?>
+  <li>
+    <?php if($showPublicationLink):?>
+      <a class="toolbar-btn" target="_blank" href="<?=$dspaceLink;?>">
+        <span class="icon icon--font fa fa-upload" role="img" aria-hidden="true"></span>
+        <span><?=$this->transEsc('publication_file_button')?></span>
+      </a>
+    <?php elseif($showPublishButton): ?>
+      <a class="toolbar-btn" href="<?=$this->url('myresearch-publish', ['record_id' => $recordId])?>">
+        <span class="icon icon--font fa fa-upload" role="img" aria-hidden="true"></span>
+        <span><?=$this->transEsc('publication_request_button')?></span>
+      </a>
+    <?php elseif($showSecondaryAuthorsButton):?>
+      <a class="toolbar-btn" data-lightbox href="<?=$this->url('help-home')?>?topic=publicationSecondaryAuthors" rel="nofollow">
+        <span class="icon icon--font fa fa-upload" role="img" aria-hidden="true"></span>
+        <span><?=$this->transEsc('publication_request_button')?></span>
+      </a>
+    <?php else: ?>
+      <a class="toolbar-btn" data-lightbox href="<?=$this->url('help-home')?>?topic=publication" rel="nofollow">
+        <span class="icon icon--font fa fa-upload" role="img" aria-hidden="true"></span>
+        <span><?=$this->transEsc('publication_request_button')?></span>
+      </a>
+    <?php endif; ?>
+  </li>
+<?php endif;?>

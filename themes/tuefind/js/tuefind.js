@@ -1,0 +1,1099 @@
+var TueFind = {
+    // helper function to add content anchors to content page links
+    AddContentAnchors: function() {
+        let current_anchor = null;
+        if (window.location.href.includes('#')) {
+            current_anchor = window.location.href.split('#').pop();
+        }
+
+        $('a').each(function() {
+            let href = $(this).attr('href');
+            if (href != undefined && !href.includes('#') && $(".not-anchor").length == 0) {
+                if (href.match(/\/Content\//) || href.match(/\?subpage=/)) {
+                    if (href.match(/[?&]lng=/)) {
+                        // when switching the language, we want to keep the current anchor
+                        if(current_anchor != null) {
+                            this.setAttribute('href', href + '#' + current_anchor);
+                        }
+                    } else {
+                        this.setAttribute('href', href + '#content');
+                    }
+                }
+            }
+        });
+    },
+
+    GetSearchboxSearchContext: function() {
+        if ($("#searchForm").length > 0)
+            return $("#searchForm").attr('action').replace(/\/(.*)\/Results/, "$1").toLowerCase();
+        else
+            return null;
+    },
+
+    AdjustSearchHandlers: function() {
+        // Make sure that a selection of the search handler is transparently adjusted for a potential reload
+        // i.e. when changing the sort order
+        let search_context = TueFind.GetSearchboxSearchContext();
+        if (search_context === null)
+            return;
+
+        let saved_search_handler = sessionStorage.getItem("tuefind_saved_search_handler_" + search_context);
+        if (saved_search_handler != null) {
+            $("#searchForm_type option:selected").removeAttr('selected');
+            $("#searchForm_type").val(saved_search_handler);
+            // We also have to set the handler explicitly adjusting the selection
+            $("#searchForm_type [value=" + saved_search_handler + "]").attr('selected', 'selected');
+            // Make sure the type is adjusted for the next form submission
+            $('[name=type]:not([data-type-protected="1"])').val(saved_search_handler);
+        }
+        $("#searchForm_type").on('focus', function () {
+            previous_search_handler = this.value;
+        }).change(function adjustSearchHandler(e) {
+            current_search_handler = $("#searchForm_type").val();
+            sessionStorage.setItem("tuefind_saved_search_handler_" + search_context, current_search_handler);
+            $("#searchForm_type [value=" + previous_search_handler + "]").removeAttr('selected');
+            $("#searchForm_type [value=" + current_search_handler + "]").attr('selected', 'selected');
+            $('[name=type]:not([data-type-protected="1"])').val(current_search_handler);
+        });
+    },
+
+    ResetSearchHandlers: function() {
+        sessionStorage.removeItem("tuefind_saved_search_handler_search");
+        sessionStorage.removeItem("tuefind_saved_search_handler_search2");
+    },
+
+    EscapeHTML: function(text) {
+        return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    },
+
+    FormatTextType: function(text_type, verbose, types) {
+        // Suppress type tagging in Item Search view if only one text type is active
+        if (verbose && !types.includes(','))
+            return '';
+        return '<span class="label label-primary pull-right snippet-text-type">' + text_type + '</span>';
+    },
+
+    FormatPageInformation: function(page) {
+        return '[' + page + ']';
+    },
+
+    ItemFulltextLink : function(doc_id, query, scope) {
+        return '<div class="text-right snippets-end-vspace"><a class="btn btn-warning btn-sm" href="' + VuFind.path + '/Record/' + doc_id + '?fulltextquery=' + encodeURIComponent(query)
+                                                                                 +'&fulltextscope=' + (scope ? encodeURIComponent(scope) : '')  + '#fulltextsearch">' +
+                 VuFind.translate('All Matches') + '</a></div><br/>';
+    },
+
+    GetNoMatchesMessage(doc_id) {
+        return '<div id="snippets_' + doc_id + '">' +  VuFind.translate('No Matches') + '</div>';
+    },
+
+    GetProxyErrorMessage(doc_id) {
+        return '<div id="snippets_' + doc_id + '" class="alert alert-danger">' +  VuFind.translate('Proxy Error') + '</div>';
+    },
+
+    GetFulltextSnippetItem: function(url, doc_id, query, verbose = false, synonyms = "", fulltext_types = "") {
+        var valid_synonym_terms = new RegExp('lang|all');
+        synonyms = synonyms.match(valid_synonym_terms) ? synonyms : false;
+        $.ajax({
+            type: "GET",
+            url: url + "fulltextsnippetproxy/load?search_query=" + query + "&doc_id=" + doc_id + (verbose ? "&verbose=1" : "")
+                                                                 + (synonyms ? "&synonyms=" + synonyms : "")
+                                                                 + (fulltext_types ? "&fulltext_types=" + fulltext_types : ""),
+            dataType: "json",
+            success: function (json) {
+                $(document).ready(function () {
+                    if (json.status === 'PROXY_ERROR') {
+                        if (verbose) {
+                             $("#snippets_" + doc_id).replaceWith(TueFind.GetProxyErrorMessage(doc_id));
+                        }
+                        $("#snippet_place_holder_" + doc_id).each(function () {
+                                $(this).replaceWith(TueFind.GetProxyErrorMessage(doc_id));
+                        });
+                        return;
+                    }
+                    var snippets = [];
+                    if (
+                            json &&
+                            json.snippets_collection &&
+                            json.snippets_collection[doc_id] &&
+                            json.snippets_collection[doc_id].snippets
+                        ) {
+                            snippets = json.snippets_collection[doc_id].snippets;
+                        }
+
+                    $("#snippet_place_holder_" + doc_id).each(function () {
+                        if (snippets)
+                            $(this).replaceWith('<div id="snippets_' + doc_id + '" class="snippet-div">' + snippets.join('<br/>') + '<br/></div>');
+                        else if (verbose)
+                            $(this).replaceWith(TueFind.GetNoMatchesMessage(doc_id));
+                        else
+                            $(this).replaceWith();
+                    });
+                    if (snippets)
+                        $(this).removeAttr('style');
+                    $("#snippets_" + doc_id).each(function () {
+                        if (snippets) {
+                            let styles = snippets.map(a => (a.hasOwnProperty('style') ? a.style : null )).filter(Boolean).join();
+                            $(styles).appendTo("head");
+                            let snippets_and_pages = snippets.map(a => a.snippet +
+                                                                 (a.hasOwnProperty('page') ? '<br/>' + TueFind.FormatPageInformation(a.page) : '') +
+                                                                 TueFind.FormatTextType(a.text_type, verbose, fulltext_types));
+                            $(this).html(snippets_and_pages.join('<hr class="snippet-separator"/>'));
+                        } else if (verbose)
+                            $(this).replaceWith(TueFind.GetNoMatchesMessage(doc_id));
+                        else
+                            $(this).html("");
+                    });
+                    $("[id^=snippets_] > p").each(function () {
+                                                      this.style.transform="none";
+                                                      // Try to fix erroneous snippets with huge font-sizes (c.f. tuefind/issues/3072)
+                                                      let currentFontValue = $(this).css('font-size');
+                                                      const [full, currentFontSize, unit] = currentFontValue.match(/(\d+(?:\.\d+)?)(.*)/);
+                                                      if (unit == 'px' && currentFontSize >= 50)
+                                                          $(this).css('font-size', '14px');
+                                                 });
+                    if (!verbose && snippets)
+                        $("#snippets_" + doc_id).after(TueFind.ItemFulltextLink(doc_id, query, synonyms));
+                });
+            }, // end success
+            error: function (xhr, ajaxOptions, thrownError) {
+                $("#snippet_place_holder").each(function () {
+                    $(this).replaceWith('Invalid server response!!!!!');
+                })
+            }
+        });
+    },
+
+    GetFulltextSnippets: function (url, doc_id, query, verbose = false, synonyms = "", fulltext_types = "") {
+
+        // Only run on Search2 results pages (fulltext)
+        if (!window.location.pathname.startsWith('/Search2/Results')) {
+            return;
+        }
+
+        let url_api = "";
+        let snippets_data = [];
+        if (doc_id === undefined) {
+            $('.snippet_place_holder').each(function () {
+                snippets_data.push({
+                    id: $(this).data('id'),
+                    home_url: $(this).data('home-url'),
+                    query: $(this).data('query'),
+                    synonym_type: $(this).data('synonym-type'),
+                    verbose: $(this).data('verbose'),
+                    fulltext_type_filters: $(this).data('fulltext-type-filters'),
+                    fulltext_types: $(this).data('fulltext-types')
+                });
+            });
+            url_api = VuFind.path + "/fulltextsnippetproxy/load?docs=" + JSON.stringify(snippets_data);
+
+        } else {
+            url_api = VuFind.path + "/fulltextsnippetproxy/load?search_query=" + query + "&doc_id=" + JSON.stringify(doc_id) + (verbose ? "&verbose=1" : "")
+                + (synonyms ? "&synonyms=" + synonyms : "")
+                + (fulltext_types ? "&fulltext_types=" + fulltext_types : "")
+
+            snippets_data.push({
+                id: doc_id,
+                home_url: url,
+                query: query,
+                synonym_type: $(this).data('synonym-type'),
+                verbose: verbose,
+                fulltext_types: fulltext_types
+            });
+        }
+
+        var valid_synonym_terms = new RegExp('lang|all');
+        $.ajax({
+            type: "GET",
+            url: url_api,
+            dataType: "json",
+            success: function (json) {
+                $(document).ready(function () {
+                    snippets_data.forEach(element => {
+                        let snippets = json['snippets_collection'][element['id']]['snippets'];
+                        const status = json['snippets_collection'][element['id']]['status'];
+                        const doc_id = element['id'];
+                        const verbose = element['verbose'];
+                        const fulltext_types = (element['fulltext_type_filters'] !== "") ? element['fulltext_type_filters'] : element['fulltext_types'];
+                        const query = element['query'];
+                        let valid_synonym_terms = new RegExp('lang|all');
+                        const synonyms = element['synonym_type'].match(valid_synonym_terms) ? element['synonym_type'] : false;
+
+                        if (status === 'PROXY_ERROR') {
+                            if (verbose) {
+                                $("#snippets_" + doc_id).replaceWith(TueFind.GetProxyErrorMessage(doc_id));
+                            }
+                            $("#snippet_place_holder_" + doc_id).each(function () {
+                                $(this).replaceWith(TueFind.GetProxyErrorMessage(doc_id));
+                            });
+                            return;
+                        }
+
+                        $("#snippet_place_holder_" + doc_id).each(function () {
+                            if (snippets)
+                                $(this).replaceWith('<div id="snippets_' + doc_id + '" class="snippet-div">' + snippets.join('<br/>') + '<br/></div>');
+                            else if (verbose)
+                                $(this).replaceWith(TueFind.GetNoMatchesMessage(doc_id));
+                            else
+                                $(this).replaceWith();
+                        });
+                        if (snippets)
+                            $(this).removeAttr('style');
+                        $("#snippets_" + doc_id).each(function () {
+                            if (snippets) {
+                                let styles = snippets.map(a => (a.hasOwnProperty('style') ? a.style : null)).filter(Boolean).join();
+                                $(styles).appendTo("head");
+                                let snippets_and_pages = snippets.map(a => a.snippet +
+                                    (a.hasOwnProperty('page') ? '<br/>' + TueFind.FormatPageInformation(a.page) : '') +
+                                    TueFind.FormatTextType(a.text_type, verbose, fulltext_types));
+                                $(this).html(snippets_and_pages.join('<hr class="snippet-separator"/>'));
+                            } else if (verbose)
+                                $(this).replaceWith(TueFind.GetNoMatchesMessage(doc_id));
+                            else
+                                $(this).html("");
+                        });
+                        $("[id^=snippets_] > p").each(function () {
+                            this.style.transform = "none";
+                            // Try to fix erroneous snippets with huge font-sizes (c.f. tuefind/issues/3072)
+                            let currentFontValue = $(this).css('font-size');
+                            const [full, currentFontSize, unit] = currentFontValue.match(/(\d+(?:\.\d+)?)(.*)/);
+                            if (unit == 'px' && currentFontSize >= 50)
+                                $(this).css('font-size', '14px');
+                        });
+                        if (!verbose && snippets)
+                            $("#snippets_" + doc_id).after(TueFind.ItemFulltextLink(doc_id, query, synonyms));
+
+
+                    });
+                });
+            }, // end success
+            error: function (xhr, ajaxOptions, thrownError) {
+                $("#snippet_place_holder").each(function () {
+                    $(this).replaceWith(VuFind.translate('Invalid server response'));
+                })
+            }
+        });
+    },
+
+    GetBeaconReferencesFromFindbuch: function() {
+        $('.tf-findbuch-references').each(function() {
+            var container = this;
+            var proxyUrl = this.getAttribute('data-url');
+            var headline = this.getAttribute('data-headline');
+            var sortBottomPattern = this.getAttribute('data-sort-bottom-pattern');
+            var sortBottomRegex = new RegExp(sortBottomPattern);
+            var filterUniquePattern = this.getAttribute('data-filter-unique-pattern');
+            var filterUniqueRegex = new RegExp(filterUniquePattern);
+            var filterLabelPattern = this.getAttribute('data-filter-label-pattern');
+            var filterLabelRegex = new RegExp(filterLabelPattern);
+
+            $.ajax({
+                type: 'GET',
+                url: proxyUrl,
+                success: function(json, textStatus, request) {
+                    if (json[1] !== undefined && json[1].length > 0) {
+
+                        // Build different array structure (prepare sort)
+                        var references = [];
+                        let countRegex = new RegExp(/\((\d+)\)$/);
+                        for (let i=0; i<json[1].length; ++i) {
+                            let label = json[1][i];
+                            let groupLabel = label.replace(countRegex, '').trim();
+
+                            let description = json[2][i];
+                            let url = json[3][i];
+
+                            let matchCount = label.match(countRegex);
+                            let count = 1;
+                            if (matchCount != null)
+                                count = parseInt(matchCount[1]);
+
+                            let sortPriority = 1;
+                            if (label.match(sortBottomRegex))
+                                sortPriority = 2;
+
+                            if (filterLabelPattern == '' || !label.match(filterLabelRegex))
+                                references.push({ label: label, groupLabel: groupLabel, description: description, url: url, count: count, sortPriority: sortPriority });
+                        }
+
+                        // sort by priority, then alphabetically
+                        references.sort(function(a, b) {
+                            if (a.sortPriority < b.sortPriority)
+                                return -1;
+                            if (a.sortPriority > b.sortPriority)
+                                return 1;
+
+                            return a.label.localeCompare(b.label);
+                        });
+
+                        // merge links with same label, if exact 1 url contains the correct gnd number
+                        if (filterUniquePattern != '') {
+                            let currentGroup = [];
+                            let currentGroupStartIndex = 0;
+                            var abortCondition = references.length;
+                            for (let i=0; i<abortCondition;++i) {
+                                let currentReference = references[i];
+                                let nextReference = references[i+1];
+                                currentGroup.push(currentReference);
+
+                                // If we are at the end of the group
+                                if (nextReference == undefined || nextReference.groupLabel != currentReference.groupLabel) {
+                                    // Detect how many entries match the GND number
+                                    var matchingIndexes = [];
+                                    currentGroup.forEach(function (groupedReference, index) {
+                                        if (groupedReference.url.match(filterUniqueRegex)) {
+                                            matchingIndexes.push(index);
+                                        }
+                                    });
+
+                                    // If we have exact 1 regex match & more than 1 entry, remove the invalid ones
+                                    if (currentGroup.length > 1 && matchingIndexes.length == 1) {
+                                        var matchingIndex = matchingIndexes[0];
+                                        var removeOffset = 0;
+                                        currentGroup.forEach(function (groupedReference, index) {
+                                            if (index != matchingIndex) {
+                                                let indexToRemove = index + currentGroupStartIndex - removeOffset;
+                                                references.splice(indexToRemove, 1);
+                                                --abortCondition;
+                                                --i;
+                                                ++removeOffset;
+                                            }
+                                        });
+                                    }
+
+                                    // Reset cached group
+                                    currentGroup = [];
+                                    currentGroupStartIndex = i+1;
+                                }
+                            }
+                        }
+
+                        // render HTML
+                        let html = '<h2>' + headline + '</h2>';
+                        html += '<ul class="list-group">';
+                        var previousSortPriority = 1;
+                        references.forEach(function(reference) {
+                            if (reference.sortPriority != previousSortPriority) {
+                                html += '</ul><ul class="list-group">';
+                            }
+                            previousSortPriority = reference.sortPriority;
+                            html += '<li class="list-group-item tf-beacon-reference"><a class="tf-beacon-reference-link" href="' + reference.url + '" title="' + TueFind.EscapeHTML(reference.description) + '" target="_blank" property="sameAs">' + TueFind.EscapeHTML(reference.label) + '</a></li>';
+                        });
+                        html += '</ul>';
+                        $(container).append(html);
+
+                        // check if urls are valid (only if special URL parameter is set)
+                        // Note that CORS needs to be disabled in your browser for this to work.
+                        // See also:
+                        // - https://github.com/ubtue/tuefind/issues/1924
+                        // - https://medium.com/swlh/avoiding-cors-errors-on-localhost-in-2020-5a656ed8cefa
+                        const urlParams = new URLSearchParams(window.location.search);
+                        if (urlParams.get('checkUrls') == 'true') {
+                            $('.tf-beacon-reference').each(function() {
+                                $(this).css('backgroundColor', 'yellow');
+                                var urlToCheck = $(this).children('.tf-beacon-reference-link').attr('href');
+                                var targetBackground = $(this);
+                                $.ajax({
+                                    type: 'GET',
+                                    url: urlToCheck,
+                                    complete: function(jqXHR, textStatus) {
+                                        let color = 'red';
+                                        if (textStatus == 'success')
+                                            color = 'green';
+                                        targetBackground.css('backgroundColor', color);
+                                    }
+                                });
+                            });
+                        }
+                    }
+                }
+            });
+        });
+    },
+
+    GetImagesFromWikidata: function() {
+        $('.tf-wikidata-image').each(function() {
+            var placeholder = this;
+            var imageUrl = this.getAttribute('data-url');
+            var parentBlock = $(placeholder).parent();
+            $.ajax({
+                type: 'GET',
+                url: imageUrl,
+                success: function(image, textStatus, request) {
+                    // example for embedding, see:
+                    // https://commons.wikimedia.org/wiki/File:Angela_Merkel._Tallinn_Digital_Summit.jpg
+                    // => "Use this file on the web"
+                    let artist = TueFind.StripHtmlTags(request.getResponseHeader('artist'));
+                    let license = request.getResponseHeader('link');
+                    let title = '&copy; ' + TueFind.EscapeHTML(artist);
+                    if (license != null) {
+                        let pattern = /<([^>]+)>;\s*rel="license";\s*title="([^"]+)"/;
+                        let match = pattern.exec(license);
+                        title += ' <a href="' + match[1] + '" target="_blank">' + match[2] + '</a>';
+                    }
+                    title += ', via Wikimedia Commons';
+                    let content = '<figure style="max-width: 200px;">';
+                    content += '<img src="' + imageUrl + '" title="' + TueFind.StripHtmlTags(title) + '">';
+                    content += '<figcaption style="text-align: center;">' + title + '</figcaption>';
+                    content += '</figure>';
+                    $(placeholder).append(content);
+                },
+                statusCode: {
+                    200: function() {
+                        parentBlock.removeClass('tf-d-none');
+                        parentBlock.next().removeClass('col-md-auto');
+                        parentBlock.next().removeClass('col-lg-auto');
+                        parentBlock.next().addClass('col-md-9');
+                        parentBlock.next().addClass('col-lg-9');
+                    }
+                }
+            });
+        });
+    },
+
+    GetJOPInformation: function(jop_place_holder_id, jop_icons_id, url_ajax_proxy, url_html, part_img,
+                                 available_online_text, check_availability_text) {
+        // service documentation, see http://www.zeitschriftendatenbank.de/fileadmin/user_upload/ZDB/pdf/services/JOP_Dokumentation_XML-Dienst.pdf
+        $.ajax({
+            type: "GET",
+            url: url_ajax_proxy,
+            dataType: "xml",
+            success: function (xml) {
+                $(document).ready(function () {
+                    var replacement = "";
+                    var filter = [];
+
+                    $(xml).find('Result').each(function (index, value) {
+                        let state = $(this).attr("state");
+                        if (state >= 0 && state <= 3) {
+                            $('#' + jop_icons_id).removeAttr("style");
+                            let accessURL = $(value).find('AccessURL').first().text();
+                            if (accessURL) {
+                                if (filter[accessURL] != 1) {
+                                    if (replacement)
+                                        replacement += '<br/>';
+                                    replacement += '<a href="' + accessURL + '" target="_blank"><i class="fa fa-external-link"></i> '
+                                            + available_online_text + '.</a>';
+                                    filter[accessURL] = 1;
+                                }
+                            } else {  // Hopefully available in print!
+                                let location = $(value).find('Location').first().text();
+                                let call_number = $(value).find('Signature').first().text();
+                                let label = location;
+                                if (call_number)
+                                    label += " (" + call_number + ")";
+                                if (filter[label] != 1) {
+                                    if (replacement)
+                                        replacement += '<br/>';
+                                    replacement += label;
+                                    filter[label] = 1;
+                                }
+                            $.event.trigger({ type: "JOP:success" });
+                            }
+                        } else if (state == 4 || state == 10) {
+                            if (replacement == "") {
+                                replacement = '<a href="' + url_html + '" target="_blank"><i class="fa fa-external-link"></i> ' +
+                                               check_availability_text + '</a>' +
+                                              '<br/>' +  TueFind.GetHBZInfo();
+                                $('.jop-icons').remove();
+                                $('#' + jop_icons_id).remove();
+
+                            }
+                            $.event.trigger({ type: "JOP:check_availability" });
+                        }
+                    });
+                    if (replacement != "") {
+                        $("#" + jop_place_holder_id).each(function () {
+                            $(this).replaceWith(replacement);
+                        });
+                    } else {
+                        $("#" + jop_place_holder_id).each(function () {
+                            $(this).replaceWith('<?=$this->transEsc("Not available")?>.');
+                        });
+                    }
+                });
+            }, // end success
+            error: function (xhr, ajaxOptions, thrownError) {
+                $("#" + jop_place_holder_id).each(function () {
+                    $(this).replaceWith('Invalid server response. (JOP server down?)');
+                });
+                if (window.console && window.console.log) {
+                    console.log("Status: " + xhr.status + ", Error: " + thrownError);
+                }
+            }
+        }); // end ajax
+    },
+
+
+    RemoveHBZLine: function() {
+        $('a[href^="http://openurlgw.hbz-nrw.de"]').closest('tr').remove();
+    },
+
+    GetHBZInfo: function() {
+        const info_parts = VuFind.translate('hbz_info_text').split('%HBZ%');
+        return info_parts[0]  + $('a[href^="http://openurlgw.hbz-nrw.de"]').closest('td').html() + info_parts[1];
+    },
+
+
+    // Remove HBZ line in full title view if JOP yielded sucessful results
+    // c.f. the triggered signal in GetJOPInformation()
+    RemoveHBZIfJOPPresent: function() {
+      $(document).on("JOP:success", function (event) { TueFind.RemoveHBZLine(); });
+      $(document).on("JOP:check_availability", function (event) { TueFind.RemoveHBZLine(); });
+    },
+
+
+    // helper function to set focus on a specified input field, also sets cursor position to end of field content
+    SetFocus: function(input_selector) {
+        // intentionally use .each so we do not need to test if empty
+        $(input_selector).each(function() {
+            // here we use native JS instead of jQuery to avoid problems
+            //this.focus();
+            this.setSelectionRange(this.value.length, this.value.length);
+        });
+    },
+
+    StripHtmlTags: function(html) {
+        let temporalDivElement = document.createElement("div");
+        temporalDivElement.innerHTML = html;
+        return temporalDivElement.textContent || temporalDivElement.innerText || "";
+    },
+
+    HandlePassedFulltextQuery : function() {
+        const url_query = window.location.search;
+        const url_params = new URLSearchParams(url_query);
+        const fulltextquery = url_params.get('fulltextquery');
+        const fulltextscope = url_params.get('fulltextscope');
+        if (!fulltextquery)
+            return;
+        $('html, body').animate({
+            scrollTop: $('#itemFTSearchScope').offset().top
+        }, 'fast');
+        let searchForm_fulltext = $('#searchForm_fulltext');
+        searchForm_fulltext.val(fulltextquery);
+        let searchForm_fulltext_scope = $('#itemFTSearchScope');
+        searchForm_fulltext_scope.val(fulltextscope);
+    },
+
+    WildcardHandler : function(query_text) {
+        const forbidden_chars = /[*?]/i;
+        if (forbidden_chars.test(query_text)) {
+            alert(VuFind.translate("fulltext_wildcard_error"));
+            return false;
+        }
+        return true;
+    },
+
+    CheckWildcards : function(event) {
+        // Case 1: ItemFulltextSearch
+        if (event.type == 'submit' && event.target.id == 'ItemFulltextSearchForm')
+            return this.WildcardHandler($("#searchForm_fulltext").val());
+        // Case 2: The submit button was pressed
+        // Case 3: The tab nav was chosen
+        else if ((event.type == 'submit' && this.GetSearchboxSearchContext() == 'search2') ||
+                 (event.type == 'click' && event.view.location.href.match('/Search2/')) ) {
+                 return this.WildcardHandler($("#searchForm_lookfor").val());
+        }
+        return true;
+    },
+
+    ItemFullTextSearch: function(home_url, record_id, fulltext_types) {
+        $(document).ready(function(){
+            TueFind.HandlePassedFulltextQuery();
+            $("#ItemFulltextSearchForm").submit(function(){
+                TueFind.GetFulltextSnippetItem(home_url,
+                                            record_id,
+                                            $("#searchForm_fulltext").val(),
+                                            true,
+                                            $("#itemFTSearchScope").val(),
+                                            $("#itemFTTextTypeScope").val() == "All Types" ? fulltext_types : $("#itemFTTextTypeScope").val())
+                TueFind.CheckWildcards("ItemFulltextSearchForm");
+                return false;
+            });
+            $("#ItemFulltextSearchForm").submit();
+        });
+    },
+
+    ShowMoreButtonFavoriteList: function() {
+      let maxElements = 3;
+      let countListItems = 0;
+      let showMoreButton = false;
+      $('.savedLists.loaded').each(function() {
+	if (!$(this).hasClass('tf-loaded-custom')) {
+	  $(this).find('li').each(function() {
+	    countListItems++;
+	    if (countListItems > maxElements) {
+	      $(this).hide();
+	      showMoreButton = true;
+	    }
+	  });
+	  if (showMoreButton === true) {
+	    $('<span class="tf-favoritesListMoreButton">' + VuFind.translate('more') + '</span>').insertAfter($(this).find('ul'));
+	  }
+	  $(this).removeClass('tf-d-none');
+	  $('.tf-favoritesListMoreButton').click(function() {
+	    $('.tf-favoritesListModal').click();
+	  });
+	  $(this).addClass('tf-loaded-custom');
+	  console.log('tf-loaded-custom');
+	}
+      });
+    },
+
+    SwitchRSSFeedData: function(element) {
+        let actionType = 'add';
+        if(!element.is(':checked')) {
+            actionType = 'remove';
+        }
+        if(element.val() == 'unsubscribe_email'){
+            actionType = 'subscribe_email';
+            element.val('subscribe_email');
+            $('.rssEmailTimestampBlock').removeClass('tf-d-none');
+            let today = new Date();
+            let curDate = today.getFullYear()+'-'+(today.getMonth()+1)+'-'+today.getDate();
+            let curTime = today.toLocaleTimeString();
+            let curTimestamp = curDate+" "+curTime;
+            $('.rssEmailTimestampBlock span').text(curTimestamp);
+        }else if(element.val() == 'subscribe_email'){
+            actionType = 'unsubscribe_email';
+            element.val('unsubscribe_email');
+            $('.rssEmailTimestampBlock').addClass('tf-d-none');
+        }
+        let rssID = element.data('id');
+        $.ajax({
+            type: "POST",
+            url: "/MyResearch/RssFeedSettings",
+            data: {action:actionType,id:rssID},
+            dataType: "json"
+        });
+    },
+
+    SetPositionClearButton: function () {
+        let clearSpan = $('.tf-clear-search-input-span');
+        let bodyWidth = $('body').width();
+        let searchFormObj = $('#searchForm_lookfor');
+        let searchInputWidth = searchFormObj.width();
+        let fixWidthClosed = clearSpan.data('x-position');
+        let fixWidthClosedLg = clearSpan.data('x-position-lg');
+        let fixWidthClosedMd = clearSpan.data('x-position-md');
+        let fixWidthClosedSm = clearSpan.data('x-position-sm');
+
+        if(fixWidthClosedLg !== undefined && bodyWidth < 1180 &&  bodyWidth > 975) {
+            fixWidthClosed = fixWidthClosedLg;
+        }
+        if(fixWidthClosedMd !== undefined && bodyWidth < 975 && bodyWidth > 500) {
+            fixWidthClosed = fixWidthClosedMd;
+        }
+        if(fixWidthClosedSm !== undefined && bodyWidth < 520) {
+            fixWidthClosed = fixWidthClosedSm;
+        }
+
+        let x = Math.round(searchInputWidth) + fixWidthClosed;
+        let visible = "none";
+        if(searchInputWidth != undefined && searchFormObj.val().length > 0) {
+            visible = "block";
+        }
+        if(clearSpan.hasClass("ixtheo2-form")) {
+            x = 0;
+        }
+        clearSpan.css({"left":x+"px","display":visible});
+
+    },
+
+    goToCollapseBlock: function(anchor,blockID) {
+        if(anchor.length) {
+            window.location.href = "#"+anchor;
+        }
+        if(blockID.length) {
+            let blockVar = $('#'+blockID);
+            if(!blockVar.hasClass('in')) {
+                blockVar.addClass('in');
+                blockVar.click();
+            }
+        }
+    },
+
+    FormValidation: function() {
+        let addButton = "<i class='fa fa-plus-circle addjsicon' aria-hidden='true'></i>";
+        let removeButton = "<i class='fa fa-minus-circle removejsicon' aria-hidden='true'></i>";
+        $('.multifieldtext').each(function(){
+          $(this).find('input').after(addButton);
+          $(this).find('input').after(removeButton);
+        })
+        $('.multifieldtext').hide();
+        $('.multifieldtext_group').each(function(){
+          let firstInputElement = $(this).find('.multifieldtext:first');
+          firstInputElement.find('.removejsicon').remove();
+          firstInputElement.find('.addjsicon').addClass('mainaddjsicon');
+          firstInputElement.show();
+        })
+
+        $('.addjsicon').click(function(){
+          let nextInputBlock = $(this).parents('.multifieldtext').next();
+          nextInputBlock.show();
+          $(this).parents('.multifieldtext_group').find('i').hide();
+          nextInputBlock.find('i').show();
+          if(nextInputBlock.next().length == 0) {
+            nextInputBlock.find('.addjsicon').hide();
+            nextInputBlock.find('.removejsicon').addClass('mainremovejsicon');
+          }
+        })
+
+        $('.removejsicon').click(function(){
+          let thisInputBlock =  $(this).parents('.multifieldtext');
+          thisInputBlock.hide();
+          thisInputBlock.prev().find('i').show();
+        })
+
+        removeValidation($('.exclusiveSelect').find('input:checked').val());
+
+        function removeValidation (blockSelected) {
+            $('.feedback-content form .jshide').each(function(){
+            let thisBlock = $(this);
+            if(thisBlock.hasClass(blockSelected+"")) {
+                thisBlock.find('input').each(function(){
+                    if($(this).prev().hasClass('required')){
+                        $(this).prop('required',true);
+                    }
+                })
+                thisBlock.show();
+            }else{
+                thisBlock.find('input').each(function(){
+                    $(this).prop('required',false);
+                })
+                thisBlock.hide();
+            }
+            })
+        }
+
+        $(document).on("change", ".exclusiveSelect", function() {
+            removeValidation($(this).find('input:checked').val());
+        })
+
+        $('.feedback-content form .btn.btn-primary').on( "click", function(e) {
+            $('.jshide').each(function(){
+                let thisBlock = $(this);
+                    if(thisBlock.css('display') != 'none') {
+                        thisBlock.find('input').each(function(){
+                        $(this).prop('required',false);
+                    })
+                }
+            })
+        });
+    },
+
+    MoveCursorToEnd: function(elementID="searchForm_lookfor") {
+        const input = document.getElementById(elementID);
+        // if element exist
+        if (input) {
+            const length = input.value.length;
+            // if search input not empty
+            if(length > 0) {
+                input.focus();
+                input.setSelectionRange(length, length);
+            }
+        }
+    },
+
+    getCMSDocs: function() {
+        let table = $('.dataTable').DataTable({
+            destroy: true, // if the table already exists, destroy it before reinitializing
+            processing: true,
+            serverSide: false, // later change to true if needed
+            ajax: {
+                url: '/AJAX/JSON?method=CmsDocs&action=listFiles',
+                method: 'GET',
+                dataSrc: 'data'
+            },
+            columns: [
+                {
+                    data: 'name',
+                    render: function (data, type, row) {
+                        return `<a href="${row.url}" target="_blank">${data}</a>`;
+                    }
+                },
+                {
+                    data: null,
+                    orderable: false,
+                    render: function (data, type, row) {
+                        return `
+                            <a href="${row.url}" class="me-3" target="_blank">👁</a>
+                            <a href="${row.url}" class="text-center text-danger col-6 delete-btn" data-bs-toggle="modal" data-bs-target="#confirmDeleteModal">
+                                <i class="fas fa-trash"></i>
+                            </a>
+                        `;
+                    }
+                }
+            ]
+        });
+    },
+
+    getCMSImages: function() {
+        $.ajax({
+            type: "GET",
+            url: '/AJAX/JSON?method=CmsDocs&action=listImages',
+            dataType: "json",
+            success: function (data) {
+                let file = data.data;
+                let HTMlData = '';
+                for (let i = 0; i < file.length; i++) {
+                    let oneBlock = `
+                        <div class="col-3">
+                            <div class="card h-100 smc-card">
+                                <div class="card-header">
+                                    ${file[i]['name']}
+                                </div>
+                                <div class="card-body">
+                                    <img src="${file[i]['url']}" class="card-img-top" alt="${file[i]['name']}">
+                                </div>
+                                <div class="card-footer text-muted row gx-0">
+                                    <a href="#" class="text-center d-block text-default cms_preview col-6" data-bs-toggle="modal" data-bs-target="#exampleModal">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="${file[i]['url']}" class="text-center d-block text-danger col-6 delete-btn" data-bs-toggle="modal" data-bs-target="#confirmDeleteModal">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>`;
+                    HTMlData += oneBlock;
+                }
+                $('.ajax-content-images-container').html(HTMlData);
+            }
+        }); // end ajax
+    },
+
+    // helper function to run a single git stage (pull, import, push) and log the result to the console
+    _runGitStage: async function(action, stepText, failText, logFn) {
+        logFn(stepText, 'info');
+        try {
+            let response = await fetch(`/AJAX/JSON?method=Cms&action=${action}`);
+            if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+
+            let result = await response.json();
+            let payload = result?.data;
+            if (!payload) throw new Error('Server returned empty data object');
+            if (!payload.success) throw new Error(payload.message || `Unknown error during ${action}`);
+
+            logFn('Success: ' + payload.message, 'success');
+            return payload;
+        } catch (error) {
+            throw new Error(`${failText}: ${error.message}`);
+        }
+    },
+
+    // (button, spinner, console log) => execute all stages in order, logging to console and handling errors
+    _executeSyncProcess: async function(btn, stagesRunner) {
+        const $spinner = $('#sync-spinner');
+        const $consoleLog = $('#sync-log-console');
+
+        btn.disabled = true;
+        $spinner.css('display', 'inline-block');
+        $consoleLog.empty();
+
+        function logToConsole(text, type = 'info') {
+            const color = type === 'error' ? '#ff6b6b' : (type === 'success' ? '#51cf66' : '#fff');
+            const time = new Date().toLocaleTimeString();
+            $consoleLog.append(`<div style="color: ${color}">[${time}] ${text}</div>`);
+            $consoleLog.scrollTop($consoleLog[0].scrollHeight);
+        }
+
+        try {
+            await stagesRunner(logToConsole);
+        } catch (error) {
+            logToConsole(error.message, 'error');
+            logToConsole('=== SYNC PROCESS ABORTED ===', 'error');
+        } finally {
+            btn.disabled = false;
+            $spinner.hide();
+        }
+    },
+
+    // button pull:
+    handleCmsGitPull: async function() {
+        await this._executeSyncProcess(this, async (log) => {
+            // Step 1: Pull
+            await this._runGitStage('gitPull', 'Step 1/3: Requesting git pull from remote repository...', 'PULL STAGE FAILED', log);
+
+            // Step 2: Import
+            await this._runGitStage('gitImport', 'Step 2/3: Scanning JSON files and updating database...', 'IMPORT STAGE FAILED', log);
+
+            // Step 3: Push
+            await this._runGitStage('gitPush', 'Step 3/3: Committing local changes and pushing to Git...', 'PUSH STAGE FAILED', log);
+
+            log('=== ALL SYNC STAGES COMPLETED SUCCESSFULLY ===', 'success');
+        });
+    },
+
+    handleCmsGitPush: async function() {
+        await this._executeSyncProcess(this, async (log) => {
+            await this._runGitStage('gitPush', 'Step 1/1: Committing local changes and pushing to Git...', 'PUSH STAGE FAILED', log);
+            log('=== PUSH COMPLETED SUCCESSFULLY ===', 'success');
+        });
+    },
+
+    RenderDataTable: function() {
+        new DataTable('.dataTable',{
+            scrollX: true
+        });
+    },
+
+    getAJAXCMSDocs: function(ajaxCmsDocsBlockClass='',modeType='') {
+        const className = ajaxCmsDocsBlockClass.trim() || 'AJAXCMSDocsBlock';
+        const $block = $(`.${className}`);
+        $block.html('<div class="tf_themes_block">Loading...</div>');
+        $.ajax({
+            url: '/AJAX/JSON',
+            type: 'GET',
+            data: {
+                method: 'CmsDocs',
+                action: 'getThemeURLs',
+                block: className,
+                modetype: modeType
+            },
+            dataType: 'json'
+        })
+        .done(response => {
+            if (response && response.data && response.data.length > 0) {
+                $block.html(response.data);
+            } else {
+                $block.html('Themes not finded.');
+            }
+        })
+        .fail((xhr, status, error) => {
+            console.error('AJAX Error:', error);
+            $block.html('html not loated.');
+        });
+    }
+
+};
+
+
+$(document).ready(function () {
+
+    // Home search: set focus on first input field of first search group
+    if (window.location.pathname.match(/\/Search(2)?\/Home$/i) || window.location.pathname === '/') {
+        if($('.ixtheo2-form').html() == undefined) { //for now disabled in Ixhteo2 template
+            TueFind.SetFocus('#searchForm_lookfor');
+        }
+    // advanced search: set focus on first input field of first search group
+    } else if (window.location.pathname.match(/\/Search\/Advanced$/i)) {
+        TueFind.SetFocus('#search_lookfor0_0');
+    // keywordchainsearch: set focus on 2nd input field
+    } else if (window.location.pathname.match(/\/Keywordchainsearch/i)) {
+        TueFind.SetFocus('#kwc_input');
+    // alphabrowse: set focus on "starting from" edit field
+    } else if (window.location.pathname.match(/\/Alphabrowse/i)) {
+        TueFind.SetFocus('#alphaBrowseForm_from');
+    }
+
+    $('.tuefind-event-resetsearchhandlers').click(function(){
+        TueFind.ResetSearchHandlers();
+        return TueFind.CheckWildcards(event);
+    });
+
+    $('.tuefind-event-searchForm-on-submit').submit(function(){
+        return TueFind.CheckWildcards(event);
+    });
+
+    TueFind.AddContentAnchors();
+    TueFind.AdjustSearchHandlers();
+    setInterval(TueFind.ShowMoreButtonFavoriteList, 1000);
+
+    $('.rssLabel').change(function(){
+        TueFind.SwitchRSSFeedData($(this));
+    });
+
+    $('#searchForm_lookfor').change(function() {
+        TueFind.SetPositionClearButton();
+    });
+
+    TueFind.SetPositionClearButton();
+
+    $( window ).resize(function() {
+      TueFind.SetPositionClearButton();
+    });
+
+    $('.tf-clear-search-input-span').click(function(){
+        $('#searchForm_lookfor').val("");
+        $("#searchForm").submit();
+    });
+    TueFind.GetFulltextSnippets();
+
+    var resultList = document.querySelector('ol.record-list, .js-result-list');
+
+    if (resultList && resultList.parentNode) {
+        var stableParent = resultList.parentNode;
+
+        // Observe changes in the search result list and update fulltext snippets accordingly.
+        new MutationObserver(function () {
+            TueFind.GetFulltextSnippets();
+        }).observe(stableParent, { childList: true });
+    }
+    /* disabled for now, as it causes problems with the CMS docs table, which is currently the only table in the frontend
+
+    */
+
+    // ajax git pull test for CMS
+    $('#git-pull-btn').on('click', (e) => TueFind.handleCmsGitPull(e.currentTarget));
+    $('#git-push-btn').on('click', (e) => TueFind.handleCmsGitPush(e.currentTarget));
+
+    $('.note-btn-group.note-insert').on('click', function() {
+        let noteType = $(this).data('note-type');
+        let noteContent = $(this).data('note-content');
+        let noteTarget = $(this).data('note-target');
+        let noteTargetElement = $('#' + noteTarget);
+
+        console.log('clicked note button: type=' + noteType + ', content=' + noteContent + ', target=' + noteTarget);
+        let noteForm = $('.note-modal-body .form-group.note-form-group.note-group-select-from-files');
+        $('.AJAXCMSDocsBlock').remove();
+        $('<div class="AJAXCMSDocsBlock">Loading...</div>').insertAfter(noteForm);
+        TueFind.getAJAXCMSDocs('AJAXCMSDocsBlock','plagin');
+
+    });
+
+    $(document).on('click', '.tf-theme-btn', function() {
+        // Get attr data-theme
+        let serverPath = $(this).data('server-path');
+        let themeName = $(this).data('theme');
+        let fullPath = $(this).data('full-path');
+        let block = $(this).data('block');
+        let modetype = $(this).data('modetype');
+        console.log('Theme selected:', themeName);
+
+        let uploadBlock = $("." + block);
+
+        $.ajax({
+            url: '/AJAX/JSON?method=CmsDocs&action=getThemeContent&server-path=' + serverPath+ '&path=' + themeName+ '&full-path=' + fullPath+ '&block=' + block+ '&modetype=' + modetype,
+            type: 'GET',
+            beforeSend: function() {
+                // show a loading spinner or message here if needed
+                uploadBlock.html('Loading...');
+            },
+            success: function(response) {
+
+                console.log('Server response:', response);
+
+                if (response && response.status === 'OK' && response.data) {
+
+                    uploadBlock.html(response.data);
+                } else if (response && response.data) {
+
+                    uploadBlock.html(response.data);
+                } else {
+                    uploadBlock.html("<span class='text-danger'>Theme not found or empty</span>");
+                }
+            },
+            error: function(xhr, status, error) {
+                uploadBlock.removeClass('disabled').text(themeName);
+                console.error('Error:', error);
+            }
+        });
+    });
+
+});

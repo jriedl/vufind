@@ -1,96 +1,207 @@
 <?php
-/**
- * Feedback Controller
- *
- * PHP version 5
- *
- * @category VuFind2
- * @package  Controller
- * @author   Josiah Knoll <jk1135@ship.edu>
- * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
- */
-namespace VuFind\Controller;
-use Zend\Mail as Mail;
 
 /**
- * Feedback Class
+ * Controller for configurable forms (feedback etc).
  *
- * Controls the Feedback
+ * PHP version 8
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Josiah Knoll <jk1135@ship.edu>
+ * @author   Samuli Sillanpää <samuli.sillanpaa@helsinki.fi>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/building_a_recommendations_module Wiki
+ * @link     https://vufind.org Main Site
  */
-class FeedbackController extends AbstractBase
+
+namespace VuFind\Controller;
+
+use Laminas\View\Model\ViewModel;
+use Psr\Log\LoggerAwareInterface;
+use VuFind\Db\Entity\UserEntityInterface;
+use VuFind\Form\Form;
+use VuFind\Log\LoggerAwareTrait;
+
+/**
+ * Controller for configurable forms (feedback etc).
+ *
+ * @category VuFind
+ * @package  Controller
+ * @author   Josiah Knoll <jk1135@ship.edu>
+ * @author   Samuli Sillanpää <samuli.sillanpaa@helsinki.fi>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
+ * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
+ * @link     https://vufind.org/wiki/development Wiki
+ */
+class FeedbackController extends AbstractBase implements LoggerAwareInterface
 {
+    use LoggerAwareTrait;
+
+    /**
+     * Feedback form class
+     *
+     * @var string
+     */
+    protected $formClass = \VuFind\Form\Form::class;
+
     /**
      * Display Feedback home form.
      *
-     * @return \Zend\View\Model\ViewModel
+     * @return ViewModel
      */
     public function homeAction()
     {
-        // no action needed
-        return $this->createViewModel();
+        return $this->forwardTo('Feedback', 'Form');
     }
 
     /**
-     * Receives input from the user and sends an email to the recipient set in
-     * the config.ini
+     * Handles rendering and submit of dynamic forms.
+     * Form configurations are specified in FeedbackForms.yaml.
      *
-     * @return void
+     * @return mixed
      */
-    public function emailAction()
+    public function formAction()
     {
-        $name = $this->params()->fromPost('name');
-        $users_email = $this->params()->fromPost('email');
-        $comments = $this->params()->fromPost('comments');
-
-        if (empty($name) || empty($users_email) || empty($comments)) {
-            throw new \Exception('Missing data.');
-        }
-        $validator = new \Zend\Validator\EmailAddress();
-        if (!$validator->isValid($users_email)) {
-            throw new \Exception('Email address is invalid');
+        $formId = $this->params()->fromRoute('id', $this->params()->fromQuery('id'));
+        if (!$formId) {
+            $formId = 'FeedbackSite';
         }
 
-        // These settings are set in the feedback settion of your config.ini
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get('config');
-        $feedback = isset($config->Feedback) ? $config->Feedback : null;
-        $recipient_email = isset($feedback->recipient_email)
-            ? $feedback->recipient_email : null;
-        $recipient_name = isset($feedback->recipient_name)
-            ? $feedback->recipient_name : 'Your Library';
-        $email_subject = isset($feedback->email_subject)
-            ? $feedback->email_subject : 'VuFind Feedback';
-        $sender_email = isset($feedback->sender_email)
-            ? $feedback->sender_email : 'noreply@vufind.org';
-        $sender_name = isset($feedback->sender_name)
-            ? $feedback->sender_name : 'VuFind Feedback';
-        if ($recipient_email == null) {
-            throw new \Exception(
-                'Feedback Module Error: Recipient Email Unset (see config.ini)'
+        $user = $this->getUser();
+
+        $form = $this->getService($this->formClass);
+        $prefill = $this->params()->fromQuery();
+        $params = [];
+        if ($refererHeader = $this->getRequest()->getHeader('Referer')) {
+            $params['referrer'] = $refererHeader->getFieldValue();
+        }
+        if ($userAgentHeader = $this->getRequest()->getHeader('User-Agent')) {
+            $params['userAgent'] = $userAgentHeader->getFieldValue();
+        }
+        $form->setFormId($formId, $params, $prefill);
+
+        if (!$form->isEnabled()) {
+            throw new \VuFind\Exception\Forbidden("Form '$formId' is disabled");
+        }
+
+        if (!$user && $form->showOnlyForLoggedUsers()) {
+            return $this->forceLogin();
+        }
+
+        $view = $this->createViewModel(compact('form', 'formId', 'user'));
+        $view->useCaptcha
+            = $this->captcha()->active('feedback') && $form->useCaptcha();
+
+        $params = $this->params();
+        $form->setData($params->fromPost());
+
+        if (!$this->formWasSubmitted(useCaptcha: $view->useCaptcha)) {
+            $form = $this->prefillUserInfo($form, $user);
+            return $view;
+        }
+
+        if (!$form->isValid()) {
+            return $view;
+        }
+
+        if ($this->senderIsBlocked($form)) {
+            $this->flashMessenger()->addErrorMessage('could_not_process_feedback');
+            return $view;
+        }
+        if ($this->senderIsIgnored($form)) {
+            $view->setVariable('successMessage', $form->getSubmitResponse());
+            $view->setTemplate('feedback/response');
+            return $view;
+        }
+
+        $primaryHandler = $form->getPrimaryHandler();
+        $success = $primaryHandler->handle($form, $params, $user);
+        if ($success) {
+            $view->setVariable('successMessage', $form->getSubmitResponse());
+            $view->setTemplate('feedback/response');
+        } else {
+            $this->flashMessenger()->addErrorMessage('could_not_process_feedback');
+        }
+
+        $handlers = $form->getSecondaryHandlers();
+        foreach ($handlers as $handler) {
+            try {
+                $handler->handle($form, $params, $user);
+            } catch (\Exception $e) {
+                $this->logError($e->getMessage());
+            }
+        }
+
+        return $view;
+    }
+
+    /**
+     * Prefill form sender fields for logged in users.
+     *
+     * @param Form                 $form Form
+     * @param ?UserEntityInterface $user User
+     *
+     * @return Form
+     */
+    protected function prefillUserInfo(Form $form, ?UserEntityInterface $user)
+    {
+        if ($user) {
+            $form->setData(
+                [
+                 'name' => $user->getFirstname() . ' ' . $user->getLastname(),
+                 'email' => $user->getEmail(),
+                ]
             );
         }
-        if ($comments == "") {
-            throw new \Exception('Feedback Module Error: Comment Post Failed');
+        return $form;
+    }
+
+    /**
+     * Check if sender email is blocked
+     *
+     * @param Form $form Form
+     *
+     * @return bool
+     */
+    protected function senderIsBlocked(Form $form): bool
+    {
+        $config = $this->getConfigArray();
+        return $this->senderEmailMatchesPattern($form, (array)($config['Feedback']['blocked_senders'] ?? []));
+    }
+
+    /**
+     * Check if sender email is ignored
+     *
+     * @param Form $form Form
+     *
+     * @return bool
+     */
+    protected function senderIsIgnored(Form $form): bool
+    {
+        $config = $this->getConfigArray();
+        return $this->senderEmailMatchesPattern($form, (array)($config['Feedback']['ignored_senders'] ?? []));
+    }
+
+    /**
+     * Check if an email address matches any of the given patterns
+     *
+     * @param Form  $form     Form
+     * @param array $patterns Patterns (substring or regexp)
+     *
+     * @return bool
+     */
+    protected function senderEmailMatchesPattern(Form $form, array $patterns): bool
+    {
+        $email = $form->getData()['email'] ?? '';
+        foreach ($patterns as $pattern) {
+            if (str_starts_with($pattern, '/') && str_ends_with($pattern, '/')) {
+                if (preg_match($pattern, $email)) {
+                    return true;
+                }
+            } elseif (str_contains($email, $pattern)) {
+                return true;
+            }
         }
-
-        $email_message = 'Name: ' . $name . "\n";
-        $email_message .= 'Email: ' . $users_email . "\n";
-        $email_message .= 'Comments: ' . $comments . "\n";
-
-        // This sets up the email to be sent
-        $mail = new Mail\Message();
-        $mail->setBody($email_message);
-        $mail->setFrom($sender_email, $sender_name);
-        $mail->addTo($recipient_email, $recipient_name);
-        $mail->setSubject($email_subject);
-
-        $this->getServiceLocator()->get('VuFind\Mailer')->getTransport()
-            ->send($mail);
+        return false;
     }
 }

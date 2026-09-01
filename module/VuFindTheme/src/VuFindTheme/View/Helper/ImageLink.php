@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Image link view helper (extended for VuFind's theme system)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTheme\View\Helper;
 
 /**
  * Image link view helper (extended for VuFind's theme system)
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class ImageLink extends \Zend\View\Helper\AbstractHelper
+class ImageLink extends \Laminas\View\Helper\AbstractHelper
 {
+    use RelativePathTrait;
+
     /**
      * Theme information service
      *
@@ -64,15 +68,28 @@ class ImageLink extends \Zend\View\Helper\AbstractHelper
      */
     public function __invoke($image)
     {
-        // Normalize href to account for themes:
+        // If this is an absolute path, return it as-is:
+        if (!$this->isRelativePath($image)) {
+            return $image;
+        }
+        // Otherwise, normalize href to account for themes:
         $relPath = 'images/' . $image;
-        $currentTheme = $this->themeInfo->findContainingTheme($relPath);
+        $details = $this->themeInfo->findContainingTheme(
+            $relPath,
+            \VuFindTheme\ThemeInfo::RETURN_ALL_DETAILS
+        );
 
-        if (is_null($currentTheme)) {
+        if (null === $details) {
             return null;
         }
 
         $urlHelper = $this->getView()->plugin('url');
-        return $urlHelper('home') . "themes/$currentTheme/" . $relPath;
+        $parts = explode('/', $relPath);
+        $encodedRelPath = implode('/', array_map('rawurlencode', $parts));
+        $url = $urlHelper('home') . "themes/{$details['theme']}/" . $encodedRelPath;
+        $url .= strstr($url, '?') ? '&_=' : '?_=';
+        $url .= filemtime($details['path']);
+
+        return $url;
     }
 }

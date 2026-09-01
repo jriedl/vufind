@@ -1,0 +1,83 @@
+<?php
+    $this->layout()->breadcrumbs = false;
+    $this->layout()->searchClassId = 'SolrAuth';
+
+    $this->backgroundTabs = $this->BackgroundTabs ?? [];
+    $schemaOrgType = $this->authority()->getSchemaOrgType($this->driver);
+
+    // TueFind:
+    // - record.js is needed for AJAX tab logic
+    // - disabled, because we use the non-ajax-version.
+    // - see also "recordDocReady" at the bottom of this file.
+    //$this->assetManager()->appendScriptLink("record.js");
+
+    /*
+     * TueFind: Add canonical URL (for SEO), Backport from 10.0 => 9.1,
+     *          see also: https://github.com/vufind-org/vufind/pull/3655/files
+     *          In addition, we take the full URL of our main domain from the config file
+     *          to provide better information for crawlers.
+     */
+    $canonicalUrl = $this->tuefind()->getConfig('config')->Site->url . $this->recordLinker()->getUrl($this->driver, ['excludeSearchId' => true]);
+    $this->headLink(['rel' => 'canonical', 'href' => $canonicalUrl]);
+?>
+
+<?php /* User Authority Access */ ?>
+<?php if ($this->accountCapabilities()->getRequestAuthorityRightsSetting() === 'enabled') :?>
+   <?=$this->context($this)->renderInContext('Related/AuthorityAccess', ['driver' => $this->driver]); ?>
+<?php endif; ?>
+
+<?php /* Record details */ ?>
+<div vocab="http://schema.org/" typeof="<?=$schemaOrgType?>">
+  <h3><?=$this->authority()->getName($this->driver)?></h3>
+  <?php if ($this->driver->isName()): ?>
+    <p><?=$this->transEsc('authority_note_name_record')?></p>
+  <?php endif; ?>
+
+  <div class="container">
+    <?php
+      /*
+        The CSS Here has been optimized for normal & responsive behaviour.
+        Please test very carefully when changing!
+        Also note that some classes will be changed via tuefind.js
+        after the dynamic contents (images, BEACON, etc.) has been loaded!
+       */
+    ?>
+    <div class="row">
+      <div class="col-md-12 row">
+        <div class="col">
+          <?=$this->context($this)->renderInContext('authority/record/details', ['driver' => $this->driver])?>
+        </div>
+        <div class="col col-auto">
+          <?php if ($this->driver->getType() == 'person' && !$this->driver->isFamily()): ?>
+            <?=$this->context($this)->renderInContext('authority/record/image', ['driver' => $this->driver])?>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="col-md-12 row">
+        <?php
+            /*
+                Note: Until 2024 the following contents was split into 2 columns => authority/record/beacon was shown on the right side.
+                      After that it got disabled because the external "findbuch" service is no longer available,
+                      so for now we also go back to a single column layout to save some space.
+             */
+         ?>
+        <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+          <?=$this->context($this)->renderInContext('Related/AuthorityTitlesBy', ['driver' => $this->driver])?>
+          <?=$this->context($this)->renderInContext('Related/AuthorityTitlesAbout', ['driver' => $this->driver])?>
+          <?=$this->context($this)->renderInContext('Related/AuthorityAuthors', ['driver' => $this->driver])?>
+          <!-- Graphs -->
+          <?=$this->context($this)->renderInContext('Related/AuthorityTopics', ['driver' => $this->driver])?>
+          <?=$this->context($this)->renderInContext('Related/AuthorityTimeline', ['driver' => $this->driver])?>
+          <?=$this->context($this)->renderInContext('authority/record/tabs', ['driver' => $this->driver])?>
+        </div>
+      </div>
+    </div>
+</div>
+
+<?php
+  // TueFind:
+  // - recordDocReady is needed for AJAX tab logic
+  // - disabled, because we use the non-ajax-version.
+  // - see also "record.js" at the top of this file.
+  // print $this->assetManager()->outputInlineScriptString('$(document).ready(recordDocReady);');
+?>

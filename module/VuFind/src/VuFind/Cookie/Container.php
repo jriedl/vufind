@@ -1,9 +1,10 @@
 <?php
+
 /**
  * Class for treating a set of cookies as an object (inspired by
- * \Zend\Session\Container).
+ * \Laminas\Session\Container).
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2012.
  *
@@ -17,26 +18,29 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Cookie
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Cookie;
+
+use function strlen;
 
 /**
  * Class for treating a set of cookies as an object (inspired by
- * \Zend\Session\Container).
+ * \Laminas\Session\Container).
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Cookie
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Container
 {
@@ -57,14 +61,13 @@ class Container
     /**
      * Constructor
      *
-     * @param string        $groupName Prefix to use for cookie values.
-     * @param CookieManager $manager   Cookie manager.
+     * @param string         $groupName Prefix to use for cookie values.
+     * @param ?CookieManager $manager   Cookie manager.
      */
-    public function __construct($groupName, CookieManager $manager = null)
+    public function __construct($groupName, ?CookieManager $manager = null)
     {
         $this->groupName = $groupName;
-        $this->manager = (null === $manager)
-            ? new CookieManager($_COOKIE) : $manager;
+        $this->manager = $manager ?? new CookieManager($_COOKIE);
     }
 
     /**
@@ -76,7 +79,7 @@ class Container
     {
         $retVal = [];
         foreach ($this->manager->getCookies() as $key => $value) {
-            if (substr($key, 0, strlen($this->groupName)) == $this->groupName) {
+            if (str_starts_with($key, $this->groupName)) {
                 $retVal[substr($key, strlen($this->groupName))] = $value;
             }
         }

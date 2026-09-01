@@ -1,0 +1,57 @@
+<?php
+// Set up page title:
+$this->headTitle($this->transEsc('publication_overview_headline'));
+
+// Set up breadcrumbs:
+$this->layout()->breadcrumbs = '<li><a href="' .  $this->url('myresearch-home') . '">' . $this->transEsc('Your Account') . '</a></li> <li class="active">' . $this->transEsc('publication_overview_headline') . '</li>';
+?>
+
+<div class="<?=$this->layoutClass('mainbody')?>">
+  <h2><?=$this->transEsc('authority_access_overview_headline')?></h2>
+  <?php if (count($this->authorityRecords) == 0): ?>
+    <p><?=$this->transEsc('authority_access_overview_empty')?></p>
+  <?php else: ?>
+    <table class="table">
+      <tr>
+        <th><?=$this->transEsc('Author')?></th>
+        <th><?=$this->transEsc('Status')?></th>
+      </tr>
+      <?php foreach ($this->authorityUsers as $user): ?>
+        <tr>
+          <td><a href="/AuthorityRecord/<?=urlencode($user['id'])?>"><?=$user['title']." (".$user['id'].")";?></a></td>
+          <td><?=$user['access_state']?></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+
+    <h2><?=$this->transEsc('publication_overview_headline')?></h2>
+    <?php if (count($this->publications) == 0): ?>
+      <p><?=$this->transEsc('publication_overview_empty')?></p>
+    <?php else: ?>
+      <table class="table">
+        <tr>
+          <th><?=$this->transEsc('publication_overview_column_id_external')?></th>
+          <th><?=$this->transEsc('Title')?></th>
+          <th><?=$this->transEsc('publication_overview_column_file_external')?></th>
+          <th><?=$this->transEsc('Created')?></th>
+          <th><?=$this->transEsc('publication_terms')?></th>
+        </tr>
+        <?php foreach ($this->publications as $publication):
+          $publicationURL = ($dspaceVersion == 6) ? $this->dspaceServer."/xmlui/handle/".$publication['db']->getExternalDocumentId() : $this->dspaceServer."/items/".$publication['db']->getExternalDocumentGuid();?>
+          <tr>
+            <td><?=$publication['db']->getExternalDocumentGuid()?></td>
+            <td><a href="<?=$this->recordLinker()->getUrl($publication['db']->getControlNumber())?>"><?=$publication['record']->getTitle();?></a></td>
+            <td><a href="<?=$publicationURL;?>" target="_blank"><i class="fa fa-external-link"></i> <?=$this->transEsc('publication_file_button')?></a></td>
+            <td><?=$publication['db']->getPublicationDateTime()->format($this->config()->dateTimeFormat())?></td>
+            <td><a href="/publication_terms/terms_<?=$publication['db']->getTermsDate()->format('Ymd')?>.pdf" target="_blank"><?=$publication['db']->getTermsDate()->format('d.m.Y')?></a></td>
+          </tr>
+        <?php endforeach; ?>
+      </table>
+      <p><?=$this->transEsc('Please contact')?> <b><?=$this->tuefind()->getPublicationEmail()?></b></p>
+    <?php endif; ?>
+  <?php endif; ?>
+</div>
+
+<div class="<?=$this->layoutClass('sidebar')?>" id="myresearch-sidebar" role="navigation" aria-label="<?=$this->transEsc('account_menu_label')?>">
+  <?=$this->accountMenu()->render('publications')?>
+</div>

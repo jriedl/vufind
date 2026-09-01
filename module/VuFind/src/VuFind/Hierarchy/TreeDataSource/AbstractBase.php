@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Hierarchy Tree Data Source (abstract base)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,15 +17,16 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  HierarchyTree_DataSource
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:hierarchy_components Wiki
+ * @link     https://vufind.org/wiki/development:plugins:hierarchy_components Wiki
  */
+
 namespace VuFind\Hierarchy\TreeDataSource;
 
 /**
@@ -32,13 +34,13 @@ namespace VuFind\Hierarchy\TreeDataSource;
  *
  * This is a base helper class for producing hierarchy Trees.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  HierarchyTree_DataSource
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:hierarchy_components Wiki
+ * @link     https://vufind.org/wiki/development:plugins:hierarchy_components Wiki
  */
-abstract class AbstractBase implements \Zend\Log\LoggerAwareInterface
+abstract class AbstractBase implements \Psr\Log\LoggerAwareInterface
 {
     use \VuFind\Log\LoggerAwareTrait;
 
@@ -48,6 +50,20 @@ abstract class AbstractBase implements \Zend\Log\LoggerAwareInterface
      * @var \VuFind\Hierarchy\Driver\AbstractBase
      */
     protected $hierarchyDriver = null;
+
+    /**
+     * Collection page route.
+     *
+     * @var string
+     */
+    protected $collectionRoute = 'collection';
+
+    /**
+     * Record page route.
+     *
+     * @var string
+     */
+    protected $recordRoute = 'record';
 
     /**
      * Get the hierarchy driver
@@ -75,6 +91,39 @@ abstract class AbstractBase implements \Zend\Log\LoggerAwareInterface
         $this->hierarchyDriver = $driver;
         return $this;
     }
+
+    /**
+     * Get collection page route.
+     *
+     * @return string
+     */
+    public function getCollectionRoute()
+    {
+        return $this->collectionRoute;
+    }
+
+    /**
+     * Get recordpage route.
+     *
+     * @return string
+     */
+    public function getRecordRoute()
+    {
+        return $this->recordRoute;
+    }
+
+    /**
+     * Get JSON for the specified hierarchy ID.
+     *
+     * Build the JSON file from the Solr fields
+     *
+     * @param string $id      Hierarchy ID.
+     * @param array  $options Additional options for JSON generation. (Currently one
+     * option is supported: 'refresh' may be set to true to bypass caching).
+     *
+     * @return string
+     */
+    abstract public function getJSON($id, $options = []);
 
     /**
      * Get XML for the specified hierarchy ID.

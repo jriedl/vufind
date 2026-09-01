@@ -3,7 +3,7 @@
 /**
  * Recommend listener.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,29 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search;
 
-use VuFind\Recommend\PluginManager, VuFind\Search\SearchRunner;
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\EventManager\EventInterface;
+use Laminas\EventManager\EventInterface;
+use Laminas\EventManager\SharedEventManagerInterface;
+use VuFind\Recommend\PluginManager;
 
 /**
  * Recommend listener.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class RecommendListener
 {
@@ -98,11 +99,13 @@ class RecommendListener
     public function attach(SharedEventManagerInterface $manager)
     {
         $manager->attach(
-            'VuFind\Search\SearchRunner', SearchRunner::EVENT_CONFIGURED,
+            \VuFind\Search\SearchRunner::class,
+            SearchRunner::EVENT_CONFIGURED,
             [$this, 'onSearchConfigured']
         );
         $manager->attach(
-            'VuFind\Search\SearchRunner', SearchRunner::EVENT_COMPLETE,
+            \VuFind\Search\SearchRunner::class,
+            SearchRunner::EVENT_COMPLETE,
             [$this, 'onSearchComplete']
         );
     }
@@ -150,6 +153,9 @@ class RecommendListener
                 // Break apart the setting into module name and extra parameters:
                 $current = explode(':', $current);
                 $module = array_shift($current);
+                if (empty($module)) {
+                    continue;
+                }
                 $config = implode(':', $current);
                 if (!$this->pluginManager->has($module)) {
                     throw new \Exception(

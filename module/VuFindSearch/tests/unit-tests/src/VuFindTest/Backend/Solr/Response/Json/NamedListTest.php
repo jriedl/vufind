@@ -3,7 +3,7 @@
 /**
  * Unit tests for SOLR NamedList.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,28 +17,29 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Solr\Json\Response;
 
+use PHPUnit\Framework\TestCase;
 use VuFindSearch\Backend\Solr\Response\Json\NamedList;
-use PHPUnit_Framework_TestCase as TestCase;
 
 /**
  * Unit tests for SOLR NamedList.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class NamedListTest extends TestCase
 {
@@ -52,7 +53,7 @@ class NamedListTest extends TestCase
         $list = new NamedList([['first term', 'info'], ['second term', 'info']]);
         $keys = [];
         foreach ($list as $key => $value) {
-            $keys [] = $key;
+            $keys[] = $key;
         }
         $this->assertEquals(['first term', 'second term'], $keys);
     }
@@ -65,7 +66,7 @@ class NamedListTest extends TestCase
     public function testCountable()
     {
         $list = new NamedList([['first term', 'info'], ['second term', 'info']]);
-        $this->assertEquals(2, count($list));
+        $this->assertCount(2, $list);
     }
 
     /**
@@ -76,6 +77,49 @@ class NamedListTest extends TestCase
     public function testToArray()
     {
         $list = new NamedList([['first term', 'info'], ['second term', 'info2']]);
-        $this->assertEquals(['first term' => 'info', 'second term' => 'info2'], $list->toArray());
+        $this->assertEquals(
+            ['first term' => 'info', 'second term' => 'info2'],
+            $list->toArray()
+        );
+    }
+
+    /**
+     * Test key removal.
+     *
+     * @return void
+     */
+    public function testKeyRemoval()
+    {
+        $list = new NamedList([['first term', 'info'], ['second term', 'info2']]);
+        $list->removeKey('second term');
+        $this->assertEquals(['first term' => 'info'], $list->toArray());
+
+        $list = new NamedList(
+            [
+                ['first term', 'info'],
+                ['second term', 'info2'],
+                ['third term', 'info3'],
+            ]
+        );
+        $list->removeKeys(['first term', 'second term']);
+        $this->assertEquals(['third term' => 'info3'], $list->toArray());
+    }
+
+    /**
+     * Test multiple key removal.
+     *
+     * @return void
+     */
+    public function testMultipleKeyRemoval()
+    {
+        $list = new NamedList(
+            [
+                ['first term', 'info'],
+                ['second term', 'info2'],
+                ['third term', 'info3'],
+            ]
+        );
+        $list->removeKeys(['first term', 'second term']);
+        $this->assertEquals(['third term' => 'info3'], $list->toArray());
     }
 }

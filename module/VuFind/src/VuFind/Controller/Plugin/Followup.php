@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind Action Helper - Followup
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,27 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Controller\Plugin;
-use Zend\Mvc\Controller\Plugin\AbstractPlugin, Zend\Session\Container;
+
+use Laminas\Mvc\Controller\Plugin\AbstractPlugin;
+use Laminas\Session\Container;
+use Laminas\Uri\Http;
 
 /**
- * Zend action helper to deal with login followup; responsible for remembering URLs
+ * Action helper to deal with login followup; responsible for remembering URLs
  * before login and then redirecting the user to the appropriate place afterwards.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Followup extends AbstractPlugin
 {
@@ -49,10 +54,12 @@ class Followup extends AbstractPlugin
 
     /**
      * Constructor
+     *
+     * @param Container $session Session container
      */
-    public function __construct()
+    public function __construct(Container $session)
     {
-        $this->session = new Container('Followup');
+        $this->session = $session;
     }
 
     /**
@@ -75,7 +82,7 @@ class Followup extends AbstractPlugin
      * Retrieve the stored followup information.
      *
      * @param string $key     Element to retrieve and clear (null for entire
-     * \Zend\Session\Container object)
+     * \Laminas\Session\Container object)
      * @param mixed  $default Default value to return if no stored value found
      * (ignored when $key is null)
      *
@@ -86,9 +93,7 @@ class Followup extends AbstractPlugin
         if (null === $key) {
             return $this->session;
         }
-        return isset($this->session->$key)
-            ? $this->session->$key : $default;
-
+        return $this->session->$key ?? $default;
     }
 
     /**
@@ -119,8 +124,14 @@ class Followup extends AbstractPlugin
     public function store($extras = [], $overrideUrl = null)
     {
         // Store the current URL:
-        $this->session->url = !empty($overrideUrl)
-            ? $overrideUrl : $this->getController()->getServerUrl();
+        $url = new Http(
+            !empty($overrideUrl)
+            ? $overrideUrl : $this->getController()->getServerUrl()
+        );
+        $query = $url->getQueryAsArray();
+        unset($query['lightboxParent']);
+        $url->setQuery($query);
+        $this->session->url = $url->toString();
 
         // Store the extra parameters:
         foreach ($extras as $key => $value) {

@@ -3,7 +3,7 @@
 /**
  * Unit tests for OpenLibrary cover loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,41 +17,46 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
- * @package  Search
+ * @category VuFind
+ * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Content\Covers;
-use VuFindCode\ISBN, VuFind\Content\Covers\OpenLibrary;
+
+use VuFind\Content\Covers\OpenLibrary;
+use VuFindCode\ISBN;
 
 /**
  * Unit tests for OpenLibrary cover loader.
  *
- * @category VuFind2
- * @package  Search
+ * @category VuFind
+ * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class OpenLibraryTest extends \PHPUnit_Framework_TestCase
+class OpenLibraryTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test cover loading
      *
      * @return void
      */
-    public function testValidCoverLoading()
+    public function testValidCoverLoading(): void
     {
         $ol = new OpenLibrary();
         $this->assertEquals(
             'http://covers.openlibrary.org/b/isbn/9780739313121-S.jpg?default=false',
             $ol->getUrl(
-                'mykey', 'small', ['isbn' => new ISBN('0739313126')]
+                'mykey',
+                'small',
+                ['isbn' => new ISBN('0739313126')]
             )
         );
     }
@@ -61,9 +66,9 @@ class OpenLibraryTest extends \PHPUnit_Framework_TestCase
      *
      * @return void
      */
-    public function testMissingIsbn()
+    public function testMissingIsbn(): void
     {
         $ol = new OpenLibrary();
-        $this->assertEquals(false, $ol->getUrl('mykey', 'small', []));
+        $this->assertFalse($ol->getUrl('mykey', 'small', []));
     }
 }

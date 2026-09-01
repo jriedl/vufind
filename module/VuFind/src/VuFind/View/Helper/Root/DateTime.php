@@ -1,8 +1,9 @@
 <?php
+
 /**
  * View helper for formatting dates and times.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,27 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
+
+use function call_user_func_array;
 
 /**
  * View helper for formatting dates and times
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class DateTime extends \Zend\View\Helper\AbstractHelper
+class DateTime extends \Laminas\View\Helper\AbstractHelper
 {
     /**
      * Date converter
@@ -56,7 +60,7 @@ class DateTime extends \Zend\View\Helper\AbstractHelper
     }
 
     /**
-     * Extract a year from a human-readable date.  Return false if no year can
+     * Extract a year from a human-readable date. Return false if no year can
      * be found.
      *
      * @param string $date Date to reformat
@@ -67,7 +71,7 @@ class DateTime extends \Zend\View\Helper\AbstractHelper
     {
         try {
             return $this->converter->convertFromDisplayDate('Y', $date);
-        } catch (\VuFind\Exception\Date $e) {
+        } catch (\VuFind\Date\DateException $e) {
             // bad date? just ignore it!
             return false;
         }
@@ -81,12 +85,12 @@ class DateTime extends \Zend\View\Helper\AbstractHelper
     public function getDisplayDateFormat()
     {
         $dueDateHelpString
-            = $this->converter->convertToDisplayDate("m-d-y", "11-22-3333");
-        $search = ["1", "2", "3"];
+            = $this->converter->convertToDisplayDate('m-d-y', '11-22-3333');
+        $search = ['1', '2', '3'];
         $replace = [
-            $this->view->translate("date_month_placeholder"),
-            $this->view->translate("date_day_placeholder"),
-            $this->view->translate("date_year_placeholder")
+            $this->view->translate('date_month_placeholder'),
+            $this->view->translate('date_day_placeholder'),
+            $this->view->translate('date_year_placeholder'),
         ];
 
         return str_replace($search, $replace, $dueDateHelpString);

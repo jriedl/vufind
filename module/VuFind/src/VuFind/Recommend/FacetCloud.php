@@ -1,8 +1,9 @@
 <?php
+
 /**
  * FacetCloud Recommendations Module
  *
- * PHP Version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,27 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA    02111-1307    USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Lutz Biedinger <lutz.biedinger@gmail.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Recommend;
+
+use function is_callable;
 
 /**
  * FacetCloud Recommendations Module
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Lutz Biedinger <lutz.biedinger@gmail.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class FacetCloud extends ExpandFacets
 {
@@ -55,7 +59,7 @@ class FacetCloud extends ExpandFacets
         // "..." when more facets are available than are currently being displayed,
         // although this comes at the cost of not being able to display the last
         // entry in the list -- otherwise we might show "..." when we've exactly
-        // reached (but not exceeded) the facet limit.  If we can't get a facet
+        // reached (but not exceeded) the facet limit. If we can't get a facet
         // limit, we will set an arbitrary high number so that all available values
         // will display and "..." will never display.
         return isset($settings['limit']) ? $settings['limit'] - 1 : 100000;

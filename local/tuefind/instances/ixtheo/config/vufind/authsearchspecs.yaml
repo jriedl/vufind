@@ -1,0 +1,35 @@
+---
+# This file contains search specifications used by the authority module; for details
+# on the workings of this file, see the comments in searchspecs.yaml.
+#-----------------------------------------------------------------------------------
+
+AllFields:
+  DismaxFields:
+    - heading_search^500
+    - allfields
+  DismaxHandler: edismax
+
+MainHeading:
+  DismaxFields:
+    - heading_search^500
+    - use_for_keywords^400
+  FilterQuery: "title_count_ixtheo: [1 TO *]"
+
+MainHeadingPerson:
+  DismaxFields:
+    - heading_search^500
+    - use_for_keywords^400
+  FilterQuery: "type: person"
+
+MainHeadingCorporate:
+  DismaxFields:
+    - heading_search^500
+    - use_for_keywords^400
+  FilterQuery: "type: corporate"
+
+MainHeadingMeeting:
+  DismaxFields:
+    - heading_search^500
+    - use_for_keywords^400
+  FilterQuery: "type: meeting"
+

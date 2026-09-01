@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Multiple ILS authentication module that works with MultiBackend driver
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  * Copyright (C) The National Library of Finland 2013.
@@ -17,71 +18,70 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Franck Borel <franck.borel@gbv.de>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:authentication_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:authentication_handlers Wiki
  */
+
 namespace VuFind\Auth;
+
+use VuFind\Db\Entity\UserEntityInterface;
 use VuFind\Exception\Auth as AuthException;
+use VuFind\ILS\Connection;
 use VuFind\ILS\Driver\MultiBackend;
+
+use function in_array;
 
 /**
  * Multiple ILS authentication module that works with MultiBackend driver
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Franck Borel <franck.borel@gbv.de>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:authentication_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:authentication_handlers Wiki
  */
 class MultiILS extends ILS
 {
     /**
-     * Attempt to authenticate the current user.  Throws exception if login fails.
+     * Attempt to authenticate the current user. Throws exception if login fails.
      *
-     * @param \Zend\Http\PhpEnvironment\Request $request Request object containing
+     * @param \Laminas\Http\PhpEnvironment\Request $request Request object containing
      * account credentials.
      *
      * @throws AuthException
-     * @return \VuFind\Db\Row\User Object representing logged-in user.
+     * @return UserEntityInterface Object representing logged-in user.
      */
     public function authenticate($request)
     {
-        $target = trim($request->getPost()->get('target'));
-        $username = trim($request->getPost()->get('username'));
-        $password = trim($request->getPost()->get('password'));
-        if ($username == '' || $password == '') {
-            throw new AuthException('authentication_error_blank');
-        }
+        $username = trim($request->getPost()->get('username', ''));
+        $password = trim($request->getPost()->get('password', ''));
+        $target = trim($request->getPost()->get('target', ''));
+        $loginMethod = $this->getILSLoginMethod($target);
+        $rememberMe = (bool)$request->getPost()->get('remember_me', false);
 
         // We should have target either separately or already embedded into username
         if ($target) {
             $username = "$target.$username";
+        } else {
+            [$target] = explode('.', $username);
         }
 
-        // Connect to catalog:
-        try {
-            $patron = $this->getCatalog()->patronLogin($username, $password);
-        } catch (\Exception $e) {
-            throw new AuthException('authentication_error_technical');
+        // Check that the target is valid:
+        if (!in_array($target, $this->getLoginTargets())) {
+            throw new AuthException('authentication_error_admin');
         }
 
-        // Did the patron successfully log in?
-        if ($patron) {
-            return $this->processILSUser($patron);
-        }
-
-        // If we got this far, we have a problem:
-        throw new AuthException('authentication_error_invalid');
+        return $this->handleLogin($username, $password, $loginMethod, $rememberMe);
     }
 
     /**
@@ -97,7 +97,7 @@ class MultiILS extends ILS
     /**
      * Get default login target (ILS driver/source ID)
      *
-     * @return array
+     * @return string
      */
     public function getDefaultLoginTarget()
     {
@@ -122,6 +122,54 @@ class MultiILS extends ILS
                 'MultiILS authentication requires MultiBackend ILS driver.'
             );
         }
-        return parent::setCatalog($connection);
+        parent::setCatalog($connection);
+    }
+
+    /**
+     * Does this authentication method support password recovery
+     *
+     * @param ?string $target Authentication target for methods that support target selection
+     *
+     * @return bool
+     *
+     * @throws \Exception
+     */
+    public function supportsPasswordRecovery(?string $target = null)
+    {
+        if (!$target) {
+            throw new \Exception(__METHOD__ . ' requires the target parameter!');
+        }
+        // If a target is specified, use an arbitrary cat_username with the correct target prefix:
+        $recoveryConfig = $this->getCatalog()->checkFunction(
+            'resetPassword',
+            ['cat_username' => "$target.123"]
+        );
+        return (bool)$recoveryConfig;
+    }
+
+    /**
+     * Get password recovery data (such as a user id or recovery token) based on form data submitted by the user.
+     *
+     * @param array $params Request params (form data)
+     *
+     * @return ?array Null if user not found, or associative array with following keys:
+     *   string email    User's email address
+     *   string username Username (optional, for display)
+     *   array  details  Array of user details required for resetPassword request
+     */
+    public function getPasswordRecoveryData(array $params): ?array
+    {
+        if (!($target = $params['target'] ?? null)) {
+            throw new \Exception(__METHOD__ . ' requires the target parameter!');
+        }
+        $params['cat_username'] = $target . '.' . $params['cat_username'];
+
+        $result = $this->getCatalog()->getPasswordRecoveryData($params);
+        if (!$result['success']) {
+            throw new AuthException($result['error']);
+        }
+        $recoveryData = $result['data'];
+        $recoveryData['target'] = $target;
+        return $recoveryData;
     }
 }

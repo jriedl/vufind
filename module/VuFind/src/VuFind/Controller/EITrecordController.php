@@ -1,8 +1,9 @@
 <?php
+
 /**
  * EIT Record Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,55 +17,47 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
 
 /**
  * EIT Record Controller
  * Largely copied from Summon Record Controller
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class EITrecordController extends AbstractRecord
 {
     /**
      * Constructor
+     *
+     * @param ServiceLocatorInterface $sm Service locator
      */
-    public function __construct()
+    public function __construct(ServiceLocatorInterface $sm)
     {
         // Override some defaults:
         $this->accessPermission = 'access.EITModule';
-        $this->searchClassId = 'EIT';
+        $this->sourceId = 'EIT';
         $this->defaultTab = 'Description';
 
         // Call standard record controller initialization:
-        parent::__construct();
+        parent::__construct($sm);
     }
-
-    /**
-     * Is the result scroller active?
-     *
-     * @return bool
-     */
-    protected function resultScrollerActive()
-    {
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get('EIT');
-        return (isset($config->Record->next_prev_navigation)
-            && $config->Record->next_prev_navigation);
-    }
-
 }

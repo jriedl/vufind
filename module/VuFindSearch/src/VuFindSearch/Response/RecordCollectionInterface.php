@@ -3,7 +3,7 @@
 /**
  * Search backend search response interface file.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,15 +17,16 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
  * @category Search
  * @package  Service
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     https://github.com/dmj/vf2-search-subsystem
+ * @link     https://vufind.org/wiki/development
  */
+
 namespace VuFindSearch\Response;
 
 /**
@@ -35,7 +36,7 @@ namespace VuFindSearch\Response;
  * @package  Service
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     https://github.com/dmj/vf2-search-subsystem
+ * @link     https://vufind.org/wiki/development
  */
 interface RecordCollectionInterface extends \Countable, \Iterator
 {
@@ -49,9 +50,8 @@ interface RecordCollectionInterface extends \Countable, \Iterator
     /**
      * Return available facets.
      *
-     * Returns an associative array with the internal field name as key. The
-     * value is an associative array of the available facets for the field,
-     * indexed by facet value.
+     * Returns an associative array with the field name as key. The value is an
+     * associative array of available facets for the field, indexed by facet value.
      *
      * @return array
      */
@@ -63,6 +63,16 @@ interface RecordCollectionInterface extends \Countable, \Iterator
      * @return array
      */
     public function getRecords();
+
+    /**
+     * Return any errors.
+     *
+     * Each error can be a translatable string or an array that the Flashmessages
+     * view helper understands.
+     *
+     * @return array
+     */
+    public function getErrors();
 
     /**
      * Return offset in the total search result set.
@@ -84,8 +94,21 @@ interface RecordCollectionInterface extends \Countable, \Iterator
      * @param string $identifier Backend identifier
      *
      * @return void
+     *
+     * @deprecated Use setSourceIdentifiers instead
      */
     public function setSourceIdentifier($identifier);
+
+    /**
+     * Set the source backend identifiers.
+     *
+     * @param string $identifier      Record source identifier
+     * @param string $searchBackendId Search backend identifier (if different from
+     * $recordSourceId)
+     *
+     * @return void
+     */
+    public function setSourceIdentifiers($identifier, $searchBackendId = '');
 
     /**
      * Return the source backend identifier.
@@ -95,6 +118,17 @@ interface RecordCollectionInterface extends \Countable, \Iterator
     public function getSourceIdentifier();
 
     /**
+     * Sets the result set identifier for the record.
+     *
+     * This method assigns a UUID or a unique string identifier to the result set.
+     *
+     * @param string $uuid A valid UUID or unique identifier to be assigned to the result set.
+     *
+     * @return void
+     */
+    public function setResultSetIdentifier(string $uuid);
+
+    /**
      * Add a record to the collection.
      *
      * @param RecordInterface $record Record to add
@@ -102,5 +136,4 @@ interface RecordCollectionInterface extends \Countable, \Iterator
      * @return void
      */
     public function add(RecordInterface $record);
-
 }

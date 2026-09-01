@@ -1,0 +1,19 @@
+<!-- TueFind extension template -->
+<!-- About -->
+<li class="nav-item dropdown">
+    <a class="header-link dropdown-toggle" data-bs-toggle="dropdown"  href="#" role="button" aria-haspopup="true" aria-expanded="false">
+        <i class="fa fa-info-circle"> </i>
+        <span class="mobile-hide"><?=$this->transEsc('About');?></span> <span class="caret"></span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="navbarDropdown">
+        <li><a class="dropdown-item" href="<?=$this->url('content-page', ['page' => 'about_relbib']) ?>"><?=$this->transEsc('about_relbib')?></a></li>
+        <li><a class="dropdown-item" href="<?=$this->url('content-page', ['page' => 'about_fid']) ?>"><?=$this->transEsc('about_relbib_fid')?></a></li>
+        <li><a class="dropdown-item" href="<?=$this->url('content-page', ['page' => 'advisors']) ?>"><?=$this->transEsc('FID Advisory Board')?></a></li>
+    </ul>
+</li>
+<!-- A-Z -->
+<li class="nav-item">
+    <a class="header-link" href="<?=$this->url('content-page', ['page' => 'A-Z']) ?>">
+        <i class="fa fa-list"> </i> <span class="mobile-hide">RelBib A-Z</span>
+    </a>
+</li>

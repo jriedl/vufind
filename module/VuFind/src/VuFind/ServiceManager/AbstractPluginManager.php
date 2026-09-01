@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind Plugin Manager
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,45 +17,52 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  ServiceManager
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\ServiceManager;
-use Zend\ServiceManager\AbstractPluginManager as Base,
-    Zend\ServiceManager\ConfigInterface,
-    Zend\ServiceManager\Exception\RuntimeException as ServiceManagerRuntimeException;
+
+use Laminas\ServiceManager\AbstractPluginManager as Base;
+use Laminas\ServiceManager\Exception\InvalidServiceException;
 
 /**
  * VuFind Plugin Manager
  *
- * @category VuFind2
+ * @category VuFind
  * @package  ServiceManager
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  *
  * @SuppressWarnings(PHPMD.NumberOfChildren)
  */
 abstract class AbstractPluginManager extends Base
 {
+    use LowerCaseServiceNameTrait;
+
     /**
      * Constructor
      *
-     * Make sure table gateways are properly initialized.
+     * Make sure plugins are properly initialized.
      *
-     * @param ConfigInterface $configuration Configuration settings (optional)
+     * @param mixed $configOrContainerInstance Configuration or container instance
+     * @param array $v3config                  If $configOrContainerInstance is a
+     * container, this value will be passed to the parent constructor.
      */
-    public function __construct(ConfigInterface $configuration = null)
-    {
-        parent::__construct($configuration);
+    public function __construct(
+        $configOrContainerInstance = null,
+        array $v3config = []
+    ) {
+        parent::__construct($configOrContainerInstance, $v3config);
         $this->addInitializer(
-            ['VuFind\ServiceManager\Initializer', 'initPlugin'], false
+            \VuFind\ServiceManager\ServiceInitializer::class
         );
     }
 
@@ -66,15 +74,15 @@ abstract class AbstractPluginManager extends Base
      *
      * @param mixed $plugin Plugin to validate
      *
-     * @throws ServiceManagerRuntimeException if invalid
+     * @throws InvalidServiceException if invalid
      * @return void
      */
-    public function validatePlugin($plugin)
+    public function validate($plugin)
     {
         $expectedInterface = $this->getExpectedInterface();
-        if (!($plugin instanceof $expectedInterface)) {
-            throw new ServiceManagerRuntimeException(
-                'Plugin ' . get_class($plugin) . ' does not belong to '
+        if (!$plugin instanceof $expectedInterface) {
+            throw new InvalidServiceException(
+                'Plugin ' . $plugin::class . ' does not belong to '
                 . $expectedInterface
             );
         }

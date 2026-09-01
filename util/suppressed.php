@@ -2,7 +2,7 @@
 /**
  * Command-line tool to delete suppressed records from the index.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,18 +16,18 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Utilities
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/automation Wiki
+ * @link     https://vufind.org/wiki/automation Wiki
  */
 
-// Load the Zend framework -- this will automatically trigger the appropriate
-// controller action based on directory and file names
-define('CLI_DIR', __DIR__);     // save directory name of current script
+// Manipulate command line to load correct route, then run the main index page:
+array_unshift($_SERVER['argv'], array_shift($_SERVER['argv']), 'util', 'suppressed');
+$_SERVER['argc'] += 2;
 require_once __DIR__ . '/../public/index.php';

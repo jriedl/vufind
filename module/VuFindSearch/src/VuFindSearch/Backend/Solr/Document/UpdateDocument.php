@@ -3,7 +3,7 @@
 /**
  * SOLR update document class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,31 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Solr\Document;
 
-use VuFindSearch\Backend\Solr\Record\SerializableRecordInterface;
 use SplObjectStorage;
+use VuFindSearch\Backend\Solr\Record\SerializableRecordInterface;
 use XMLWriter;
+
+use function is_array;
 
 /**
  * SOLR update document class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class UpdateDocument extends AbstractDocument
+class UpdateDocument implements DocumentInterface
 {
     /**
      * Records and index attributes.
@@ -52,8 +57,6 @@ class UpdateDocument extends AbstractDocument
 
     /**
      * Constructor.
-     *
-     * @return void
      */
     public function __construct()
     {
@@ -61,21 +64,21 @@ class UpdateDocument extends AbstractDocument
     }
 
     /**
-     * Return serialized JSON representation.
+     * Return content MIME type.
      *
      * @return string
      */
-    public function asJSON()
+    public function getContentType(): string
     {
-        // @todo Implement
+        return 'text/xml; charset=UTF-8';
     }
 
     /**
-     * Return serialized XML representation.
+     * Return serialized representation.
      *
      * @return string
      */
-    public function asXML()
+    public function getContent(): string
     {
         $writer = new XMLWriter();
         $writer->openMemory();
@@ -111,10 +114,10 @@ class UpdateDocument extends AbstractDocument
      *
      * @return void
      */
-    public function addRecord(SerializableRecordInterface $record,
+    public function addRecord(
+        SerializableRecordInterface $record,
         array $indexAttr = []
-    ) {
+    ): void {
         $this->records->attach($record, $indexAttr);
     }
-
 }

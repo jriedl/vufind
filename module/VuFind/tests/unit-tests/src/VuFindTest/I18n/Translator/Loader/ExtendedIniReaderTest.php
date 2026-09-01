@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ExtendedIniReader Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,36 +17,67 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\I18n\Translator\Loader;
+
 use VuFind\I18n\Translator\Loader\ExtendedIniReader;
 
 /**
  * ExtendedIniReader Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ExtendedIniReaderTest extends \VuFindTest\Unit\TestCase
+class ExtendedIniReaderTest extends \PHPUnit\Framework\TestCase
 {
+    /**
+     * Test quote-stripping functionality.
+     *
+     * @return void
+     */
+    public function testQuoteStripping(): void
+    {
+        $input = [
+            'foo="bar"',
+            'bar=baz',
+            "baz='xyzzy'",
+            'spaced = yes',
+            'quotedspaced = "alsoyes"',
+            "escaped = 'this \\'r that'",
+            'keepquotes="\'\'"',
+        ];
+        $output = [
+            'foo' => 'bar',
+            'bar' => 'baz',
+            'baz' => 'xyzzy',
+            'spaced' => 'yes',
+            'quotedspaced' => 'alsoyes',
+            'escaped' => "this 'r that",
+            'keepquotes' => "''",
+        ];
+        $reader = new ExtendedIniReader();
+        $this->assertEquals($output, (array)$reader->getTextDomain($input));
+    }
+
     /**
      * Test non-joiner functionality.
      *
      * @return void
      */
-    public function testNonJoinerOptions()
+    public function testNonJoinerOptions(): void
     {
         $reader = new ExtendedIniReader();
         $input = ['foo="bar"', 'baz=""'];

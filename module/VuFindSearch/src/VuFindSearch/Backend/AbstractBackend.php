@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Abstract backend.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,30 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend;
 
-use VuFindSearch\Response\RecordCollectionInterface;
+use Psr\Log\LoggerAwareInterface;
+use Ramsey\Uuid\Uuid;
 use VuFindSearch\Response\RecordCollectionFactoryInterface;
+use VuFindSearch\Response\RecordCollectionInterface;
 
-use Zend\Log\LoggerAwareInterface;
+use function count;
 
 /**
  * Abstract backend.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 abstract class AbstractBackend implements BackendInterface, LoggerAwareInterface
 {
@@ -108,16 +112,18 @@ abstract class AbstractBackend implements BackendInterface, LoggerAwareInterface
     /**
      * Inject source identifier in record collection and all contained records.
      *
-     * @param ResponseInterface $response Response
+     * @param RecordCollectionInterface $response Response
      *
-     * @return void
+     * @return RecordCollectionInterface
      */
     protected function injectSourceIdentifier(RecordCollectionInterface $response)
     {
-        $response->setSourceIdentifier($this->identifier);
-        foreach ($response as $record) {
-            $record->setSourceIdentifier($this->identifier);
+        $response->setSourceIdentifiers($this->identifier);
+
+        if (count($response->getRecords()) > 0) {
+            $response->setResultSetIdentifier(Uuid::uuid4());
         }
+
         return $response;
     }
 }

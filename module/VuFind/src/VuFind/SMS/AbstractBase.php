@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Base class to enable sharing of common methods between SMS subclasses
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2009.
  *
@@ -16,44 +17,42 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SMS
  * @author   Ronan McHugh <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\SMS;
 
 /**
  * Base class to enable sharing of common methods between SMS subclasses
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SMS
  * @author   Ronan McHugh <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 abstract class AbstractBase implements SMSInterface
 {
     /**
      * SMS configuration
      *
-     * @var \Zend\Config\Config
+     * @var \VuFind\Config\Config
      */
     protected $smsConfig;
 
     /**
      * Constructor
      *
-     * @param \Zend\Config\Config $config  SMS configuration
-     * @param array               $options Additional options
-     *
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     * @param \VuFind\Config\Config $config SMS configuration
      */
-    public function __construct(\Zend\Config\Config $config, $options = [])
+    public function __construct(\VuFind\Config\Config $config)
     {
         $this->smsConfig = $config;
     }
@@ -67,8 +66,7 @@ abstract class AbstractBase implements SMSInterface
      */
     protected function filterPhoneNumber($num)
     {
-        $filter = isset($this->smsConfig->General->filter)
-            ? $this->smsConfig->General->filter : '-.() ';
+        $filter = $this->smsConfig->General->filter ?? '-.() ';
         return str_replace(str_split($filter), '', $num);
     }
 
@@ -80,7 +78,6 @@ abstract class AbstractBase implements SMSInterface
     public function getValidationType()
     {
         // Load setting from config; at present, only US is implemented in templates
-        return isset($this->smsConfig->General->validation)
-            ? $this->smsConfig->General->validation : 'US';
+        return $this->smsConfig->General->validation ?? 'US';
     }
 }

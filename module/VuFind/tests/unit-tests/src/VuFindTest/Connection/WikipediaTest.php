@@ -3,7 +3,7 @@
 /**
  * Unit tests for Wikipedia connector.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,33 +17,35 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Connection;
 
+use Laminas\Http\Client\Adapter\Test as TestAdapter;
+use Laminas\Http\Client as HttpClient;
 use VuFind\Connection\Wikipedia;
-
-use Zend\Http\Client\Adapter\Test as TestAdapter;
-use Zend\Http\Client as HttpClient;
 
 /**
  * Unit tests for Wikipedia connector.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class WikipediaTest extends \PHPUnit_Framework_TestCase
+class WikipediaTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+
     /**
      * Test processing of English-language Jane Austen entry.
      *
@@ -68,9 +70,8 @@ class WikipediaTest extends \PHPUnit_Framework_TestCase
      */
     protected function getClient($fixture)
     {
-        $file = realpath(__DIR__ . '/../../../../fixtures/wikipedia/' . $fixture);
         $adapter = new TestAdapter();
-        $adapter->setResponse(file_get_contents($file));
+        $adapter->setResponse($this->getFixture("wikipedia/$fixture"));
         $client = new HttpClient();
         $client->setAdapter($adapter);
         return $client;

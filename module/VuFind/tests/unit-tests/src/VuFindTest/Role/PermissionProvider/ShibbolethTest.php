@@ -1,8 +1,9 @@
 <?php
+
 /**
  * PermissionProvider Shibboleth Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,30 +17,32 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Bernd Oberknapp <bo@ub.uni-freiburg.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Role\PermissionProvider;
+
 use VuFind\Role\PermissionProvider\Shibboleth;
 
 /**
  * PermissionProvider Shibboleth Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Bernd Oberknapp <bo@ub.uni-freiburg.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ShibbolethTest extends \VuFindTest\Unit\TestCase
+class ShibbolethTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test option alias idpentityid for Shib-Identity-Provider
@@ -51,7 +54,7 @@ class ShibbolethTest extends \VuFindTest\Unit\TestCase
         $this->checkShibboleth(
             ['Shib-Identity-Provider' => 'https://example.org/shibboleth-idp'],
             ['idpentityid https://example.org/shibboleth-idp'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -66,7 +69,7 @@ class ShibbolethTest extends \VuFindTest\Unit\TestCase
             ['Shib-Identity-Provider' => 'https://example.org/shibboleth-idp',
              'affiliation' => 'student@example.org;member@example.org'],
             ['affiliation member@example.org'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -95,12 +98,15 @@ class ShibbolethTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    protected function checkShibboleth($headers, $options, $expectedResult,
+    protected function checkShibboleth(
+        $headers,
+        $options,
+        $expectedResult,
         $config = []
     ) {
-        $request = new \Zend\Http\PhpEnvironment\Request();
-        $request->setServer(new \Zend\Stdlib\Parameters($headers));
-        $shibboleth = new Shibboleth($request, new \Zend\Config\Config($config));
+        $request = new \Laminas\Http\PhpEnvironment\Request();
+        $request->setServer(new \Laminas\Stdlib\Parameters($headers));
+        $shibboleth = new Shibboleth($request, new \VuFind\Config\Config($config));
         $result = $shibboleth->getPermissions($options);
         $this->assertEquals($result, $expectedResult);
     }

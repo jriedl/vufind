@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Eds Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,48 +17,44 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
 
+use Laminas\ServiceManager\ServiceLocatorInterface;
 use VuFind\Solr\Utils as SolrUtils;
+
+use function array_key_exists;
+use function in_array;
+
 /**
  * EDS Controller
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class EdsController extends AbstractSearch
 {
     /**
      * Constructor
+     *
+     * @param ServiceLocatorInterface $sm Service locator
      */
-    public function __construct()
+    public function __construct(ServiceLocatorInterface $sm)
     {
         $this->searchClassId = 'EDS';
-        parent::__construct();
-    }
-
-    /**
-     * Is the result scroller active?
-     *
-     * @return bool
-     */
-    protected function resultScrollerActive()
-    {
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get('EDS');
-        return (isset($config->Record->next_prev_navigation)
-            && $config->Record->next_prev_navigation);
+        parent::__construct($sm);
     }
 
     /**
@@ -71,25 +68,13 @@ class EdsController extends AbstractSearch
         $view = parent::advancedAction();
         // Set up facet information:
         $view->limiterList = $this->processAdvancedFacets(
-            $this->getAdvancedFacets(), $view->saved
+            $this->getAdvancedFacets(),
+            $view->saved
         );
         $view->expanderList = $this->processAdvancedExpanders($view->saved);
         $view->searchModes = $this->processAdvancedSearchModes($view->saved);
         $view->dateRangeLimit = $this->processPublicationDateRange($view->saved);
         return $view;
-    }
-
-    /**
-     * Home action
-     *
-     * @return mixed
-     */
-    public function homeAction()
-    {
-        $this->setUp();
-        return $this->createViewModel(
-            ['results' => $this->getHomePageFacets()]
-        );
     }
 
     /**
@@ -103,10 +88,10 @@ class EdsController extends AbstractSearch
     }
 
     /**
-     * Return a Search Results object containing advanced facet information.  This
+     * Return a Search Results object containing advanced facet information. This
      * data may come from the cache.
      *
-     * @return \VuFind\Search\EDS\Results
+     * @return array
      */
     protected function getAdvancedFacets()
     {
@@ -120,25 +105,7 @@ class EdsController extends AbstractSearch
         $results = $this->getResultsManager()->get('EDS');
         $params = $results->getParams();
         $options = $params->getOptions();
-        $availableLimiters = $options->getAvailableLimiters();
-        if (!$availableLimiters) {
-            //execute a call to search just to pull in the limiters
-            $this->setUp();
-        }
-
-        return $availableLimiters;
-    }
-
-    /**
-     * Return a Search Results object containing homepage facet information.  This
-     * data may come from the cache.
-     *
-     * @return \VuFind\Search\EDS\Results
-     */
-    protected function getHomePageFacets()
-    {
-        // For now, we'll use the same fields as the advanced search screen.
-        return $this->getAdvancedFacets();
+        return $options->getAdvancedLimiters();
     }
 
     /**
@@ -160,17 +127,22 @@ class EdsController extends AbstractSearch
 
                     // If we haven't already found a selected facet and the current
                     // facet has been applied to the search, we should store it as
-                    // the selected facet for the current control.
+                    // the selected facet for the current control. Cover AND and OR
+                    // filter cases to be on the safe side; either might be used,
+                    // but we don't currently expect both at once on the same field.
                     if ($searchObject) {
                         $limitFilt = 'LIMIT|' . $fullFilter;
+                        $orLimitFilt = '~' . $limitFilt;
                         if ($searchObject->getParams()->hasFilter($limitFilt)) {
-                            $facetList[$facet]['LimiterValues'][$key]['selected']
-                                = true;
+                            $facetList[$facet]['LimiterValues'][$key]['selected'] = true;
                             // Remove the filter from the search object -- we don't
                             // want it to show up in the "applied filters" sidebar
                             // since it will already be accounted for by being
                             // selected in the filter select list!
                             $searchObject->getParams()->removeFilter($limitFilt);
+                        } elseif ($searchObject->getParams()->hasFilter($orLimitFilt)) {
+                            $facetList[$facet]['LimiterValues'][$key]['selected'] = true;
+                            $searchObject->getParams()->removeFilter($orLimitFilt);
                         }
                     } else {
                         if ('y' == $facetList[$facet]['DefaultOn']) {
@@ -219,7 +191,7 @@ class EdsController extends AbstractSearch
     }
 
     /**
-     * Process the publicationd date range limiter widget
+     * Process the publication date range limiter widget
      *
      * @param object $searchObject Saved search object (false if none)
      *
@@ -258,9 +230,10 @@ class EdsController extends AbstractSearch
         $params = $results->getParams();
         $options = $params->getOptions();
         $searchModes = $options->getModeOptions();
+        $useDefault = true;
         // Process the facets, assuming they came back
-        foreach ($searchModes as $key => $mode) {
-            if ($searchObject) {
+        if ($searchObject) {
+            foreach ($searchModes as $key => $mode) {
                 $modeFilter = 'SEARCHMODE:' . $mode['Value'];
                 if ($searchObject->getParams()->hasFilter($modeFilter)) {
                     $searchModes[$key]['selected'] = true;
@@ -269,52 +242,17 @@ class EdsController extends AbstractSearch
                     // will already be accounted for by being selected in the
                     // filter select list!
                     $searchObject->getParams()->removeFilter($modeFilter);
+                    $useDefault = false;
                 }
-            } else {
-                if ($key == $options->getDefaultMode()) {
-                    $searchModes[$key]['selected'] = true;
-                }
+            }
+        }
+        if ($useDefault) {
+            $key = $options->getDefaultMode();
+            if (array_key_exists($key, $searchModes)) {
+                $searchModes[$key]['selected'] = true;
             }
         }
 
         return $searchModes;
     }
-
-    /**
-     * Make the initial calls to the EDS API to obtain/generate authentication and
-     * session tokens as well as calling the info method to cache search criteria
-     *
-     * @return void
-     */
-    public function setUp()
-    {
-        $results = $this->getResultsManager()->get($this->searchClassId);
-        $params = $results->getParams();
-        $params->isSetupOnly = true;
-
-        // Attempt to perform the search; if there is a problem, inspect any Solr
-        // exceptions to see if we should communicate to the user about them.
-        try {
-            // Explicitly execute search within controller -- this allows us to
-            // catch exceptions more reliably:
-            $results->performAndProcessSearch();
-
-        } catch (\VuFindSearch\Backend\Exception\BackendException $e) {
-            if ($e->hasTag('VuFind\Search\ParserError')) {
-                // If it's a parse error or the user specified an invalid field, we
-                // should display an appropriate message:
-                $view->parseError = true;
-
-                // We need to create and process an "empty results" object to
-                // ensure that recommendation modules and templates behave
-                // properly when displaying the error message.
-                $view->results = $this->getResultsManager()->get('EmptySet');
-                $view->results->setParams($params);
-                $view->results->performAndProcessSearch();
-            } else {
-                throw $e;
-            }
-        }
-    }
 }
-

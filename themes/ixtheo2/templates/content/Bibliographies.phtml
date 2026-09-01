@@ -1,0 +1,43 @@
+<?php
+    $this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/awesome.css');
+    $this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/solid.css');
+?>
+
+<section class="cw-p-2">
+    <div id="map" class="map"></div>
+    <?php $jsSnippet = <<<EOD
+    $(function () {
+        IxTheo2.loadMap('bibliographien');
+    });
+    EOD;
+    ?>
+<?=$this->assetManager()->outputInlineScriptString($jsSnippet)?>
+</section>
+<div class="cw-row">
+    <div class="cw-col-lg-12 cw-ml-lg-4">
+        <div class="cw-text-block"><br>
+            <h1 class="cw-h1">Bibliographies</h1>
+
+            <p>The Index Theologicus (IxTheo) is produced in cooperation with other bibliographies. Our cooperation partners contribute to the cataloguing and indexing of new theological literature. All the literature which was exclusively available in these individual bibliographies is now also searchable in IxTheo.</p>
+            <p>IxTheo currently cooperates with the following bibliographies:</p>
+            <ul>
+                <li>Augustinus-Bibliographie (Würzburg)</li>
+                <li>BiBIL (Lausanne) [in development]</li>
+                <li>BILDI (Innsbruck)</li>
+                <li>DaKaR (Münster)
+                    <ul>
+                        <li>Chair of Church Law and of the history of Church Law at Katholische Universität Eichstätt-Ingolstadt</li>
+                        <li>Chair of Church Law and of the history of Church Law at the University  of Freiburg</li>
+                        <li>Generalvikariat of the Archbishopric of Hamburg</li>
+                        <li>Seminar for Church Law, the History of Church Law and constitutional law on state-church relations at the Johannes Gutenberg University Mainz</li>
+                        <li>Institute of Canonical Law at the University of Münster</li>
+                        <li>Generalvikariat of the Bishopric of Osnabrück</li>
+                        <li>Department of Church Law at the Catholic Theological Faculty of the University  of Tübingen</li>
+                    </ul>
+                </li>
+                <li>KALDI (Innsbruck)</li>
+            </ul>
+            <p>IxTheo is always interested in new cooperations with other theological bibliographies. If you are interested in working with us, please contact us at: <a href="mailto:ixtheo@ub.uni-tuebingen.de">ixtheo@ub.uni-tuebingen.de</a>.</p>
+        </div>
+    </div>
+</div>

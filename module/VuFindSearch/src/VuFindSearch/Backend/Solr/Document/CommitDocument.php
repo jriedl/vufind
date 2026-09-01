@@ -3,7 +3,7 @@
 /**
  * SOLR commit document class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,15 +17,17 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Solr\Document;
 
 use XMLWriter;
@@ -33,49 +35,48 @@ use XMLWriter;
 /**
  * SOLR commit document class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class CommitDocument extends AbstractDocument
+class CommitDocument implements DocumentInterface
 {
     /**
      * Value for commitWithin attribute
      *
-     * @var integer
+     * @var int
      */
     protected $commitWithin;
 
     /**
      * Constructor.
      *
-     * @param integer $commitWithin commitWithin attribute value
-     *
-     * @return void
+     * @param int $commitWithin commitWithin attribute value (-1 to omit)
      */
-    public function __construct($commitWithin = null)
+    public function __construct(int $commitWithin = -1)
     {
         $this->commitWithin = $commitWithin;
     }
 
     /**
-     * Return serialized JSON representation.
+     * Return content MIME type.
      *
      * @return string
      */
-    public function asJSON()
+    public function getContentType(): string
     {
-        // @todo Implement
+        return 'text/xml; charset=UTF-8';
     }
 
     /**
-     * Return serialized XML representation.
+     * Return serialized representation.
      *
      * @return string
      */
-    public function asXML()
+    public function getContent(): string
     {
         $writer = new XMLWriter();
         $writer->openMemory();
@@ -88,5 +89,4 @@ class CommitDocument extends AbstractDocument
         $writer->endDocument();
         return $writer->flush();
     }
-
 }

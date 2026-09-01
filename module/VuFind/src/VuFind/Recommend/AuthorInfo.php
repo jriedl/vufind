@@ -1,8 +1,9 @@
 <?php
+
 /**
  * AuthorInfo Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,20 +17,25 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
+
+use Exception;
+use Laminas\Translator\TranslatorInterface;
 use VuFind\Connection\Wikipedia;
 use VuFind\I18n\Translator\TranslatorAwareInterface;
 use VuFindSearch\Query\Query;
-use Zend\I18n\Translator\TranslatorInterface;
+
+use function count;
 
 /**
  * AuthorInfo Recommendations Module
@@ -37,11 +43,11 @@ use Zend\I18n\Translator\TranslatorInterface;
  * This class gathers information from the Wikipedia API and publishes the results
  * to a module at the top of an author's results page
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  * @view     AuthorInfoFacets.phtml
  */
 class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
@@ -53,7 +59,7 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
     /**
      * HTTP client
      *
-     * @var \Zend\Http\Client
+     * @var \Laminas\Http\Client
      */
     protected $client;
 
@@ -97,12 +103,14 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
      * Constructor
      *
      * @param \VuFind\Search\Results\PluginManager $results Results plugin manager
-     * @param \Zend\Http\Client                    $client  HTTP client
+     * @param \Laminas\Http\Client                 $client  HTTP client
      * @param string                               $sources Source identifiers
      * (currently, only 'wikipedia' is supported)
      */
-    public function __construct(\VuFind\Search\Results\PluginManager $results,
-        \Zend\Http\Client $client, $sources = 'wikipedia'
+    public function __construct(
+        \VuFind\Search\Results\PluginManager $results,
+        \Laminas\Http\Client $client,
+        $sources = 'wikipedia'
     ) {
         $this->resultsManager = $results;
         $this->client = $client;
@@ -120,7 +128,8 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
     public function setConfig($settings)
     {
         $parts = explode(':', $settings);
-        if (isset($parts[0]) && !empty($parts[0])
+        if (
+            isset($parts[0]) && !empty($parts[0])
             && strtolower(trim($parts[0])) !== 'false'
         ) {
             $this->useViaf = true;
@@ -143,13 +152,14 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -160,7 +170,7 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
     }
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *
@@ -190,8 +200,12 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
     public function getAuthorInfo()
     {
         // Don't load Wikipedia content if Wikipedia is disabled:
-        return stristr($this->sources, 'wikipedia')
-            ? $this->wikipedia->get($this->getAuthor()) : null;
+        try {
+            return stristr($this->sources, 'wikipedia') ? $this->wikipedia->get($this->getAuthor()) : null;
+        } catch (Exception $e) {
+            error_log("Unexpected error while loading author info: {$e->getMessage()}");
+            return null;
+        }
     }
 
     /**
@@ -211,16 +225,16 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
         $last = $nameParts[0];
         // - move all names up an index, move last name to last
         // - Last, First M. -> First M. Last
-        for ($i = 1;$i < count($nameParts);$i++) {
+        for ($i = 1; $i < count($nameParts); $i++) {
             $nameParts[$i - 1] = $nameParts[$i];
         }
         $nameParts[count($nameParts) - 1] = $last;
-        $author = implode($nameParts, ' ');
+        $author = implode(' ', $nameParts);
         return $author;
     }
 
     /**
-     * Translate an LCCN to a Wikipedia name through the VIAF web service.  Returns
+     * Translate an LCCN to a Wikipedia name through the VIAF web service. Returns
      * false if no value can be found.
      *
      * @param string $lccn LCCN
@@ -236,7 +250,7 @@ class AuthorInfo implements RecommendInterface, TranslatorAwareInterface
             return false;
         }
         $details = json_decode($result->getBody());
-        return isset($details->WKP[0]) ? $details->WKP[0] : false;
+        return $details->WKP[0] ?? false;
     }
 
     /**

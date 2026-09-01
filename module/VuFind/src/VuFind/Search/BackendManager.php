@@ -3,7 +3,7 @@
 /**
  * Manager for search backends.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,38 +17,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search;
 
-use Zend\ServiceManager\ServiceLocatorInterface;
-
-use Zend\EventManager\SharedListenerAggregateInterface;
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\EventManager\EventInterface;
-
-use VuFindSearch\Backend\BackendInterface;
-
+use Laminas\EventManager\EventInterface;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Laminas\ServiceManager\ServiceLocatorInterface;
 use SplObjectStorage;
 use UnexpectedValueException;
+use VuFindSearch\Backend\BackendInterface;
+use VuFindSearch\Service;
+
+use function gettype;
+use function is_object;
+use function sprintf;
 
 /**
  * Manager for search backends.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
-class BackendManager implements SharedListenerAggregateInterface
+class BackendManager
 {
     /**
      * Backend registry.
@@ -100,7 +102,7 @@ class BackendManager implements SharedListenerAggregateInterface
      */
     public function get($name)
     {
-        $backend = $this->registry->get($name, false);
+        $backend = $this->registry->get($name);
         if (!is_object($backend)) {
             throw new UnexpectedValueException(
                 sprintf(
@@ -113,7 +115,7 @@ class BackendManager implements SharedListenerAggregateInterface
             throw new UnexpectedValueException(
                 sprintf(
                     'Object of class %s does not implement the expected interface',
-                    get_class($backend)
+                    $backend::class
                 )
             );
         }
@@ -126,7 +128,7 @@ class BackendManager implements SharedListenerAggregateInterface
      *
      * @param string $name Backend name
      *
-     * @return boolean
+     * @return bool
      */
     public function has($name)
     {
@@ -142,7 +144,7 @@ class BackendManager implements SharedListenerAggregateInterface
      */
     public function onResolve(EventInterface $e)
     {
-        $name = $e->getParam('backend');
+        $name = $e->getParam('command')->getTargetIdentifier();
         if ($name && $this->has($name)) {
             return $this->get($name);
         }
@@ -159,11 +161,8 @@ class BackendManager implements SharedListenerAggregateInterface
     public function attachShared(SharedEventManagerInterface $events)
     {
         if (!$this->listeners->offsetExists($events)) {
-            $listener = $events->attach(
-                'VuFind\Search',
-                'resolve',
-                [$this, 'onResolve']
-            );
+            $listener = [$this, 'onResolve'];
+            $events->attach(Service::class, Service::EVENT_RESOLVE, $listener);
             $this->listeners->attach($events, $listener);
         }
     }
@@ -179,7 +178,7 @@ class BackendManager implements SharedListenerAggregateInterface
     {
         if ($this->listeners->offsetExists($events)) {
             $listener = $this->listeners->offsetGet($events);
-            $events->detach('VuFind\Search', $listener);
+            $events->detach($listener, Service::class);
             $this->listeners->detach($events);
         }
     }

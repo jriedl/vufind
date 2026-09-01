@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Primo Central Search Parameters
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,29 +17,65 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Primo
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\Primo;
+
 use VuFindSearch\ParamBag;
+
+use function in_array;
 
 /**
  * Primo Central Search Parameters
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Primo
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Params extends \VuFind\Search\Base\Params
 {
+    /**
+     * Config sections to search for facet labels if no override configuration
+     * is set.
+     *
+     * @var array
+     */
+    protected $defaultFacetLabelSections
+        = ['Advanced_Facets', 'FacetsTop', 'Facets'];
+
+    /**
+     * Config sections to search for checkbox facet labels if no override
+     * configuration is set.
+     *
+     * @var array
+     */
+    protected $defaultFacetLabelCheckboxSections = ['CheckboxFacets'];
+
+    /**
+     * Mappings of specific Primo facet values (spelling errors and other special
+     * cases present at least in CDI)
+     *
+     * @var array
+     */
+    protected $facetValueMappings = [
+        'reference_entrys' => 'Reference Entries',
+        'newsletterarticle' => 'Newsletter Articles',
+        'archival_material_manuscripts' => 'Archival Materials / Manuscripts',
+        'magazinearticle' => 'Magazine Articles',
+    ];
+
     /**
      * Create search backend parameters for advanced features.
      *
@@ -53,30 +90,29 @@ class Params extends \VuFind\Search\Base\Params
         $sort = $this->getSort();
         $finalSort = ($sort == 'relevance') ? null : $sort;
         $backendParams->set('sort', $finalSort);
-        $backendParams->set('filterList', $this->filterList);
+        $backendParams->set('filterList', $this->getFilterSettings());
+        if ($this->getOptions()->highlightEnabled()) {
+            $backendParams->set('highlight', true);
+            $backendParams->set('highlightStart', '{{{{START_HILITE}}}}');
+            $backendParams->set('highlightEnd', '{{{{END_HILITE}}}}');
+        }
 
         return $backendParams;
     }
 
     /**
-     * Format a single filter for use in getFilterList().
+     * Get a display text for a facet field.
      *
-     * @param string $field     Field name
-     * @param string $value     Field value
-     * @param string $operator  Operator (AND/OR/NOT)
-     * @param bool   $translate Should we translate the label?
+     * @param string $field Facet field
+     * @param string $value Facet value
      *
-     * @return array
+     * @return string
      */
-    protected function formatFilterListEntry($field, $value, $operator, $translate)
+    public function getFacetValueRawDisplayText(string $field, string $value): string
     {
-        $result
-            = parent::formatFilterListEntry($field, $value, $operator, $translate);
-        if (!$translate) {
-            $result['displayText']
-                = $this->fixPrimoFacetValue($result['displayText']);
-        }
-        return $result;
+        return $this->fixPrimoFacetValue(
+            parent::getFacetValueRawDisplayText($field, $value)
+        );
     }
 
     /**
@@ -88,27 +124,79 @@ class Params extends \VuFind\Search\Base\Params
      */
     public function fixPrimoFacetValue($str)
     {
-        // Special case: odd spelling error in Primo results:
-        if ($str == 'reference_entrys') {
-            return 'Reference Entries';
+        if ($replacement = $this->facetValueMappings[$str] ?? '') {
+            return $replacement;
         }
-        return ucwords(str_replace('_', ' ', $str));
+        return mb_convert_case(
+            preg_replace('/_/u', ' ', $str),
+            MB_CASE_TITLE,
+            'UTF-8'
+        );
     }
 
     /**
-     * Load all available facet settings.  This is mainly useful for showing
-     * appropriate labels when an existing search has multiple filters associated
-     * with it.
+     * Return the current filters as an array
      *
-     * @param string $preferredSection Section to favor when loading settings; if
-     * multiple sections contain the same facet, this section's description will
-     * be favored.
-     *
-     * @return void
+     * @return array
      */
-    public function activateAllFacets($preferredSection = false)
+    public function getFilterSettings()
     {
-        $this->initFacetList('Facets', 'Results_Settings', 'Primo');
-        $this->initFacetList('Advanced_Facets', 'Advanced_Facet_Settings', 'Primo');
+        $result = [];
+        $filterList = array_merge_recursive(
+            $this->getHiddenFilters(),
+            $this->filterList
+        );
+        foreach ($filterList as $field => $filter) {
+            $facetOp = 'AND';
+            $prefix = substr($field, 0, 1);
+            if ('~' === $prefix || '-' === $prefix) {
+                $facetOp = '~' === $prefix ? 'OR' : 'NOT';
+                $field = substr($field, 1);
+            }
+            $result[] = [
+                'field' => $field,
+                'facetOp' => $facetOp,
+                'values' => $filter,
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * Return an array structure containing information about all current filters.
+     *
+     * @param bool $excludeCheckboxFilters Should we exclude checkbox filters from
+     * the list (to be used as a complement to getCheckboxFacets()).
+     *
+     * @return array                       Field, values and translation status
+     */
+    public function getFilterList($excludeCheckboxFilters = false)
+    {
+        $result = parent::getFilterList($excludeCheckboxFilters);
+        if (isset($result['citing'])) {
+            unset($result['citing']);
+        }
+        if (isset($result['citedby'])) {
+            unset($result['citedby']);
+        }
+        return $result;
+    }
+
+    /**
+     * Get a user-friendly string to describe the provided facet field.
+     *
+     * @param string $field               Facet field name.
+     * @param string $value               Facet value.
+     * @param string $default             Default field name (null for default behavior).
+     * @param bool   $allowCheckboxFacets Should checkbox facet labels be allowed too?
+     *
+     * @return string Human-readable description of field.
+     */
+    public function getFacetLabel($field, $value = null, $default = null, $allowCheckboxFacets = true)
+    {
+        if (in_array($field, ['citing', 'citedby'])) {
+            return $field;
+        }
+        return parent::getFacetLabel($field, $value, $default, $allowCheckboxFacets);
     }
 }

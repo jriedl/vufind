@@ -3,7 +3,7 @@
 /**
  * SOLR backend handler map.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,31 +17,34 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-namespace VuFindSearch\Backend\Solr;
 
-use VuFindSearch\ParamBag;
-use VuFindSearch\Backend\AbstractHandlerMap;
+namespace VuFindSearch\Backend\Solr;
 
 use InvalidArgumentException;
 use RuntimeException;
+use VuFindSearch\Backend\AbstractHandlerMap;
+use VuFindSearch\ParamBag;
+
+use function in_array;
+use function sprintf;
 
 /**
  * SOLR backend handler map.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class HandlerMap extends AbstractHandlerMap
 {
@@ -99,7 +102,8 @@ class HandlerMap extends AbstractHandlerMap
                     throw new InvalidArgumentException(
                         sprintf(
                             'Duplicate fallback handler definition: %s, %s',
-                            $handler, $fallback
+                            $handler,
+                            $fallback
                         )
                     );
                 }
@@ -111,7 +115,8 @@ class HandlerMap extends AbstractHandlerMap
                         throw new InvalidArgumentException(
                             sprintf(
                                 'Handler for function already defined: %s, %s',
-                                $function, $handler
+                                $function,
+                                $handler
                             )
                         );
                     }
@@ -120,17 +125,23 @@ class HandlerMap extends AbstractHandlerMap
             }
             if (isset($definition['invariants'])) {
                 $this->setParameters(
-                    $handler, 'invariants', (array)$definition['invariants']
+                    $handler,
+                    'invariants',
+                    (array)$definition['invariants']
                 );
             }
             if (isset($definition['defaults'])) {
                 $this->setParameters(
-                    $handler, 'defaults', (array)$definition['defaults']
+                    $handler,
+                    'defaults',
+                    (array)$definition['defaults']
                 );
             }
             if (isset($definition['appends'])) {
                 $this->setParameters(
-                    $handler, 'appends', (array)$definition['appends']
+                    $handler,
+                    'appends',
+                    (array)$definition['appends']
                 );
             }
         }
@@ -226,7 +237,7 @@ class HandlerMap extends AbstractHandlerMap
      */
     public function setParameters($handler, $type, array $parameters)
     {
-        if ($type != 'invariants' && $type != 'appends' && $type != 'defaults') {
+        if (!in_array($type, ['invariants', 'appends', 'defaults'])) {
             throw new InvalidArgumentException(
                 sprintf('Invalid parameter key: %s', $type)
             );
@@ -235,7 +246,7 @@ class HandlerMap extends AbstractHandlerMap
     }
 
     /**
-     * Return handler defauls, appends, or invariants.
+     * Return handler defaults, appends, or invariants.
      *
      * @param string $handler Request handler
      * @param string $type    Parameter type, one of 'defaults', 'appends',

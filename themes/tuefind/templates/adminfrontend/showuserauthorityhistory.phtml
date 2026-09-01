@@ -1,0 +1,45 @@
+<?php
+// Set up page title:
+$this->headTitle($this->translate('Authority Access History'));
+
+// Set up breadcrumbs:
+$this->layout()->breadcrumbs = '<li><a href="' . $this->url('myresearch-home') . '">' . $this->transEsc('Your Account') . '</a></li> <li class="active">' . $this->transEsc('Authority Access History') . '</li>';
+?>
+
+<div class="<?=$this->layoutClass('mainbody')?>">
+  <h2>Authority Access History</h2>
+  <?php if (count($this->user_authority_history_datas) == 0): ?>
+    <p>No history.</p>
+  <?php else: ?>
+    <table class="table dataTable display compact table-striped table-bordered table-condensed" data-order="[[ 4, &quot;desc&quot; ]]">
+      <thead>
+        <tr>
+          <th><?=$this->transEsc('Admin Name')?></th>
+          <th><?=$this->transEsc('Request User')?></th>
+          <th><?=$this->transEsc('Authority')?></th>
+          <th><?=$this->transEsc('Access')?></th>
+          <th><?=$this->transEsc('User Request Date')?></th>
+          <th><?=$this->transEsc('Admin process Date')?></th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($this->user_authority_history_datas as $data): ?>
+          <?php $user = $data->getUser(); ?>
+          <?php $admin = $data->getAdmin(); ?>
+          <tr>
+            <td><?=$this->escapeHtml($admin->getUsername() . ' (' . $admin->getFirstname() . ' ' . $admin->getLastname() . ')')?></td>
+            <td><?=$this->escapeHtml($user->getFirstname() . ' ' . $user->getLastname())?></td>
+            <td><a href="/AuthorityRecord/<?=$data->getAuthorityControlNumber()?>"><?=$data->getAuthorityControlNumber()?></a></td>
+            <td><?=$data->getAccessState()?></td>
+            <td data-sort="<?=$data->getRequestUserDate()->format('Y-m-d H:i:s')?>"><?=$data->getRequestUserDate()->format($this->config()->dateTimeFormat())?></td>
+            <td data-sort="<?=$data->getProcessAdminDate()->format('Y-m-d H:i:s')?>"><?=$data->getProcessAdminDate()->format($this->config()->dateTimeFormat())?></td>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?=$this->assetManager()->outputInlineScriptString('TueFind.RenderDataTable();') ?>
+  <?php endif; ?>
+</div>
+
+<div class="<?=$this->layoutClass('sidebar')?>" id="myresearch-sidebar" role="navigation" aria-label="<?=$this->transEsc('account_menu_label')?>">
+  <?=$this->accountMenu()->render('showuserauthorityhistory')?>
+</div>

@@ -3,7 +3,7 @@
 /**
  * Unit tests for Primo query builder
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,32 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Primo;
 
+use PHPUnit\Framework\TestCase;
 use VuFindSearch\Backend\Primo\QueryBuilder;
 use VuFindSearch\Query\Query;
 use VuFindSearch\Query\QueryGroup;
-use PHPUnit_Framework_TestCase;
 
 /**
  * Unit tests for Primo query builder
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class QueryBuilderTest extends PHPUnit_Framework_TestCase
+class QueryBuilderTest extends TestCase
 {
     /**
      * Test basic query parsing
@@ -75,7 +76,7 @@ class QueryBuilderTest extends PHPUnit_Framework_TestCase
         $qb = new QueryBuilder();
         $expected = [
             ['lookfor' => 'query1', 'index' => 'handler1', 'op' => 'OR'],
-            ['lookfor' => 'query2', 'index' => 'handler2', 'op' => 'AND']
+            ['lookfor' => 'query2', 'index' => 'handler2', 'op' => 'AND'],
         ];
         $result = $qb->build($q)->get('query');
         $this->assertEquals($expected, $result);

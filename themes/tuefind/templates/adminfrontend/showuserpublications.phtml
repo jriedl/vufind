@@ -1,0 +1,51 @@
+<?php
+// Set up page title:
+$this->headTitle($this->translate('User Authorities'));
+
+$subSystemType = $this->tuefind()->getTueFindFlavour();
+$isIxTheo = ($subSystemType == 'ixtheo') ? true : false;
+
+// Set up breadcrumbs:
+$this->layout()->breadcrumbs = '<li><a href="' . $this->url('myresearch-home') . '">' . $this->transEsc('Your Account') . '</a></li> <li class="active">' . $this->transEsc('User Publications') . '</li>';
+?>
+
+<div class="<?=$this->layoutClass('mainbody')?>">
+  <h2>User Publications</h2>
+  <?php if (count($this->publications) == 0): ?>
+    <p>No publications have been added so far.</p>
+  <?php else: ?>
+    <table class="table dataTable display compact table-striped table-bordered table-condensed" data-order="[[ 6, &quot;desc&quot; ]]">
+      <thead>
+        <tr>
+          <th><?=$this->transEsc('Title')?></th>
+          <th><?=$this->transEsc('Username')?></th>
+          <th><?=$this->transEsc('First Name')?></th>
+          <th><?=$this->transEsc('Last Name')?></th>
+          <th><?=$this->transEsc('Email Address')?></th>
+          <th><?=$this->transEsc('Institution')?></th>
+          <th><?=$this->transEsc('Date')?></th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($this->publications as $publication): ?>
+          <?php $user = $publication->getUser(); ?>
+          <tr>
+            <td><a href="<?=$this->recordLinker()->getUrl($publication->getControlNumber())?>"><?=$this->escapeHtml($publication->getControlNumber())?></a></td>
+            <td><?=$this->escapeHtml($user->getUsername())?></td>
+            <td><?=$this->escapeHtml($user->getFirstname())?></td>
+            <td><?=$this->escapeHtml($user->getLastname())?></td>
+            <td><?=$this->escapeHtml($user->getEmail())?></td>
+            <td><?=$this->escapeHtml($user->getInstitution())?></td>
+            <td data-sort="<?=$publication->getPublicationDateTime()->format('Y-m-d H:i:s')?>"><?=$publication->getPublicationDateTime()->format($this->config()->dateTimeFormat())?></td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?=$this->assetManager()->outputInlineScriptString('TueFind.RenderDataTable();') ?>
+  <?php  endif; ?>
+
+</div>
+
+<div class="<?=$this->layoutClass('sidebar')?>" id="myresearch-sidebar" role="navigation" aria-label="<?=$this->transEsc('account_menu_label')?>">
+  <?=$this->accountMenu()->render('showuserpublications')?>
+</div>

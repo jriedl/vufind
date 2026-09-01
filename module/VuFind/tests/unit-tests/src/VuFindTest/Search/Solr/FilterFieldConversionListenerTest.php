@@ -3,7 +3,7 @@
 /**
  * Unit tests for FilterFieldConversionListener.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2015.
  *
@@ -17,34 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Oliver Goldschmidt <o.goldschmidt@tuhh.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFindTest\Search\Solr;
 
-use VuFindSearch\ParamBag;
-
+use Laminas\EventManager\Event;
 use VuFind\Search\Solr\FilterFieldConversionListener;
-use VuFindTest\Unit\TestCase;
-use Zend\EventManager\Event;
+use VuFindSearch\ParamBag;
+use VuFindSearch\Service;
 
 /**
  * Unit tests for FilterFieldConversionListener.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Oliver Goldschmidt <o.goldschmidt@tuhh.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
-class FilterFieldConversionListenerTest extends TestCase
+class FilterFieldConversionListenerTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\MockSearchCommandTrait;
+
     /**
      * Test attaching listener.
      *
@@ -53,9 +55,9 @@ class FilterFieldConversionListenerTest extends TestCase
     public function testAttach()
     {
         $listener = new FilterFieldConversionListener(['foo' => 'bar']);
-        $mock = $this->getMock('Zend\EventManager\SharedEventManagerInterface');
+        $mock = $this->createMock(\Laminas\EventManager\SharedEventManagerInterface::class);
         $mock->expects($this->once())->method('attach')->with(
-            $this->equalTo('VuFind\Search'),
+            $this->equalTo(\VuFindSearch\Service::class),
             $this->equalTo('pre'),
             $this->equalTo([$listener, 'onSearchPre'])
         );
@@ -76,19 +78,24 @@ class FilterFieldConversionListenerTest extends TestCase
                     'foo:value',
                     'baz:"foo:value"',
                     'foofoo:value',
-                    "foo\\:value",
+                    'foo\\:value',
                     'baz:value OR foo:value',
                     '(foo:value)',
-                ]
+                ],
             ]
         );
         $listener = new FilterFieldConversionListener(
             ['foo' => 'bar', 'baz' => 'boo']
         );
 
-        $backend = $this->getMockBuilder('VuFindSearch\Backend\Solr\Backend')
+        $backend = $this->getMockBuilder(\VuFindSearch\Backend\Solr\Backend::class)
             ->disableOriginalConstructor()->getMock();
-        $event = new Event('pre', $backend, ['params' => $params]);
+        $command = $this->getMockSearchCommand($params);
+        $event = new Event(
+            Service::EVENT_PRE,
+            $backend,
+            ['params' => $params, 'command' => $command]
+        );
         $listener->onSearchPre($event);
 
         $fq   = $params->get('fq');
@@ -96,7 +103,7 @@ class FilterFieldConversionListenerTest extends TestCase
             'bar:value',
             'boo:"foo:value"',
             'foofoo:value',
-            "foo\\:value",
+            'foo\\:value',
             'boo:value OR bar:value',
             '(bar:value)',
         ];

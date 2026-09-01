@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Record tab abstract base class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,32 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordTabs
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_tabs Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_tabs Wiki
  */
+
 namespace VuFind\RecordTab;
-use ZfcRbac\Service\AuthorizationServiceAwareInterface,
-    ZfcRbac\Service\AuthorizationServiceAwareTrait;
+
+use Lmc\Rbac\Mvc\Service\AuthorizationServiceAwareInterface;
+use Lmc\Rbac\Mvc\Service\AuthorizationServiceAwareTrait;
 
 /**
  * Record tab abstract base class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordTabs
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_tabs Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_tabs Wiki
  */
-abstract class AbstractBase implements TabInterface,
+abstract class AbstractBase implements
+    TabInterface,
     AuthorizationServiceAwareInterface
 {
     use AuthorizationServiceAwareTrait;
@@ -54,14 +58,14 @@ abstract class AbstractBase implements TabInterface,
     /**
      * Record driver associated with the tab
      *
-     * @var \VuFind\RecordDriver\AbstractBase
+     * @var ?\VuFind\RecordDriver\AbstractBase
      */
     protected $driver = null;
 
     /**
      * User request associated with the tab (false for none)
      *
-     * @var \Zend\Http\Request|bool
+     * @var \Laminas\Http\Request|bool
      */
     protected $request = false;
 
@@ -107,6 +111,17 @@ abstract class AbstractBase implements TabInterface,
     }
 
     /**
+     * Can this tab be embedded in search results (via tab/accordion)?
+     *
+     * @return bool
+     */
+    public function supportsSearchResultEmbedding(): bool
+    {
+        // Assume it works, subclasses may add rules.
+        return true;
+    }
+
+    /**
      * Set the record driver
      *
      * @param \VuFind\RecordDriver\AbstractBase $driver Record driver
@@ -136,11 +151,11 @@ abstract class AbstractBase implements TabInterface,
     /**
      * Set the user request
      *
-     * @param \Zend\Http\Request $request Request
+     * @param \Laminas\Http\Request $request Request
      *
      * @return AbstractBase
      */
-    public function setRequest(\Zend\Http\Request $request)
+    public function setRequest(\Laminas\Http\Request $request)
     {
         $this->request = $request;
         return $this;
@@ -149,7 +164,7 @@ abstract class AbstractBase implements TabInterface,
     /**
      * Get the user request (or false if unavailable)
      *
-     * @return \Zend\Http\Request|bool
+     * @return \Laminas\Http\Request|bool
      */
     protected function getRequest()
     {

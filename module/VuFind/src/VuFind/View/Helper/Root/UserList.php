@@ -1,8 +1,9 @@
 <?php
+
 /**
  * List view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,44 +17,59 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use VuFind\Db\Row\UserList as UserListRow, Zend\View\Helper\AbstractHelper;
+
+use Laminas\View\Helper\AbstractHelper;
+use VuFind\Db\Entity\UserEntityInterface;
+use VuFind\Db\Entity\UserListEntityInterface;
+use VuFind\Db\Service\UserListServiceInterface;
+use VuFind\Favorites\FavoritesService;
 
 /**
  * List view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class UserList extends AbstractHelper
 {
     /**
-     * List mode (enabled or disabled)
-     *
-     * @var string
-     */
-    protected $mode;
-
-    /**
      * Constructor
      *
-     * @param string $mode List mode (enabled or disabled)
+     * @param FavoritesService         $favoritesService Favorites service
+     * @param UserListServiceInterface $userListService  List database service
+     * @param string                   $mode             List mode (enabled or disabled)
      */
-    public function __construct($mode = 'enabled')
+    public function __construct(
+        protected FavoritesService $favoritesService,
+        protected UserListServiceInterface $userListService,
+        protected string $mode = 'enabled'
+    ) {
+    }
+
+    /**
+     * Get lists with counts for the provided user.
+     *
+     * @param UserEntityInterface $user User owning lists
+     *
+     * @return array
+     */
+    public function getUserListsAndCountsByUser(UserEntityInterface $user): array
     {
-        $this->mode = $mode;
+        return $this->userListService->getUserListsAndCountsByUser($user);
     }
 
     /**
@@ -73,6 +89,19 @@ class UserList extends AbstractHelper
      */
     public function lastUsed()
     {
-        return UserListRow::getLastUsed();
+        return $this->favoritesService->getLastUsedList();
+    }
+
+    /**
+     * Is the provided user allowed to edit the provided list?
+     *
+     * @param ?UserEntityInterface    $user Logged-in user (null if none)
+     * @param UserListEntityInterface $list List to check
+     *
+     * @return bool
+     */
+    public function userCanEditList(?UserEntityInterface $user, UserListEntityInterface $list): bool
+    {
+        return $this->favoritesService->userCanEditList($user, $list);
     }
 }

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Record driver view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,35 +17,71 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\View\Exception\RuntimeException, Zend\View\Helper\AbstractHelper;
+
+use VuFind\Config\Config;
+use VuFind\Cover\Router as CoverRouter;
+use VuFind\Db\Entity\UserEntityInterface;
+use VuFind\Db\Entity\UserListEntityInterface;
+use VuFind\Db\Service\CommentsServiceInterface;
+use VuFind\Db\Service\DbServiceAwareInterface;
+use VuFind\Db\Service\DbServiceAwareTrait;
+use VuFind\Db\Service\UserListServiceInterface;
+use VuFind\Db\Service\UserResourceServiceInterface;
+use VuFind\Search\Memory;
+use VuFind\Search\UrlQueryHelper;
+use VuFind\Tags\TagsService;
+
+use function get_class;
+use function in_array;
+use function is_array;
+use function is_callable;
+use function is_string;
 
 /**
  * Record driver view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class Record extends AbstractHelper
+class Record extends \Laminas\View\Helper\AbstractHelper implements DbServiceAwareInterface
 {
+    use ClassBasedTemplateRendererTrait;
+    use DbServiceAwareTrait;
+
     /**
      * Context view helper
      *
      * @var \VuFind\View\Helper\Root\Context
      */
     protected $contextHelper;
+
+    /**
+     * Cover router
+     *
+     * @var CoverRouter
+     */
+    protected $coverRouter = null;
+
+    /**
+     * Search memory
+     *
+     * @var Memory
+     */
+    protected $searchMemory = null;
 
     /**
      * Record driver
@@ -54,20 +91,38 @@ class Record extends AbstractHelper
     protected $driver;
 
     /**
-     * VuFind configuration
-     *
-     * @var \Zend\Config\Config
-     */
-    protected $config;
-
-    /**
      * Constructor
      *
-     * @param \Zend\Config\Config $config VuFind configuration
+     * @param TagsService $tagsService Tags service
+     * @param ?Config     $config      Configuration from config.ini
      */
-    public function __construct($config = null)
+    public function __construct(protected TagsService $tagsService, protected ?Config $config = null)
     {
         $this->config = $config;
+    }
+
+    /**
+     * Inject the cover router
+     *
+     * @param CoverRouter $router Cover router
+     *
+     * @return void
+     */
+    public function setCoverRouter($router)
+    {
+        $this->coverRouter = $router;
+    }
+
+    /**
+     * Inject the search memory
+     *
+     * @param Memory $memory Search memory
+     *
+     * @return void
+     */
+    public function setSearchMemory(Memory $memory): void
+    {
+        $this->searchMemory = $memory;
     }
 
     /**
@@ -77,46 +132,21 @@ class Record extends AbstractHelper
      * @param array  $context Variables needed for rendering template; these will
      * be temporarily added to the global view context, then reverted after the
      * template is rendered (default = record driver only).
+     * @param bool   $throw   If true (default), an exception is thrown if the
+     * template is not found. Otherwise an empty string is returned.
      *
      * @return string
      */
-    protected function renderTemplate($name, $context = null)
+    public function renderTemplate($name, $context = null, $throw = true)
     {
-        // Set default context if none provided:
-        if (is_null($context)) {
-            $context = ['driver' => $this->driver];
-        }
-
-        // Set up the needed context in the view:
-        $oldContext = $this->contextHelper->apply($context);
-
-        // Get the current record driver's class name, then start a loop
-        // in case we need to use a parent class' name to find the appropriate
-        // template.
+        $template = 'RecordDriver/%s/' . $name;
         $className = get_class($this->driver);
-        $resolver = $this->view->resolver();
-        while (true) {
-            // Guess the template name for the current class:
-            $classParts = explode('\\', $className);
-            $template = 'RecordDriver/' . array_pop($classParts) . '/' . $name;
-            if ($resolver->resolve($template)) {
-                // Try to render the template....
-                $html = $this->view->render($template);
-                $this->contextHelper->restore($oldContext);
-                return $html;
-            } else {
-                // If the template doesn't exist, let's see if we can inherit a
-                // template from a parent class:
-                $className = get_parent_class($className);
-                if (empty($className)) {
-                    // No more parent classes left to try?  Throw an exception!
-                    throw new RuntimeException(
-                        'Cannot find ' . $name . ' template for record driver: ' .
-                        get_class($this->driver)
-                    );
-                }
-            }
-        }
+        return $this->renderClassTemplate(
+            $template,
+            $className,
+            $context ?? ['driver' => $this->driver],
+            $throw
+        );
     }
 
     /**
@@ -149,7 +179,7 @@ class Record extends AbstractHelper
     }
 
     /**
-     * Render the a brief record for use in collection mode.
+     * Render a brief record for use in collection mode.
      *
      * @return string
      */
@@ -169,7 +199,20 @@ class Record extends AbstractHelper
     }
 
     /**
-     * Export the record in the requested format.  For legal values, see
+     * Get comments associated with the current record.
+     *
+     * @return CommentsEntityInterface[]
+     */
+    public function getComments(): array
+    {
+        return $this->getDbService(CommentsServiceInterface::class)->getRecordComments(
+            $this->driver->getUniqueId(),
+            $this->driver->getSourceIdentifier()
+        );
+    }
+
+    /**
+     * Export the record in the requested format. For legal values, see
      * the export helper's getFormatsForRecord() method.
      *
      * @param string $format Export format to display
@@ -183,7 +226,7 @@ class Record extends AbstractHelper
     }
 
     /**
-     * Get the CSS class used to properly render a format.  (Note that this may
+     * Get the CSS class used to properly render a format. (Note that this may
      * not be used by every theme).
      *
      * @param string $format Format text to convert into CSS class
@@ -193,7 +236,8 @@ class Record extends AbstractHelper
     public function getFormatClass($format)
     {
         return $this->renderTemplate(
-            'format-class.phtml', ['format' => $format]
+            'format-class.phtml',
+            ['format' => $format]
         );
     }
 
@@ -208,30 +252,67 @@ class Record extends AbstractHelper
     }
 
     /**
-     * Render an entry in a favorite list.
-     *
-     * @param \VuFind\Db\Row\UserList $list Currently selected list (null for
-     * combined favorites)
-     * @param \VuFind\Db\Row\User     $user Current logged in user (false if none)
+     * Render a list of record labels.
      *
      * @return string
      */
-    public function getListEntry($list = null, $user = false)
+    public function getLabelList()
+    {
+        return $this->renderTemplate('label-list.phtml');
+    }
+
+    /**
+     * Render an entry in a favorite list.
+     *
+     * @param ?UserListEntityInterface $list         Currently selected list (null for
+     * combined favorites)
+     * @param ?UserEntityInterface     $user         Current logged in user (null if none)
+     * @param ?int                     $recordNumber Record number (null to omit/hide)
+     *
+     * @return string
+     */
+    public function getListEntry($list = null, $user = null, $recordNumber = null)
     {
         // Get list of lists containing this entry
         $lists = null;
         if ($user) {
-            $lists = $this->driver->getContainingLists($user->id);
+            $lists = $this->getDbService(UserListServiceInterface::class)->getListsContainingRecord(
+                $this->driver->getUniqueID(),
+                $this->driver->getSourceIdentifier(),
+                $user
+            );
         }
         return $this->renderTemplate(
             'list-entry.phtml',
-            [
+            compact('list', 'user', 'lists', 'recordNumber') + [
                 'driver' => $this->driver,
-                'list' => $list,
-                'user' => $user,
-                'lists' => $lists
             ]
         );
+    }
+
+    /**
+     * Get notes associated with this record in user lists.
+     *
+     * @param int $list_id ID of list to load tags from (null for all lists)
+     * @param int $user_id ID of user to load tags from (null for all users)
+     *
+     * @return string[]
+     */
+    public function getListNotes($list_id = null, $user_id = null)
+    {
+        $data = $this->getDbService(UserResourceServiceInterface::class)->getFavoritesForRecord(
+            $this->driver->getUniqueId(),
+            $this->driver->getSourceIdentifier(),
+            $list_id,
+            $user_id
+        );
+        $notes = [];
+        foreach ($data as $current) {
+            if (!empty($note = $current->getNotes())) {
+                $notes[] = $note;
+            }
+        }
+        return $notes;
     }
 
     /**
@@ -304,6 +385,61 @@ class Record extends AbstractHelper
     }
 
     /**
+     * Get tags associated with the currently-loaded record.
+     *
+     * @param UserListEntityInterface|int|null $listOrId  ID of list to load tags from (null for no restriction)
+     * @param UserEntityInterface|int|null     $userOrId  ID of user to load tags from (null for all users)
+     * @param string                           $sort      Sort type ('count' or 'tag')
+     * @param UserEntityInterface|int|null     $ownerOrId ID of user to check for ownership
+     *
+     * @return array
+     */
+    public function getTags(
+        UserListEntityInterface|int|null $listOrId = null,
+        UserEntityInterface|int|null $userOrId = null,
+        string $sort = 'count',
+        UserEntityInterface|int|null $ownerOrId = null
+    ): array {
+        return $this->tagsService->getRecordTags(
+            $this->driver->getUniqueId(),
+            $this->driver->getSourceIdentifier(),
+            0,
+            $listOrId,
+            $userOrId,
+            $sort,
+            $ownerOrId
+        );
+    }
+
+    /**
+     * Get tags associated with the currently-loaded record AND with a favorites list.
+     *
+     * @param UserListEntityInterface|int|null $listOrId  ID of list to load tags from (null for tags that
+     * are associated with ANY list, but excluding non-list tags)
+     * @param UserEntityInterface|int|null     $userOrId  ID of user to load tags from (null for all users)
+     * @param string                           $sort      Sort type ('count' or 'tag')
+     * @param UserEntityInterface|int|null     $ownerOrId ID of user to check for ownership
+     *
+     * @return array
+     */
+    public function getTagsFromFavorites(
+        UserListEntityInterface|int|null $listOrId = null,
+        UserEntityInterface|int|null $userOrId = null,
+        string $sort = 'count',
+        UserEntityInterface|int|null $ownerOrId = null
+    ): array {
+        return $this->tagsService->getRecordTagsFromFavorites(
+            $this->driver->getUniqueId(),
+            $this->driver->getSourceIdentifier(),
+            0,
+            $listOrId,
+            $userOrId,
+            $sort,
+            $ownerOrId
+        );
+    }
+
+    /**
      * Get HTML to render a title.
      *
      * @param int $maxLength Maximum length of non-highlighted title.
@@ -314,37 +450,18 @@ class Record extends AbstractHelper
     {
         $highlightedTitle = $this->driver->tryMethod('getHighlightedTitle');
         $title = $this->driver->tryMethod('getTitle');
-        if (!empty($highlightedTitle)) {
+        if ('' !== $highlightedTitle) {
             $highlight = $this->getView()->plugin('highlight');
             $addEllipsis = $this->getView()->plugin('addEllipsis');
             return $highlight($addEllipsis($highlightedTitle, $title));
         }
-        if (!empty($title)) {
-            $escapeHtml = $this->getView()->plugin('escapeHtml');
+        if ('' !== trim($title)) {
+            $escape = $this->getView()->plugin('escapeOrCleanHtml');
             $truncate = $this->getView()->plugin('truncate');
-            return $escapeHtml($truncate($title, $maxLength));
+            return $escape($truncate($title, $maxLength), dataContext: 'title', renderingContext: 'link');
         }
         $transEsc = $this->getView()->plugin('transEsc');
         return $transEsc('Title not available');
-    }
-
-    /**
-     * Get the name of the controller used by the record route.
-     *
-     * @return string
-     */
-    public function getController()
-    {
-        // Figure out controller using naming convention based on resource
-        // source:
-        $source = $this->driver->getResourceSource();
-        if ($source == 'VuFind') {
-            // "VuFind" is special case -- it refers to Solr, which uses
-            // the basic record controller.
-            return 'Record';
-        }
-        // All non-Solr controllers will correspond with the record source:
-        return ucwords(strtolower($source)) . 'record';
     }
 
     /**
@@ -357,9 +474,41 @@ class Record extends AbstractHelper
      */
     public function getLink($type, $lookfor)
     {
-        return $this->renderTemplate(
-            'link-' . $type . '.phtml', ['lookfor' => $lookfor]
+        $link = $this->renderTemplate(
+            'link-' . $type . '.phtml',
+            ['driver' => $this->driver, 'lookfor' => $lookfor]
         );
+
+        $prepend = (!str_contains($link, '?')) ? '?' : '&amp;';
+
+        $hiddenFilters = null;
+        // Try to get hidden filters for the current search:
+        if ($this->searchMemory) {
+            $view = $this->getView();
+            $searchId = $this->driver->getExtraDetail('searchId')
+                ?? $view->plugin('searchMemory')->getLastSearchId();
+            if (
+                $searchId
+                && ($search = $this->searchMemory->getSearchById($searchId, $view->plugin('auth')->getUserObject()))
+            ) {
+                $filters = UrlQueryHelper::buildQueryString(
+                    [
+                        'hiddenFilters' => $search->getParams()->getHiddenFiltersAsQueryParams(),
+                    ]
+                );
+                $hiddenFilters = $filters ? $prepend . $filters : '';
+            }
+        }
+        // If we couldn't get hidden filters for the current search, use last filters:
+        if (null === $hiddenFilters) {
+            $hiddenFilters = $this->getView()->plugin('searchTabs')
+                ->getCurrentHiddenFilterParams(
+                    $this->driver->getSearchBackendIdentifier(),
+                    false,
+                    $prepend
+                );
+        }
+        return $link . $hiddenFilters;
     }
 
     /**
@@ -372,7 +521,7 @@ class Record extends AbstractHelper
     public function getTab(\VuFind\RecordTab\TabInterface $tab)
     {
         $context = ['driver' => $this->driver, 'tab' => $tab];
-        $classParts = explode('\\', get_class($tab));
+        $classParts = explode('\\', $tab::class);
         $template = 'RecordTab/' . strtolower(array_pop($classParts)) . '.phtml';
         $oldContext = $this->contextHelper->apply($context);
         $html = $this->view->render($template);
@@ -406,25 +555,31 @@ class Record extends AbstractHelper
      * Render an HTML checkbox control for the current record.
      *
      * @param string $idPrefix Prefix for checkbox HTML ids
+     * @param string $formAttr ID of form for [form] attribute
+     * @param int    $number   Result number (for label of checkbox)
      *
      * @return string
      */
-    public function getCheckbox($idPrefix = '')
+    public function getCheckbox($idPrefix = '', $formAttr = false, $number = null)
     {
-        static $checkboxCount = 0;
-        $id = $this->driver->getResourceSource() . '|'
-            . $this->driver->getUniqueId();
-        $context
-            = ['id' => $id, 'count' => $checkboxCount++, 'prefix' => $idPrefix];
+        $context = compact('number') + [
+            'id' => $this->getUniqueIdWithSourcePrefix(),
+            'checkboxElementId' => $this->getUniqueHtmlElementId($idPrefix),
+            'prefix' => $idPrefix,
+        ];
+        if ($formAttr) {
+            $context['formAttr'] = $formAttr;
+        }
         return $this->contextHelper->renderInContext(
-            'record/checkbox.phtml', $context
+            'record/checkbox.phtml',
+            $context
         );
     }
 
     /**
      * Render a cover for the current record.
      *
-     * @param string $context Context of code being genarated
+     * @param string $context Context of code being generated
      * @param string $default The default size of the cover
      * @param string $link    The link for the anchor
      *
@@ -432,32 +587,111 @@ class Record extends AbstractHelper
      */
     public function getCover($context, $default, $link = false)
     {
-        if (isset($this->config->Content->coversize)
+        $details = $this->getCoverDetails($context, $default, $link);
+        return $details['html'];
+    }
+
+    /**
+     * Should cover images be linked to previews (when applicable) in the provided
+     * template context?
+     *
+     * @param string $context Context of code being generated
+     *
+     * @return bool
+     */
+    protected function getPreviewCoverLinkSetting($context)
+    {
+        static $previewContexts = false;
+        if (false === $previewContexts) {
+            $previewContexts = isset($this->config->Content->linkPreviewsToCovers)
+                ? array_map(
+                    'trim',
+                    explode(',', $this->config->Content->linkPreviewsToCovers)
+                ) : ['*'];
+        }
+        return in_array('*', $previewContexts)
+            || in_array($context, $previewContexts);
+    }
+
+    /**
+     * Get the rendered cover plus some useful parameters.
+     *
+     * @param string             $context Context of code being generated
+     * @param string             $default The default size of the cover
+     * @param string|array|false $link    The href link for the anchor (false
+     * for no link, or a string to use as an href, or an array of attributes
+     * to include in the anchor tag)
+     *
+     * @return array
+     */
+    public function getCoverDetails($context, $default, $link = false)
+    {
+        $linkAttributes = is_string($link)
+            ? ['href' => $link]
+            : (is_array($link) ? $link : []);
+        $details = compact('linkAttributes', 'context') + [
+            'driver' => $this->driver, 'cover' => false, 'size' => false,
+            'linkPreview' => $this->getPreviewCoverLinkSetting($context),
+        ];
+        $preferredSize = $this->getCoverSize($context, $default);
+        if (empty($preferredSize)) {    // covers disabled entirely
+            $details['html'] = '';
+        } else {
+            // Find best option if more than one size is defined (e.g. small:medium)
+            foreach (explode(':', $preferredSize) as $size) {
+                if ($details['cover'] = $this->getThumbnail($size)) {
+                    $details['size'] = $size;
+                    break;
+                }
+            }
+            if ($details['size'] === false) {
+                [$details['size']] = explode(':', $preferredSize);
+            }
+            $details['html'] = $this->renderTemplate('cover.phtml', $details);
+        }
+        return $details;
+    }
+
+    /**
+     * Get the configured thumbnail size for record lists
+     *
+     * @param string $context Context of code being generated
+     * @param string $default The default size of the cover
+     *
+     * @return string
+     */
+    protected function getCoverSize($context, $default = 'medium')
+    {
+        if (
+            isset($this->config->Content->coversize)
             && !$this->config->Content->coversize
         ) {
             // covers disabled entirely
-            $preferredSize = false;
-        } else {
-            // check for context-specific overrides
-            $preferredSize = isset($this->config->Content->coversize[$context])
-                ? $this->config->Content->coversize[$context] : $default;
+            return false;
         }
-        if (empty($preferredSize)) {
-            return '';
-        }
+        // check for context-specific overrides
+        return $this->config->Content->coversize[$context] ?? $default;
+    }
 
-        // Find best option if more than one size is defined (e.g. small:medium)
-        $cover = false;  // assume invalid until good size found below
-        foreach (explode(':', $preferredSize) as $size) {
-            if ($cover = $this->getThumbnail($size)) {
-                break;
-            }
+    /**
+     * Get the configured thumbnail alignment
+     *
+     * @param string $context telling the context asking, prepends the config key
+     *
+     * @return string
+     */
+    public function getThumbnailAlignment($context = 'result')
+    {
+        $view = $this->getView();
+        $configField = $context . 'ThumbnailsOnLeft';
+        $left = !isset($this->config->Site->$configField)
+            ? true : $this->config->Site->$configField;
+        $mirror = !isset($this->config->Site->mirrorThumbnailsRTL)
+            ? true : $this->config->Site->mirrorThumbnailsRTL;
+        if ($view->layout()->rtl && !$mirror) {
+            $left = !$left;
         }
-
-        $driver = $this->driver;    // for convenient use in compact()
-        return $this->contextHelper->renderInContext(
-            'record/cover.phtml', compact('cover', 'link', 'context', 'driver')
-        );
+        return $left ? 'left' : 'right';
     }
 
     /**
@@ -471,36 +705,42 @@ class Record extends AbstractHelper
      *
      * @return string|bool
      */
-    public function getQrCode($context, $extra = [], $level = "L", $size = 3,
+    public function getQrCode(
+        $context,
+        $extra = [],
+        $level = 'L',
+        $size = 3,
         $margin = 4
     ) {
         if (!isset($this->config->QRCode)) {
             return false;
         }
 
-        switch($context) {
-        case "core" :
-        case "results" :
-            $key = 'showIn' . ucwords(strtolower($context));
-            break;
-        default:
-            return false;
+        switch ($context) {
+            case 'core':
+            case 'results':
+                $key = 'showIn' . ucwords(strtolower($context));
+                break;
+            default:
+                return false;
         }
 
-        if (!isset($this->config->QRCode->$key)
+        if (
+            !isset($this->config->QRCode->$key)
             || !$this->config->QRCode->$key
         ) {
             return false;
         }
 
-        $template = $context . "-qrcode.phtml";
+        $template = $context . '-qrcode.phtml';
 
         // Try to build text:
         $text = $this->renderTemplate(
-            $template, $extra + ['driver' => $this->driver]
+            $template,
+            $extra + ['driver' => $this->driver]
         );
         $qrcode = [
-            "text" => $text, 'level' => $level, 'size' => $size, 'margin' => $margin
+            'text' => $text, 'level' => $level, 'size' => $size, 'margin' => $margin,
         ];
 
         $urlHelper = $this->getView()->plugin('url');
@@ -517,26 +757,17 @@ class Record extends AbstractHelper
      */
     public function getThumbnail($size = 'small')
     {
-        // Try to build thumbnail:
-        $thumb = $this->driver->tryMethod('getThumbnail', [$size]);
-
-        // No thumbnail?  Return false:
-        if (empty($thumb)) {
-            return false;
-        }
-
-        // Array?  It's parameters to send to the cover generator:
-        if (is_array($thumb)) {
-            $urlHelper = $this->getView()->plugin('url');
-            return $urlHelper('cover-show') . '?' . http_build_query($thumb);
-        }
-
-        // Default case -- return fixed string:
-        return $thumb;
+        // Find out whether or not AJAX covers are enabled; this will control
+        // whether dynamic URLs are resolved immediately or deferred until later
+        // (see third parameter of getUrl() below).
+        $ajaxcovers = $this->config->Content->ajaxcovers ?? false;
+        return $this->coverRouter
+            ? $this->coverRouter->getUrl($this->driver, $size, !$ajaxcovers)
+            : false;
     }
 
     /**
-     * Get all URLs associated with the record.  Returns an array of strings.
+     * Get all URLs associated with the record. Returns an array of strings.
      *
      * @return array
      */
@@ -550,16 +781,18 @@ class Record extends AbstractHelper
     }
 
     /**
-     * Get all the links associated with this record.  Returns an array of
+     * Get all the links associated with this record. Returns an array of
      * associative arrays each containing 'desc' and 'url' keys.
+     *
+     * @param bool $openUrlActive Is there an active OpenURL on the page?
      *
      * @return array
      */
-    public function getLinkDetails()
+    public function getLinkDetails($openUrlActive = false)
     {
         // See if there are any links available:
         $urls = $this->driver->tryMethod('getURLs');
-        if (empty($urls)) {
+        if (empty($urls) || ($openUrlActive && $this->hasOpenUrlReplaceSetting())) {
             return [];
         }
 
@@ -575,8 +808,7 @@ class Record extends AbstractHelper
 
             // Build URL from route/query details if missing:
             if (!isset($link['url'])) {
-                $routeParams = isset($link['routeParams'])
-                    ? $link['routeParams'] : [];
+                $routeParams = $link['routeParams'] ?? [];
 
                 $link['url'] = $serverUrlHelper(
                     $urlHelper($link['route'], $routeParams)
@@ -598,6 +830,65 @@ class Record extends AbstractHelper
             return $link;
         };
 
-        return array_map($formatLink, $urls);
+        return $this->deduplicateLinks(array_map($formatLink, $urls));
+    }
+
+    /**
+     * Return the OpenURL setting replace_other_urls, defaulting to false.
+     *
+     * @return bool
+     */
+    protected function hasOpenUrlReplaceSetting()
+    {
+        return $this->config?->OpenURL?->replace_other_urls ?? false;
+    }
+
+    /**
+     * Remove duplicates from the array. All keys and values are being used
+     * recursively to compare, so if there are 2 links with the same url
+     * but different desc, they will both be preserved.
+     *
+     * @param array $links array of associative arrays,
+     * each containing 'desc' and 'url' keys
+     *
+     * @return array
+     */
+    protected function deduplicateLinks($links)
+    {
+        return array_values(array_unique($links, SORT_REGULAR));
+    }
+
+    /**
+     * Get the source identifier + unique id of the record without spaces
+     *
+     * @param string $idPrefix Prefix for HTML ids
+     *
+     * @return string
+     */
+    public function getUniqueHtmlElementId($idPrefix = '')
+    {
+        $resultSetId = $this->driver->getResultSetIdentifier() ?? '';
+
+        return preg_replace(
+            "/\s+/",
+            '_',
+            ($idPrefix ? $idPrefix . '-' : '')
+            . ($resultSetId ? $resultSetId . '-' : '')
+            . $this->driver->getUniqueId()
+        );
+    }
+
+    /**
+     * Get the source identifier + unique id of the record
+     *
+     * @return string
+     */
+    public function getUniqueIdWithSourcePrefix()
+    {
+        if ($this->driver) {
+            return "{$this->driver->getSourceIdentifier()}"
+                . "|{$this->driver->getUniqueId()}";
+        }
+        throw new \Exception('No record driver found.');
     }
 }

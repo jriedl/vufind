@@ -1,0 +1,53 @@
+<ul class="nav nav-pills">
+    <li>
+        <a href="<?=$this->advSearchLink?>"
+           class="btn btn-link" role="button"
+           rel="nofollow"><?= $this->transEsc("Advanced Search") ?></a>
+    </li>
+
+    <li class="dropdown">
+        <a class="btn btn-light dropdown-toggle"
+                type="button"
+                id="dropdownMenuButton"
+                data-bs-toggle="dropdown"
+                aria-haspopup="true"
+                aria-expanded="false">
+            <?= $this->transEsc('Browse') ?>
+            <span class="caret"></span>
+        </a>
+
+        <ul class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+            <!-- added IxTheo/RelBib-specific keywordchainsearch -->
+            <li><a class="dropdown-item" href="<?= $this->url('keywordchainsearch-home') ?>"><?= $this->transEsc('Browse Keywordchains') ?></a></li>
+            <!-- RelBib: special display text -->
+            <li><a class="dropdown-item" href="<?= $this->url('browse-home') ?>"><?= $this->transEsc('Browse by Category') ?></a></li>
+            <li><a class="dropdown-item" href="<?= $this->url('alphabrowse-home') ?>"><?= $this->transEsc('Browse Alphabetically') ?></a></li>
+        </ul>
+    </li>
+
+    <li>
+        <a href="<?=$this->url('search-history')?>"
+           class="btn btn-light" role="button"
+           rel="nofollow"><?=$this->transEsc('Search History')?></a>
+    </li>
+
+    <!-- RelBib-specific: show help button instead of IxTheo-specific virtual keyboard -->
+    <li>
+        <a href="<?=$this->url('help-home')?>?topic=search"
+           class="btn btn-light" role="button" data-lightbox=""
+           rel="nofollow"><?= $this->transEsc('Search Tips') ?></a>
+    </li>
+
+    <!-- RelBib-specific: put New Items at back, add Acquisition Request behind it -->
+    <li class="<?=$this->isNewItemActiveClass?>">
+        <a href="<?=$this->url('search-newitem')?>"
+           class="btn <?php if(!empty($this->isNewItemActiveClass)) { echo 'btn-primary isNewItemActiveClass'; }else{ echo 'btn-light';} ?>" role="button"
+           rel="nofollow"><?=$this->transEsc('New Items')?></a>
+           <?php if (!empty($this->isNewItemActiveClass)) { ?><a class="btn-primary isNewItemActiveClass" href="<?=$this->resetNewItemsURL;?>"><span class="fa fa-times"></span></a><?php }?>
+    </li>
+    <li>
+        <a href="/Feedback/Form/AcquisitionRequest"
+           class="btn btn-light" role="button"
+           rel="nofollow"><?=$this->transEsc('Acquisition Request')?></a>
+    </li>
+</ul>

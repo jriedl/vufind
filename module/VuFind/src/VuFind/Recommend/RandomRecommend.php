@@ -1,10 +1,11 @@
 <?php
+
 /**
  * RandomRecommend Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2012.
+ * Copyright (C) Villanova University 2012, 2022.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,19 +17,21 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Luke O'Sullivan <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Recommend;
 
-use VuFindSearch\Query\Query,
-    VuFindSearch\ParamBag;
+use VuFindSearch\Command\RandomCommand;
+
+use function count;
 
 /**
  * RandomRecommend Module
@@ -37,11 +40,11 @@ use VuFindSearch\Query\Query,
  *
  * Originally developed by Luke O'Sullivan at Swansea University.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Luke O'Sullivan <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class RandomRecommend implements RecommendInterface
 {
@@ -62,7 +65,7 @@ class RandomRecommend implements RecommendInterface
     /**
      * Results Limit
      *
-     * @var number
+     * @var int
      */
     protected $limit = 10;
 
@@ -118,10 +121,11 @@ class RandomRecommend implements RecommendInterface
     /**
      * Constructor
      *
-     * @param \VuFindSearch\Service               $searchService VuFind Search Serive
+     * @param \VuFindSearch\Service               $searchService VuFind Search Service
      * @param \VuFind\Search\Params\PluginManager $paramManager  Params manager
      */
-    public function __construct(\VuFindSearch\Service $searchService,
+    public function __construct(
+        \VuFindSearch\Service $searchService,
         \VuFind\Search\Params\PluginManager $paramManager
     ) {
         $this->searchService = $searchService;
@@ -158,43 +162,47 @@ class RandomRecommend implements RecommendInterface
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
-    */
+     */
     public function init($params, $request)
     {
-        if ("retain" !== $this->mode) {
-            $randomParams = $this->paramManager->get($params->getSearchClassId());
-        } else {
-            $randomParams = clone $params;
-        }
+        $randomParams = 'retain' !== $this->mode
+            ? $this->paramManager->get($params->getSearchClassId())
+            : clone $params;
         foreach ($this->filters as $filter) {
             $randomParams->addFilter($filter);
         }
         $query = $randomParams->getQuery();
         $paramBag = $randomParams->getBackendParameters();
-        $this->results = $this->searchService->random(
-            $this->backend, $query, $this->limit, $paramBag
-        )->getRecords();
+        $command = new RandomCommand(
+            $this->backend,
+            $query,
+            $this->limit,
+            $paramBag
+        );
+        $this->results = $this->searchService->invoke($command)
+            ->getResult()->getRecords();
     }
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *
      * @param \VuFind\Search\Base\Results $results Search results object
      *
      * @return void
-    */
+     */
     public function process($results)
     {
     }

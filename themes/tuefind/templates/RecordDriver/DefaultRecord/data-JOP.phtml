@@ -1,0 +1,106 @@
+<?php if ($this->tuefind()->isUserAgentPositive()): ?>
+
+<?php $formats = $this->driver->getFormats(); ?>
+<?php $i = 0 ?>
+<?php $issns_and_additional_information = [] ?>
+<?php if (in_array("Article", $formats) || in_array("Review", $formats)): ?>
+    <?php $article_issn = $this->driver->tryMethod('getCleanISSN') ?>
+    <?php if (!empty($article_issn)): ?>
+        <?php $issns_and_additional_information[$article_issn] = '' ?>
+    <?php endif; ?>
+<?php elseif (in_array("Journal", $formats) || in_array("Serial", $formats)): ?>
+    <?php $issns_and_additional_information = $this->driver->tryMethod('getJOPISSNsAndAdditionalInformation') ?>
+<?php endif; ?>
+<?php foreach ($issns_and_additional_information as $issn => $additional_information): ?>
+    <?php ++$i ?>
+    <?php $title = 'ISSN: ' . $issn ?>
+    <?php if ($additional_information != '') $title .= ' (' . $additional_information . ')' ?>
+    <?php $jop_place_holder_id = "jop_place_holder_" . $i ?>
+    <?php $jop_icons_id = "jop_icons_" . $i ?>
+
+    <?php $issn = (substr_count($issn, "-") == 0) ? implode("-", str_split($issn, 4)) : $issn ?>
+    <?php if (!empty($issn)): ?>
+        <?php
+        // prepare URL params
+        $vufind_lang = $this->tuefind()->getTranslatorLocale();
+        $jop_lang = $vufind_lang == 'de' ? 'de' : 'en';
+        $genre = in_array('Article', $formats) ? "article" : "journal";
+        $url_params = ['sid' => 'bib:tueb',
+            'issn' => $issn,
+            'genre' => $genre,
+            'lang' => $jop_lang];
+        if ($genre == "article") {
+            $volume = $this->escapeHtml($this->driver->getVolume());
+            if (!empty($volume))
+                $url_params['volume'] = $volume;
+            $issue = $this->escapeHtml($this->driver->getIssue());
+            if (!empty($issue))
+                $url_params['issue'] = $issue;
+            $year = $this->escapeHtml($this->driver->getYear());
+            $pages = $this->escapeHtml(str_replace(" ", "", $this->driver->getPages()));
+            if (!empty($pages))
+                $url_params['pages'] = preg_match('/(^\d+$)/', $pages, $match) ? $match[0] . '-' . $match[0] :
+                                           // Address strange page formatting in some online-only articles
+                                           (preg_match('/^NP(\d+)-NP(\d+)$/', $pages, $match) ? $match[1] . '-' . $match[2]  : $pages);
+        }
+
+        // prepare url_suffix (same for each url)
+        $url_suffix_params = '?';
+        foreach ($url_params as $key => $param) {
+            if ($url_suffix_params != '?')
+                $url_suffix_params .= '&';
+            $url_suffix_params .= urlencode($key) . '=' . urlencode($param);
+        }
+
+        // base URLs
+        $url_html_base = 'https://services.dnb.de/fize-service/gvr/html-service.htm';
+        $url_img_base = 'https://services.dnb.de/fize-service/gvr/icon';
+        $url_ajax_base = 'https://services.dnb.de/fize-service/gvr/full.xml';
+
+        // full URLs with suffix
+        $url_html = $url_html_base . $url_suffix_params;
+        $url_img = $url_img_base . $url_suffix_params;
+        $url_ajax = $url_ajax_base . $url_suffix_params;
+
+        /*
+         * Note: DNB is no longer handled via proxy,
+         *       because our IP will get blocked due to too many requests.
+         *       See Issue #3491 for details.
+         *
+         *       Also, if you want to re-enable this, you also need to re-add the target url to the whitelist in the proxy controller.
+         */
+        /*
+        $client_ip = $_SERVER['REMOTE_ADDR'];
+        $url_suffix_client = '&pid=' . urlencode('client_ip=' . $client_ip);
+        $url_img_proxy = $this->url('home') . 'proxy/load?url=' . urlencode($url_img . $url_suffix_client);
+        $url_ajax_proxy = $this->url('home') . 'proxy/load?url=' . urlencode($url_ajax . $url_suffix_client);
+        $url_img_final = $url_img_proxy;
+        $url_ajax_final = $url_ajax_proxy;
+         */
+        $url_img_final = $url_img;
+        $url_ajax_final = $url_ajax;
+
+        $part_img = '<img style="width:10%; min-width:50" src="' . $url_img_final . '" alt="JOP Icons should be here"/>';
+        $check_availability_text = $this->transEsc('Check Availability');
+        if (count($issns_and_additional_information) > 1)
+            $check_availability_text .= ' (' . $issn . ')';
+
+        ?>
+        <div class="tf-one-JOP-block">
+          <div id="<?= $jop_icons_id ?>">
+              <a href="<?= $url_html ?>" target="_blank">
+                  <?= $part_img ?>
+              </a>
+              <?php if (count($issns_and_additional_information) > 1): ?>
+                  <span><?= $title ?></span>
+              <?php endif; ?>
+          </div>
+          <div id="<?= $jop_place_holder_id ?>"><?= $this->transEsc("Loading") ?>...</div>
+          <?php $jsParams = [$jop_place_holder_id, $jop_icons_id, $url_ajax_final, $url_html, $part_img, $this->transEsc('Available online'), $check_availability_text]; ?>
+          <?php $jsSnippet = 'TueFind.GetJOPInformation(\'' . implode("', '", $jsParams) . '\');'; ?>
+          <?=$this->assetManager()->outputInlineScriptString($jsSnippet)?>
+        </div>
+    <?php endif; ?>
+<?php endforeach; ?>
+
+<?php endif; ?>

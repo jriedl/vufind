@@ -3,7 +3,7 @@
 /**
  * Unit tests for SOLR commit document class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,31 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Solr\Document;
 
+use PHPUnit\Framework\TestCase;
 use VuFindSearch\Backend\Solr\Document\CommitDocument;
-
-use PHPUnit_Framework_TestCase;
 
 /**
  * Unit tests for SOLR update document class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class CommitDocumentTest extends PHPUnit_Framework_TestCase
+class CommitDocumentTest extends TestCase
 {
     /**
      * Test creation of XML document.
@@ -51,7 +53,11 @@ class CommitDocumentTest extends PHPUnit_Framework_TestCase
     public function testAsXML()
     {
         $document = new CommitDocument('30000');
-        $xml = $document->asXML();
+        $this->assertEquals(
+            'text/xml; charset=UTF-8',
+            $document->getContentType()
+        );
+        $xml = $document->getContent();
         $this->assertXmlStringEqualsXmlString(
             '<commit commitWithin="30000"/>',
             $xml

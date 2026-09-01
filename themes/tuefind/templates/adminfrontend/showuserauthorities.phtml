@@ -1,0 +1,57 @@
+<?php
+// Set up page title:
+$this->headTitle($this->translate('User Authorities'));
+
+// Set up breadcrumbs:
+$this->layout()->breadcrumbs = '<li><a href="' . $this->url('myresearch-home') . '">' . $this->transEsc('Your Account') . '</a></li> <li class="active">' . $this->transEsc('User Authorities') . '</li>';
+?>
+
+<div class="<?=$this->layoutClass('mainbody')?>">
+  <h2>User Authorities</h2>
+  <?php if (count($this->userAuthorities) == 0): ?>
+    <p>No user has requested access to any authority record so far.</p>
+  <?php else: ?>
+    <table class="table dataTable display compact table-striped table-bordered table-condensed" data-order="[[ 7, &quot;desc&quot; ]]" style="width: 100%;">
+      <thead>
+        <tr>
+          <th><?=$this->transEsc('Username')?></th>
+          <th><?=$this->transEsc('First Name')?></th>
+          <th><?=$this->transEsc('Last Name')?></th>
+          <th><?=$this->transEsc('Email Address')?></th>
+          <th><?=$this->transEsc('Institution')?></th>
+          <th><?=$this->transEsc('Author')?></th>
+          <th><?=$this->transEsc('Status')?></th>
+          <th><?=$this->transEsc('Requested')?></th>
+          <th><?=$this->transEsc('Granted')?></th>
+          <th><?=$this->transEsc('Actions')?></th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($this->userAuthorities as $userAuthority): ?>
+          <?php $user = $userAuthority->getUser(); ?>
+          <tr>
+            <td><?=$this->escapeHtml($user->getUsername())?></td>
+            <td><?=$this->escapeHtml($user->getFirstname())?></td>
+            <td><?=$this->escapeHtml($user->getLastname())?></td>
+            <td><?=$this->escapeHtml($user->getEmail())?></td>
+            <td><?=$this->escapeHtml($user->getInstitution())?></td>
+            <td><a href="/AuthorityRecord/<?=urlencode($userAuthority->getAuthorityControlNumber())?>"><?=$this->escapeHtml($userAuthority->getAuthorityControlNumber())?></a></td>
+            <td><?=$this->transEsc(ucfirst($userAuthority->getAccessState()))?></td>
+            <td data-sort="<?=$userAuthority->getRequestedDateTime()->format('Y-m-d H:i:s')?>"><?=$userAuthority->getRequestedDateTime()->format($this->config()->dateTimeFormat())?></td>
+            <td data-sort="<?=$userAuthority->getGrantedDateTime() ? $userAuthority->getGrantedDateTime()->format('Y-m-d H:i:s') : ''?>"><?=$userAuthority->getGrantedDateTime() ? $userAuthority->getGrantedDateTime()->format($this->config()->dateTimeFormat()) : ''?></td>
+            <td>
+              <?php if ($userAuthority->getAccessState() == 'requested'): ?>
+                <a href="<?=$this->url('authority-process-request', ['user_id' => $user->getId(), 'authority_id' => $userAuthority->getAuthorityControlNumber()])?>" data-lightbox="">process request</a>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?=$this->assetManager()->outputInlineScriptString('TueFind.RenderDataTable();') ?>
+  <?php endif; ?>
+</div>
+
+<div class="<?=$this->layoutClass('sidebar')?>" id="myresearch-sidebar" role="navigation" aria-label="<?=$this->transEsc('account_menu_label')?>">
+  <?=$this->accountMenu()->render('showuserauthorities')?>
+</div>

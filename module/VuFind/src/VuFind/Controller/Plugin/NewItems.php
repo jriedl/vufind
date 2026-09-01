@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind Action Helper - New Items Support Methods
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,26 +17,35 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Controller\Plugin;
-use Zend\Mvc\Controller\Plugin\AbstractPlugin, Zend\Config\Config;
+
+use Laminas\Mvc\Controller\Plugin\AbstractPlugin;
+use Laminas\Mvc\Plugin\FlashMessenger\FlashMessenger;
+use VuFind\Config\Config;
+
+use function array_slice;
+use function count;
+use function intval;
+use function is_string;
 
 /**
- * Zend action helper to perform new items-related actions
+ * Action helper to perform new items-related actions
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class NewItems extends AbstractPlugin
 {
@@ -59,18 +69,18 @@ class NewItems extends AbstractPlugin
     /**
      * Figure out which bib IDs to load from the ILS.
      *
-     * @param \VuFind\ILS\Connection                     $catalog ILS connection
-     * @param \VuFind\Search\Solr\Params                 $params  Solr parameters
-     * @param string                                     $range   Range setting
-     * @param string                                     $dept    Department setting
-     * @param \Zend\Mvc\Controller\Plugin\FlashMessenger $flash   Flash messenger
+     * @param \VuFind\ILS\Connection     $catalog ILS connection
+     * @param \VuFind\Search\Solr\Params $params  Solr parameters
+     * @param string                     $range   Range setting
+     * @param string                     $dept    Department setting
+     * @param FlashMessenger             $flash   Flash messenger
      *
      * @return array
      */
     public function getBibIDsFromCatalog($catalog, $params, $range, $dept, $flash)
     {
         // The code always pulls in enough catalog results to get a fixed number
-        // of pages worth of Solr results.  Note that if the Solr index is out of
+        // of pages worth of Solr results. Note that if the Solr index is out of
         // sync with the ILS, we may see fewer results than expected.
         $resultPages = $this->getResultPages();
         $perPage = $params->getLimit();
@@ -78,18 +88,40 @@ class NewItems extends AbstractPlugin
 
         // Build a list of unique IDs
         $bibIDs = [];
-        for ($i = 0; $i < count($newItems['results']); $i++) {
-            $bibIDs[] = $newItems['results'][$i]['id'];
+        if (isset($newItems['results'])) {
+            for ($i = 0; $i < count($newItems['results']); $i++) {
+                $bibIDs[] = $newItems['results'][$i]['id'];
+            }
         }
 
         // Truncate the list if it is too long:
         $limit = $params->getQueryIDLimit();
         if (count($bibIDs) > $limit) {
             $bibIDs = array_slice($bibIDs, 0, $limit);
-            $flash->setNamespace('info')->addMessage('too_many_new_items');
+            $flash->addMessage('too_many_new_items', 'info');
         }
 
         return $bibIDs;
+    }
+
+    /**
+     * Get default setting (null to use regular default).
+     *
+     * @return ?string
+     */
+    public function getDefaultSort(): ?string
+    {
+        return $this->config->default_sort ?? null;
+    }
+
+    /**
+     * Should we include facets in the new items search page?
+     *
+     * @return bool
+     */
+    public function includeFacets(): bool
+    {
+        return $this->config->include_facets ?? false;
     }
 
     /**
@@ -144,7 +176,7 @@ class NewItems extends AbstractPlugin
      */
     public function getMethod()
     {
-        return isset($this->config->method) ? $this->config->method : 'ils';
+        return $this->config->method ?? 'ils';
     }
 
     /**

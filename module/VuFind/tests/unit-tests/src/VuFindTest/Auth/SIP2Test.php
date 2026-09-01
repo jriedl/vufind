@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SIP2 authentication test class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,60 +17,60 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTest\Auth;
-use VuFind\Auth\SIP2, Zend\Config\Config;
+
+use Laminas\Http\Request;
+use VuFind\Auth\ILSAuthenticator;
+use VuFind\Auth\SIP2;
+use VuFind\Config\Config;
 
 /**
  * SIP2 authentication test class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class SIP2Test extends \VuFindTest\Unit\DbTestCase
+class SIP2Test extends \PHPUnit\Framework\TestCase
 {
     /**
      * Get an authentication object.
      *
-     * @param Config $config Configuration to use (null for default)
+     * @param ?array $config Configuration to use (null for default)
      *
-     * @return LDAP
+     * @return SIP2
      */
-    public function getAuthObject($config = null)
+    public function getAuthObject(?array $config = null): SIP2
     {
-        if (null === $config) {
-            $config = $this->getAuthConfig();
-        }
-        $obj = clone($this->getAuthManager()->get('SIP2'));
-        $obj->setConfig($config);
+        $obj = new SIP2($this->createMock(ILSAuthenticator::class));
+        $obj->setConfig(new Config($config ?? $this->getAuthConfig()));
         return $obj;
     }
 
     /**
      * Get a working configuration for the LDAP object
      *
-     * @return Config
+     * @return array
      */
-    public function getAuthConfig()
+    public function getAuthConfig(): array
     {
-        $config = new Config(
-            [
-                'host' => 'my.fake.host',
-                'port' => '6002'
-            ], true
-        );
-        return new Config(['MultiAuth' => $config], true);
+        $config = [
+            'host' => 'my.fake.host',
+            'port' => '6002',
+        ];
+        return ['MultiAuth' => $config];
     }
 
     /**
@@ -78,15 +79,15 @@ class SIP2Test extends \VuFindTest\Unit\DbTestCase
      *
      * @param array $overrides Associative array of parameters to override.
      *
-     * @return \Zend\Http\Request
+     * @return Request
      */
-    protected function getLoginRequest($overrides = [])
+    protected function getLoginRequest(array $overrides = []): Request
     {
         $post = $overrides + [
-            'username' => 'testuser', 'password' => 'testpass'
+            'username' => 'testuser', 'password' => 'testpass',
         ];
-        $request = new \Zend\Http\Request();
-        $request->setPost(new \Zend\Stdlib\Parameters($post));
+        $request = new Request();
+        $request->setPost(new \Laminas\Stdlib\Parameters($post));
         return $request;
     }
 
@@ -95,9 +96,10 @@ class SIP2Test extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function testLoginWithBlankUsername()
+    public function testLoginWithBlankUsername(): void
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['username' => '']);
         $this->getAuthObject()->authenticate($request);
     }
@@ -107,9 +109,10 @@ class SIP2Test extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function testLoginWithBlankPassword()
+    public function testLoginWithBlankPassword(): void
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['password' => '']);
         $this->getAuthObject()->authenticate($request);
     }

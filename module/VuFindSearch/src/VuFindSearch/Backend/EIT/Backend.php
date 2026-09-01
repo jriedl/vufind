@@ -3,7 +3,7 @@
 /**
  * EIT backend.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Julia Bauder 2013.
  *
@@ -17,34 +17,32 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\EIT;
 
-use VuFindSearch\Query\AbstractQuery;
-
-use VuFindSearch\ParamBag;
-
-use VuFindSearch\Response\RecordCollectionInterface;
-use VuFindSearch\Response\RecordCollectionFactoryInterface;
-
 use VuFindSearch\Backend\AbstractBackend;
+use VuFindSearch\ParamBag;
+use VuFindSearch\Query\AbstractQuery;
+use VuFindSearch\Response\RecordCollectionFactoryInterface;
+use VuFindSearch\Response\RecordCollectionInterface;
 
 /**
  * EIT backend.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class Backend extends AbstractBackend
 {
@@ -70,7 +68,8 @@ class Backend extends AbstractBackend
      *
      * @return void
      */
-    public function __construct(Connector $connector,
+    public function __construct(
+        Connector $connector,
         RecordCollectionFactoryInterface $factory
     ) {
         $this->setRecordCollectionFactory($factory);
@@ -81,21 +80,24 @@ class Backend extends AbstractBackend
      * Perform a search and return record collection.
      *
      * @param AbstractQuery $query  Search query
-     * @param integer       $offset Search offset
-     * @param integer       $limit  Search limit
-     * @param ParamBag      $params Search backend parameters
+     * @param int           $offset Search offset
+     * @param int           $limit  Search limit
+     * @param ?ParamBag     $params Search backend parameters
      *
      * @return RecordCollectionInterface
      */
-    public function search(AbstractQuery $query, $offset, $limit,
-        ParamBag $params = null
+    public function search(
+        AbstractQuery $query,
+        $offset,
+        $limit,
+        ?ParamBag $params = null
     ) {
         if (null === $params) {
             $params = new ParamBag();
         }
         $params->mergeWith($this->getQueryBuilder()->build($query));
         $response   = $this->connector->search($params, $offset, $limit);
-        $this->log('debug', print_r($response, true));
+        $this->debug('Response: ' . $this->varDump($response));
         $collection = $this->createRecordCollection($response);
         $this->injectSourceIdentifier($collection);
         return $collection;
@@ -104,12 +106,12 @@ class Backend extends AbstractBackend
     /**
      * Retrieve a single document.
      *
-     * @param string   $id     Document identifier
-     * @param ParamBag $params Search backend parameters
+     * @param string    $id     Document identifier
+     * @param ?ParamBag $params Search backend parameters
      *
      * @return RecordCollectionInterface
      */
-    public function retrieve($id, ParamBag $params = null)
+    public function retrieve($id, ?ParamBag $params = null)
     {
         $response   = $this->connector->getRecord($id, $params);
         $collection = $this->createRecordCollection($response);
@@ -138,8 +140,6 @@ class Backend extends AbstractBackend
      * @param QueryBuilder $queryBuilder Query builder
      *
      * @return void
-     *
-     * @todo Typehint QueryBuilderInterface
      */
     public function setQueryBuilder(QueryBuilder $queryBuilder)
     {

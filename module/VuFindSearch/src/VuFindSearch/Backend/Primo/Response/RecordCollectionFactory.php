@@ -3,7 +3,7 @@
 /**
  * Simple factory for record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,80 +17,54 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Primo\Response;
 
-use VuFindSearch\Response\RecordCollectionFactoryInterface;
 use VuFindSearch\Exception\InvalidArgumentException;
-use VuFindSearch\Backend\Solr\Response\Json\Record;
+
+use function gettype;
+use function is_array;
+use function sprintf;
 
 /**
  * Simple factory for record collection.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class RecordCollectionFactory implements RecordCollectionFactoryInterface
+class RecordCollectionFactory extends \VuFindSearch\Response\AbstractJsonRecordCollectionFactory
 {
     /**
-     * Factory to turn data into a record object.
+     * Get the class name of the record collection to use by default.
      *
-     * @var Callable
+     * @return string
      */
-    protected $recordFactory;
-
-    /**
-     * Class of collection.
-     *
-     * @var string
-     */
-    protected $collectionClass;
-
-    /**
-     * Constructor.
-     *
-     * @param Callable $recordFactory   Record factory callback (null for default)
-     * @param string   $collectionClass Class of collection
-     *
-     * @return void
-     */
-    public function __construct($recordFactory = null, $collectionClass = null)
+    protected function getDefaultRecordCollectionClass(): string
     {
-        // Set default record factory if none provided:
-        if (null === $recordFactory) {
-            $recordFactory = function ($i) {
-                return new Record($i);
-            };
-        } else if (!is_callable($recordFactory)) {
-            throw new InvalidArgumentException('Record factory must be callable.');
-        }
-        $this->recordFactory = $recordFactory;
-        $this->collectionClass = (null === $collectionClass)
-            ? 'VuFindSearch\Backend\Primo\Response\RecordCollection'
-            : $collectionClass;
+        return RecordCollection::class;
     }
 
     /**
      * Return record collection.
      *
-     * @param array $response Primo response
+     * @param array $response Deserialized JSON response
      *
      * @return RecordCollection
      */
     public function factory($response)
     {
-
         if (!is_array($response)) {
             throw new InvalidArgumentException(
                 sprintf(
@@ -100,10 +74,23 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
             );
         }
         $collection = new $this->collectionClass($response);
-        foreach ($response['documents'] as $doc) {
-            $collection->add(call_user_func($this->recordFactory, $doc));
+        foreach ($response['documents'] ?? [] as $doc) {
+            $record = ($this->recordFactory)($doc);
+
+            $collection->add($record, false);
         }
         return $collection;
     }
 
+    /**
+     * Given a backend response, return an array of documents.
+     *
+     * @param array $response Backend response
+     *
+     * @return array
+     */
+    protected function getDocumentListFromResponse($response): array
+    {
+        return $response['documents'];
+    }
 }

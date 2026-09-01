@@ -3,7 +3,7 @@
 /**
  * Solr highlighting listener.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,30 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\Solr;
 
+use Laminas\EventManager\EventInterface;
+use Laminas\EventManager\SharedEventManagerInterface;
 use VuFindSearch\Backend\BackendInterface;
-
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\EventManager\EventInterface;
+use VuFindSearch\Service;
 
 /**
  * Solr highlighting listener.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class InjectHighlightingListener
 {
@@ -66,17 +67,26 @@ class InjectHighlightingListener
     protected $fieldList;
 
     /**
+     * Extra Solr highlighting parameters.
+     *
+     * @var array
+     */
+    protected $extraHighlightingParameters;
+
+    /**
      * Constructor.
      *
      * @param BackendInterface $backend   Backend
      * @param string           $fieldList Field(s) to highlight (hl.fl param)
+     * @param array            $extras    Extra Solr highlighting parameters
      *
      * @return void
      */
-    public function __construct(BackendInterface $backend, $fieldList = '*')
+    public function __construct(BackendInterface $backend, $fieldList = '*', $extras = [])
     {
         $this->backend = $backend;
         $this->fieldList = $fieldList;
+        $this->extraHighlightingParameters = $extras;
     }
 
     /**
@@ -88,8 +98,11 @@ class InjectHighlightingListener
      */
     public function attach(SharedEventManagerInterface $manager)
     {
-        $manager->attach('VuFind\Search', 'pre', [$this, 'onSearchPre']);
-        $manager->attach('VuFind\Search', 'post', [$this, 'onSearchPost']);
+        $manager->attach(
+            Service::class,
+            Service::EVENT_PRE,
+            [$this, 'onSearchPre']
+        );
     }
 
     /**
@@ -101,56 +114,31 @@ class InjectHighlightingListener
      */
     public function onSearchPre(EventInterface $event)
     {
-        if ($event->getParam('context') != 'search') {
+        $command = $event->getParam('command');
+        if ($command->getContext() != 'search') {
             return $event;
         }
-        $backend = $event->getTarget();
-        if ($backend === $this->backend) {
-            $params = $event->getParam('params');
-            if ($params) {
+        if ($command->getTargetIdentifier() === $this->backend->getIdentifier()) {
+            if ($params = $command->getSearchParameters()) {
                 // Set highlighting parameters unless explicitly disabled:
                 $hl = $params->get('hl');
-                if (!isset($hl[0]) || $hl[0] != 'false') {
+                if (($hl[0] ?? 'true') != 'false') {
                     $this->active = true;
+                    // Set extra parameters first so they don't override necessary
+                    // core parameters:
+                    foreach ($this->extraHighlightingParameters as $key => $val) {
+                        $params->set($key, $val);
+                    }
                     $params->set('hl', 'true');
-                    $params->set('hl.fl', $this->fieldList);
                     $params->set('hl.simple.pre', '{{{{START_HILITE}}}}');
                     $params->set('hl.simple.post', '{{{{END_HILITE}}}}');
 
                     // Turn on hl.q generation in query builder:
                     $this->backend->getQueryBuilder()
-                        ->setCreateHighlightingQuery(true);
+                        ->setFieldsToHighlight($this->fieldList);
                 }
             }
         }
         return $event;
-    }
-
-    /**
-     * Inject highlighting results.
-     *
-     * @param EventInterface $event Event
-     *
-     * @return EventInterface
-     */
-    public function onSearchPost(EventInterface $event)
-    {
-        // Do nothing if highlighting is disabled or context is wrong
-        if (!$this->active || $event->getParam('context') != 'search') {
-            return $event;
-        }
-
-        // Inject highlighting details into record objects:
-        $backend = $event->getParam('backend');
-        if ($backend == $this->backend->getIdentifier()) {
-            $result = $event->getTarget();
-            $hlDetails = $result->getHighlighting();
-            foreach ($result->getRecords() as $record) {
-                $id = $record->getUniqueId();
-                if (isset($hlDetails[$id])) {
-                    $record->setHighlightDetails($hlDetails[$id]);
-                }
-            }
-        }
     }
 }

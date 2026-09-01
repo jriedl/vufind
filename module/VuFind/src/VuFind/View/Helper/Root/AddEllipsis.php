@@ -1,8 +1,9 @@
 <?php
+
 /**
  * "Add ellipsis" view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,26 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\View\Helper\AbstractHelper;
+
+use Laminas\View\Helper\AbstractHelper;
+
+use function strlen;
 
 /**
  * "Add ellipsis" view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class AddEllipsis extends AbstractHelper
 {
@@ -53,7 +58,9 @@ class AddEllipsis extends AbstractHelper
         // Remove highlighting markers from the string so we can perform a clean
         // comparison:
         $dehighlighted = str_replace(
-            ['{{{{START_HILITE}}}}', '{{{{END_HILITE}}}}'], '', $highlighted
+            ['{{{{START_HILITE}}}}', '{{{{END_HILITE}}}}'],
+            '',
+            $highlighted
         );
 
         // If the dehighlighted string is shorter than the full string, we need
@@ -69,7 +76,7 @@ class AddEllipsis extends AbstractHelper
                 // otherwise, unless we already have the full string, add ellipses.
                 if (strlen($fullString) < 160) {
                     $title .= substr($fullString, $pos + strlen($dehighlighted));
-                } else if ($pos + strlen($dehighlighted) < strlen($fullString)) {
+                } elseif ($pos + strlen($dehighlighted) < strlen($fullString)) {
                     $title = trim($title) . '...';
                 }
                 return $title;
@@ -77,7 +84,7 @@ class AddEllipsis extends AbstractHelper
 
             // If the first five characters don't match chances are something was cut
             // from the front:
-            if (substr($dehighlighted, 0, 5) != substr($fullString, 0, 5)) {
+            if (strncmp($dehighlighted, $fullString, 5) !== 0) {
                 $highlighted = '...' . $highlighted;
             }
 

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind Theme Initializer
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFindTheme;
-use Zend\Config\Config,
-    Zend\Mvc\MvcEvent,
-    Zend\Stdlib\RequestInterface as Request;
+
+use Laminas\Mvc\MvcEvent;
+use Laminas\Stdlib\RequestInterface as Request;
+use Laminas\View\Resolver\TemplatePathStack;
+use Psr\Container\ContainerInterface;
+use VuFind\Config\Config;
+use VuFind\Cookie\CookieManager;
 
 /**
  * VuFind Theme Initializer
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Initializer
 {
@@ -49,44 +55,59 @@ class Initializer
     protected $config;
 
     /**
-     * Zend MVC Event
+     * Map of theme aliases to theme names (null if uninitialized)
+     *
+     * @var ?array
+     */
+    protected $themeMap =  null;
+
+    /**
+     * Laminas MVC Event
      *
      * @var MvcEvent
      */
     protected $event;
 
     /**
-     * Top-level service manager
+     * Top-level service container
      *
-     * @var \Zend\ServiceManager\ServiceManager
+     * @var ContainerInterface
      */
     protected $serviceManager;
 
     /**
      * Theme tools object
      *
-     * @var \VuFindTheme\ThemeInfo
+     * @var ThemeInfo
      */
     protected $tools;
 
     /**
      * Mobile interface detector
      *
-     * @var \VuFindTheme\Mobile
+     * @var Mobile
      */
     protected $mobile;
 
     /**
      * Cookie manager
      *
-     * @var \VuFind\Cookie\CookieManager
+     * @var CookieManager
      */
     protected $cookieManager;
 
     /**
+     * A static flag used to determine if the theme has been initialized
+     *
+     * @var bool
+     */
+    protected static $themeInitialized = false;
+
+    /**
      * Constructor
      *
-     * @param Config   $config Configuration object containing these keys:
+     * @param Config                      $config           Configuration object
+     * containing these keys:
      * <ul>
      *   <li>theme - the name of the default theme for non-mobile devices</li>
      *   <li>mobile_theme - the name of the default theme for mobile devices
@@ -101,75 +122,39 @@ class Initializer
      *   <li>generator - a Generator value to display in the HTML header
      * (optional)</li>
      * </ul>
-     * @param MvcEvent $event  Zend MVC Event object
+     * @param MvcEvent|ContainerInterface $eventOrContainer Laminas MVC Event object
+     * OR service container object
      */
-    public function __construct(Config $config, MvcEvent $event)
+    public function __construct(Config $config, $eventOrContainer)
     {
         // Store parameters:
         $this->config = $config;
-        $this->event = $event;
 
-        // Grab the service manager for convenience:
-        $this->serviceManager = $this->event->getApplication()->getServiceManager();
+        if ($eventOrContainer instanceof MvcEvent) {
+            $this->event = $eventOrContainer;
+            $this->serviceManager = $this->event->getApplication()
+                ->getServiceManager();
+        } elseif ($eventOrContainer instanceof ContainerInterface) {
+            $this->event = null;
+            $this->serviceManager = $eventOrContainer;
+        } else {
+            throw new \Exception(
+                'Illegal type for $eventOrContainer: ' . $eventOrContainer::class
+            );
+        }
 
         // Get the cookie manager from the service manager:
-        $this->cookieManager = $this->serviceManager->get('VuFind\CookieManager');
+        $this->cookieManager = $this->serviceManager->get(CookieManager::class);
 
         // Get base directory from tools object:
-        $this->tools = $this->serviceManager->get('VuFindTheme\ThemeInfo');
+        $this->tools = $this->serviceManager->get(ThemeInfo::class);
 
         // Set up mobile device detector:
-        $this->mobile = $this->serviceManager->get('VuFindTheme\Mobile');
-        $this->mobile->enable(isset($this->config->mobile_theme));
+        $this->mobile = $this->serviceManager->get(Mobile::class);
     }
 
     /**
-     * Adjust template injection to a strategy that works better with our themes.
-     * This needs to be called prior to the dispatch event, which is why it is a
-     * separate static method rather than part of the init() method below.
-     *
-     * @param MvcEvent $event Dispatch event object
-     *
-     * @return void
-     */
-    public static function configureTemplateInjection(MvcEvent $event)
-    {
-        // Get access to the shared event manager:
-        $sharedEvents
-            = $event->getApplication()->getEventManager()->getSharedManager();
-
-        // Detach the default listener:
-        $listeners = $sharedEvents->getListeners(
-            'Zend\Stdlib\DispatchableInterface', MvcEvent::EVENT_DISPATCH
-        );
-        foreach ($listeners as $listener) {
-            $metadata = $listener->getMetadata();
-            $callback = $listener->getCallback();
-            if (is_a($callback[0], 'Zend\Mvc\View\Http\InjectTemplateListener')) {
-                $priority = $metadata['priority'];
-                $sharedEvents->detach(
-                    'Zend\Stdlib\DispatchableInterface', $listener
-                );
-                break;
-            }
-        }
-
-        // If we didn't successfully detach a listener above, priority will not be
-        // set.  This is an unexpected situation, so we should throw an exception.
-        if (!isset($priority)) {
-            throw new \Exception('Unable to detach InjectTemplateListener');
-        }
-
-        // Attach our own listener in place of the one we removed:
-        $injectTemplateListener  = new InjectTemplateListener();
-        $sharedEvents->attach(
-            'Zend\Stdlib\DispatchableInterface', MvcEvent::EVENT_DISPATCH,
-            [$injectTemplateListener, 'injectTemplate'], $priority
-        );
-    }
-
-    /**
-     * Initialize the theme.  This needs to be triggered as part of the dispatch
+     * Initialize the theme. This needs to be triggered as part of the dispatch
      * event.
      *
      * @throws \Exception
@@ -177,13 +162,25 @@ class Initializer
      */
     public function init()
     {
-        // Determine the current theme:
-        $currentTheme = $this->pickTheme($this->event->getRequest());
+        // Make sure to initialize the theme just once
+        if (self::$themeInitialized) {
+            return;
+        }
+        self::$themeInitialized = true;
+
+        // Determine the user-selected or default UI option, and the theme associated with it:
+        $themes = $this->getThemeAliasMap();
+        $selectedUI = $this->getSelectedUI(
+            $themes,
+            $this->event?->getRequest()
+        );
+        $currentTheme = $themes[$selectedUI];
 
         // Determine theme options:
-        $this->sendThemeOptionsToView();
+        $this->sendThemeOptionsToView($selectedUI, $currentTheme);
 
         // Make sure the current theme is set correctly in the tools object:
+        $error = null;
         try {
             $this->tools->setTheme($currentTheme);
         } catch (\Exception $error) {
@@ -204,96 +201,142 @@ class Initializer
     }
 
     /**
+     * Get a map of theme aliases to theme names.
+     *
+     * @return array
+     */
+    protected function getThemeAliasMap(): array
+    {
+        if ($this->themeMap === null) {
+            // Set up special-case 'standard', 'mobile' and 'admin' aliases:
+            $this->themeMap = ['standard' => $this->config->theme];
+            if (isset($this->config->mobile_theme)) {
+                $this->themeMap['mobile'] = $this->config->mobile_theme;
+            }
+            if (isset($this->config->admin_theme)) {
+                $this->themeMap['admin'] = $this->config->admin_theme;
+            }
+
+            // Parse the alternate theme settings for additional options:
+            $parts = explode(',', $this->config->alternate_themes ?? '');
+            foreach ($parts as $part) {
+                $subparts = explode(':', $part);
+                if (!empty($subparts[1])) {
+                    $this->themeMap[trim($subparts[0])] = $subparts[1];
+                }
+            }
+        }
+        return $this->themeMap;
+    }
+
+    /**
      * Support method for init() -- figure out which theme option is active.
      *
-     * @param Request $request Request object (for obtaining user parameters).
+     * @param array   $themes  Data on all available themes (must include at
+     * minimum a 'standard' key)
+     * @param Request $request Request object (for obtaining user parameters);
+     * set to null if no request context is available.
      *
      * @return string
      */
-    protected function pickTheme(Request $request)
+    protected function getSelectedUI(array $themes, ?Request $request): string
     {
+        // The admin theme should always be picked if
+        // - the Admin module is enabled AND
+        // - an admin theme is set AND
+        // - an admin route is requested (route configuration has an
+        //   'admin_route' => true default parameter).
+        if (
+            isset($this->event)
+            && ($routeMatch = $this->event->getRouteMatch())
+            && $routeMatch->getParam('admin_route')
+            && ($this->config->admin_enabled ?? false)
+            && isset($themes['admin'])
+        ) {
+            return 'admin';
+        }
+
         // Load standard configuration options:
-        $standardTheme = $this->config->theme;
-        $mobileTheme = $this->mobile->enabled()
-            ? $this->config->mobile_theme : false;
+        if (PHP_SAPI == 'cli') {
+            return 'standard';
+        }
 
         // Find out if the user has a saved preference in the POST, URL or cookies:
-        $selectedUI = $request->getPost()->get(
-            'ui', $request->getQuery()->get(
-                'ui', isset($request->getCookie()->ui)
-                ? $request->getCookie()->ui : null
-            )
-        );
+        $selectedUI = null;
+        if (isset($request)) {
+            $selectedUI = $request->getPost()->get('ui')
+                ?? $request->getQuery()->get('ui')
+                ?? $request->getCookie()->ui
+                ?? null;
+        }
         if (empty($selectedUI)) {
-            $selectedUI = ($mobileTheme && $this->mobile->detect())
+            $selectedUI = (isset($themes['mobile']) && $this->mobile->detect())
                 ? 'mobile' : 'standard';
         }
 
         // Save the current setting to a cookie so it persists:
         $this->cookieManager->set('ui', $selectedUI);
 
-        // Do we have a valid mobile selection?
-        if ($mobileTheme && $selectedUI == 'mobile') {
-            return $mobileTheme;
-        }
-
-        // Do we have a non-standard selection?
-        if ($selectedUI != 'standard'
-            && isset($this->config->alternate_themes)
-        ) {
-            // Check the alternate theme settings for a match:
-            $parts = explode(',', $this->config->alternate_themes);
-            foreach ($parts as $part) {
-                $subparts = explode(':', $part);
-                if ((trim($subparts[0]) == trim($selectedUI))
-                    && isset($subparts[1]) && !empty($subparts[1])
-                ) {
-                    return $subparts[1];
-                }
-            }
-        }
-
-        // If we got this far, we either have a standard option or the user chose
-        // an invalid non-standard option; either way, we need to default to the
-        // standard theme:
-        return $standardTheme;
+        // Pick the selected theme (fall back to standard if unrecognized):
+        return isset($themes[$selectedUI]) ? $selectedUI : 'standard';
     }
 
     /**
      * Make the theme options available to the view.
      *
+     * @param string $selectedUI   Current UI setting
+     * @param string $currentTheme Active theme
+     *
      * @return void
      */
-    protected function sendThemeOptionsToView()
+    protected function sendThemeOptionsToView(string $selectedUI, string $currentTheme): void
     {
         // Get access to the view model:
-        $viewModel = $this->serviceManager->get('viewmanager')->getViewModel();
+        if (PHP_SAPI !== 'cli') {
+            $viewModel = $this->serviceManager->get('ViewManager')->getViewModel();
 
-        // Send down the view options:
-        $viewModel->setVariable('themeOptions', $this->getThemeOptions());
+            // Send down the view options:
+            $viewModel->setVariable('themeOptions', $this->getThemeOptions($selectedUI, $currentTheme));
+        }
     }
 
     /**
-     * Return an array of information about user-selectable themes.  Each entry in
+     * Return an array of information about user-selectable themes. Each entry in
      * the array is an associative array with 'name', 'desc' and 'selected' keys.
+     *
+     * @param string $selectedUI   Current UI setting
+     * @param string $currentTheme Active theme
      *
      * @return array
      */
-    protected function getThemeOptions()
+    protected function getThemeOptions(string $selectedUI, string $currentTheme): array
     {
         $options = [];
         if (isset($this->config->selectable_themes)) {
             $parts = explode(',', $this->config->selectable_themes);
+            $foundSelected = false;
             foreach ($parts as $part) {
                 $subparts = explode(':', $part);
                 $name = trim($subparts[0]);
                 $desc = isset($subparts[1]) ? trim($subparts[1]) : '';
                 $desc = empty($desc) ? $name : $desc;
+                // Easiest and most accurate way to pick a selected theme is to check
+                // if the name matches the current value of the ui cookie:
+                $selected = $selectedUI === $name;
+                $foundSelected = $foundSelected || $selected;
                 if (!empty($name)) {
-                    $options[] = [
-                        'name' => $name, 'desc' => $desc,
-                        'selected' => ($this->cookieManager->get('ui') == $name)
-                    ];
+                    $options[] = compact('name', 'desc', 'selected');
+                }
+            }
+            // If we have some options, but none are selected, we need to figure
+            // out which option matches the provided theme.
+            if (!empty($options) && !$foundSelected) {
+                $aliasMap = $this->getThemeAliasMap();
+                foreach ($options as $i => $currentOptions) {
+                    if ($aliasMap[$currentOptions['name']] === $currentTheme) {
+                        $options[$i]['selected'] = true;
+                        break;
+                    }
                 }
             }
         }
@@ -310,10 +353,10 @@ class Initializer
     protected function setUpThemeViewHelpers($helpers)
     {
         // Grab the helper loader from the view manager:
-        $loader = $this->serviceManager->get('viewmanager')->getHelperManager();
+        $loader = $this->serviceManager->get('ViewHelperManager');
 
         // Register all the helpers:
-        $config = new \Zend\ServiceManager\Config($helpers);
+        $config = new \Laminas\ServiceManager\Config($helpers);
         $config->configureServiceManager($loader);
     }
 
@@ -329,20 +372,23 @@ class Initializer
         $templatePathStack = [];
 
         // Grab the resource manager for tracking CSS, JS, etc.:
-        $resources = $this->serviceManager->get('VuFindTheme\ResourceContainer');
+        $resources = $this->serviceManager->get(ResourceContainer::class);
 
         // Set generator if necessary:
         if (isset($this->config->generator)) {
             $resources->setGenerator($this->config->generator);
         }
 
-        $lessActive = false;
-        // Find LESS activity
+        // Determine doctype and apply it:
+        $doctype = 'HTML5';
         foreach ($themes as $key => $currentThemeInfo) {
-            if (isset($currentThemeInfo['less']['active'])) {
-                $lessActive = $currentThemeInfo['less']['active'];
+            if (isset($currentThemeInfo['doctype'])) {
+                $doctype = $currentThemeInfo['doctype'];
+                break;
             }
         }
+        $loader = $this->serviceManager->get('ViewHelperManager');
+        ($loader->get('doctype'))($doctype);
 
         // Apply the loaded theme settings in reverse for proper inheritance:
         foreach ($themes as $key => $currentThemeInfo) {
@@ -354,9 +400,6 @@ class Initializer
             $templatePathStack[] = $this->tools->getBaseDir() . "/$key/templates";
 
             // Add CSS and JS dependencies:
-            if ($lessActive && isset($currentThemeInfo['less'])) {
-                $resources->addLessCss($currentThemeInfo['less']);
-            }
             if (isset($currentThemeInfo['css'])) {
                 $resources->addCss($currentThemeInfo['css']);
             }
@@ -375,14 +418,60 @@ class Initializer
             }
         }
 
-        // Inject the path stack generated above into the view resolver:
-        $resolver = $this->serviceManager->get('viewmanager')->getResolver();
-        if (!is_a($resolver, 'Zend\View\Resolver\AggregateResolver')) {
-            throw new \Exception('Unexpected resolver: ' . get_class($resolver));
+        // Inject the path stack generated above into the resolver:
+        $resolver = $this->serviceManager->get(TemplatePathStack::class);
+        $resolver->addPaths($templatePathStack);
+
+        // Add theme specific language files for translation
+        $this->updateTranslator($themes);
+    }
+
+    /**
+     * Support method for setUpThemes() - add theme specific language files for
+     * translation.
+     *
+     * @param array $themes Theme configuration information.
+     *
+     * @return void
+     */
+    protected function updateTranslator($themes)
+    {
+        $theme = null;
+        $pathStack = [];
+        foreach (array_keys($themes) as $theme) {
+            $dir = APPLICATION_PATH . '/themes/' . $theme . '/languages';
+            if (is_dir($dir)) {
+                $pathStack[] = $dir;
+            }
         }
-        foreach ($resolver as $current) {
-            if (is_a($current, 'Zend\View\Resolver\TemplatePathStack')) {
-                $current->setPaths($templatePathStack);
+
+        if (!empty($pathStack)) {
+            try {
+                $translator = $this->serviceManager
+                    ->get(\Laminas\Mvc\I18n\Translator::class);
+                $pm = $translator->getPluginManager();
+                $pm->get('ExtendedIni')->addToPathStack($pathStack);
+            } catch (\Laminas\Mvc\I18n\Exception\BadMethodCallException $e) {
+                // This exception likely indicates that translation is disabled,
+                // so we can't proceed.
+                return;
+            }
+
+            // Override the default cache with a theme-specific cache to avoid
+            // key collisions in a multi-theme environment.
+            try {
+                $cacheManager = $this->serviceManager
+                    ->get(\VuFind\Cache\Manager::class);
+                $cacheName = $cacheManager->addLanguageCacheForTheme($theme);
+                $translator->setCache($cacheManager->getCache($cacheName));
+            } catch (\Exception $e) {
+                // Don't let a cache failure kill the whole application, but make
+                // note of it:
+                $logger = $this->serviceManager->get(\VuFind\Log\Logger::class);
+                $logger->debug(
+                    'Problem loading cache: ' . $e::class . ' exception: '
+                    . $e->getMessage()
+                );
             }
         }
     }

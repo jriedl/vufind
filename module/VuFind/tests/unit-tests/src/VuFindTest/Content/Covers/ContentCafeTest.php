@@ -3,7 +3,7 @@
 /**
  * Unit tests for ContentCafe cover loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,42 +17,48 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
- * @package  Search
+ * @category VuFind
+ * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Content\Covers;
-use VuFindCode\ISBN, VuFind\Content\Covers\ContentCafe, Zend\Config\Config;
+
+use VuFind\Config\Config;
+use VuFind\Content\Covers\ContentCafe;
+use VuFindCode\ISBN;
 
 /**
  * Unit tests for ContentCafe cover loader.
  *
- * @category VuFind2
- * @package  Search
+ * @category VuFind
+ * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class ContentCafeTest extends \PHPUnit_Framework_TestCase
+class ContentCafeTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test cover loading
      *
      * @return void
      */
-    public function testValidCoverLoading()
+    public function testValidCoverLoading(): void
     {
         $loader = new ContentCafe(new Config(['pw' => 'fakepw']));
         $this->assertEquals(
             'http://contentcafe2.btol.com/ContentCafe/Jacket.aspx?UserID=mykey'
             . '&Password=fakepw&Return=1&Type=S&Value=9780739313121&erroroverride=1',
             $loader->getUrl(
-                'mykey', 'small', ['isbn' => new ISBN('0739313126')]
+                'mykey',
+                'small',
+                ['isbn' => new ISBN('0739313126')]
             )
         );
     }
@@ -62,9 +68,9 @@ class ContentCafeTest extends \PHPUnit_Framework_TestCase
      *
      * @return void
      */
-    public function testMissingIsbn()
+    public function testMissingIsbn(): void
     {
         $loader = new ContentCafe(new Config(['pw' => 'fakepw']));
-        $this->assertEquals(false, $loader->getUrl('mykey', 'small', []));
+        $this->assertFalse($loader->getUrl('mykey', 'small', []));
     }
 }

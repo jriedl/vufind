@@ -3,7 +3,7 @@
 /**
  * EDS API record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) EBSCO Industries 2013
  *
@@ -17,26 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\EDS\Response;
+
 use VuFindSearch\Response\AbstractRecordCollection;
 
 /**
  * EDS API record collection.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class RecordCollection extends AbstractRecordCollection
 {
@@ -46,6 +48,20 @@ class RecordCollection extends AbstractRecordCollection
      * @var array
      */
     protected $response;
+
+    /**
+     * Facet fields.
+     *
+     * @var array
+     */
+    protected $facetFields = null;
+
+    /**
+     * If the results only provide a restricted view.
+     *
+     * @var bool
+     */
+    protected bool $restrictedView = false;
 
     /**
      * Constructor.
@@ -67,14 +83,7 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getTotal()
     {
-        $totalHits = 0;
-        if (isset($this->response['SearchResult'])
-            && isset($this->response['SearchResult']['Statistics'])
-            && isset($this->response['SearchResult']['Statistics']['TotalHits'])
-        ) {
-            $totalHits = $this->response['SearchResult']['Statistics']['TotalHits'];
-        }
-        return $totalHits;
+        return $this->response['SearchResult']['Statistics']['TotalHits'] ?? 0;
     }
 
     /**
@@ -84,39 +93,43 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getRawFacets()
     {
-        return isset($this->response['SearchResult'])
-            && isset($this->response['SearchResult']['AvailableFacets'])
-            ? $this->response['SearchResult']['AvailableFacets'] : [];
+        return $this->response['SearchResult']['AvailableFacets'] ?? [];
     }
 
     /**
-     * Return available facet information.
+     * Return available facets.
+     *
+     * Returns an associative array with the field name as key. The value is an
+     * associative array of available facets for the field, indexed by facet value.
      *
      * @return array
      */
     public function getFacets()
     {
-        $vufindFacetList = [];
-        $facets = isset($this->response['SearchResult'])
-            && isset($this->response['SearchResult']['AvailableFacets'])
-            ? $this->response['SearchResult']['AvailableFacets'] : [];
-        foreach ($facets as $facet) {
-            $vufindFacet['displayName'] = $facet['Id'];
-            $vufindFacet['displayText'] = $facet['Label'];
-            $vufindFacet['fieldName'] = $facet['Id'];
-            $values = [];
-            foreach ($facet['AvailableFacetValues'] as $availableFacetValue) {
-                $values[] = [
-                    'value' => $availableFacetValue['Value'],
-                    'count' => $availableFacetValue['Count'],
-                    'displayText' => $availableFacetValue['Value']
-                ];
-
+        if ($this->facetFields === null) {
+            $this->facetFields = [];
+            $facets = $this->response['SearchResult']['AvailableFacets'] ?? [];
+            foreach ($facets as $facet) {
+                $values = [];
+                foreach ($facet['AvailableFacetValues'] as $facetValue) {
+                    $values[$facetValue['Value']] = $facetValue['Count'];
+                }
+                $this->facetFields[$facet['Id']] = $values;
             }
-            $vufindFacet['counts'] = $values;
-            $vufindFacetList[$facet['Id']] = $vufindFacet;
         }
-        return $vufindFacetList;
+        return $this->facetFields;
+    }
+
+    /**
+     * Set facets.
+     *
+     * @param array $facets Facet fields
+     *
+     * @return void
+     */
+    public function setFacets(array $facets): void
+    {
+        $this->facetFields = $facets;
     }
 
     /**
@@ -126,11 +139,13 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getOffset()
     {
-        if (isset($this->response['SearchRequestGet'])
+        if (
+            isset($this->response['SearchRequestGet'])
             && !empty($this->response['SearchRequestGet']['QueryString'])
         ) {
             $qsParameters = explode(
-                '&', $this->response['SearchRequestGet']['QueryString']
+                '&',
+                $this->response['SearchRequestGet']['QueryString']
             );
             $page = empty($qsParameters['pagenumber'])
                 ? 0 : $qsParameters['pagenumber'];
@@ -141,4 +156,25 @@ class RecordCollection extends AbstractRecordCollection
         return 0;
     }
 
+    /**
+     * Set if the results only provide a restricted view.
+     *
+     * @param bool $restrictedView If restricted view
+     *
+     * @return void
+     */
+    public function setRestrictedView(bool $restrictedView): void
+    {
+        $this->restrictedView = $restrictedView;
+    }
+
+    /**
+     * Check if the results only provide a restricted view.
+     *
+     * @return bool
+     */
+    public function isRestrictedView()
+    {
+        return $this->restrictedView;
+    }
 }

@@ -1,0 +1,21 @@
+<?php
+$tuefind = $this->tuefind();
+$currentSystem = $tuefind->getTueFindType();
+$publicationEmail = $tuefind->getPublicationEmail();
+?>
+
+Liebe*r <?=$currentSystem?> Nutzer*in,
+
+Sie haben Zugriffsrechte für Ihre Autor*innen-ID in <?=$currentSystem?> beantragt. Dies wurde genehmigt. Dadurch können Sie nun Publikationen, die mit Ihrer ID verknüpft sind, zweitveröffentlichen.
+
+Sobald Sie in Ihrem <?=$currentSystem?>-Konto eingeloggt sind, klicken Sie bei Publikationen, die mit Ihrer Autor*innen-ID verknüpft sind, auf den Button „<?=$this->translate('publication_request_button')?>”. Dann können Sie ein Digitalisat Ihrer Publikation als PDF-Datei hochladen.
+
+Im Anschluss erhält diese Datei einen dauerhaften Link (handle/doi) und steht anderen Nutzer*innen im Open Access zur Verfügung.
+
+Wenn Sie Publikationen hochladen möchten, die noch nicht in <?=$currentSystem?> verzeichnet sind, wenden Sie sich bitte an uns (<?=$publicationEmail?>). Ebenso kontaktieren Sie uns bitte, wenn bei einer in <?=$currentSystem?> verzeichneten Publikation kein Upload möglich ist.
+
+Für Fragen stehen wir gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+
+Ihr <?=$currentSystem?>-Team

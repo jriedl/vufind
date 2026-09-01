@@ -1,13 +1,14 @@
 <?php
+
 /**
  * Mobile Device Detection Wrapper
  *
- * PHP version 5
+ * PHP version 8
  *
  * This file is a wrapper around the mobileesp library for browser detection.
  * We chose mobileesp as VuFind's default option because it is fairly robust
- * and has an Apache license which allows free redistribution.  However, it
- * is not the only option available.  You can override this file in your local
+ * and has an Apache license which allows free redistribution. However, it
+ * is not the only option available. You can override this file in your local
  * directory if you wish to customize the detection functionality.
  *
  * Copyright (C) Villanova University 2009.
@@ -22,26 +23,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://code.google.com/p/mobileesp/ MobileESP Project
+ * @link     https://github.com/ahand/mobileesp MobileESP Project
  */
+
 namespace VuFindTheme;
+
 use uagent_info;
 
 /**
  * Mobile Device Detection Wrapper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://code.google.com/p/mobileesp/ MobileESP Project
+ * @link     https://github.com/ahand/mobileesp MobileESP Project
  */
 class Mobile
 {
@@ -53,20 +56,13 @@ class Mobile
     protected $detector;
 
     /**
-     * Are mobile themes enabled?
-     *
-     * @var bool
-     */
-    protected $enabled = false;
-
-    /**
      * Constructor
      *
-     * @param uagent_info $detector Detector object to wrap (null to create one)
+     * @param ?uagent_info $detector Detector object to wrap (null to create one)
      */
-    public function __construct(uagent_info $detector = null)
+    public function __construct(?uagent_info $detector = null)
     {
-        $this->detector = (null === $detector) ? new uagent_info() : $detector;
+        $this->detector = $detector ?? new uagent_info();
     }
 
     /**
@@ -80,27 +76,5 @@ class Mobile
         // may be used instead of DetectMobileLong if you want to target a narrower
         // class of devices.
         return $this->detector->DetectMobileLong();
-    }
-
-    /**
-     * Function to set enabled status of mobile themes.
-     *
-     * @param bool $enabled Are mobile themes enabled?
-     *
-     * @return bool
-     */
-    public function enable($enabled = true)
-    {
-        $this->enabled = $enabled;
-    }
-
-    /**
-     * Function to check whether mobile theme is configured.
-     *
-     * @return bool
-     */
-    public function enabled()
-    {
-        return $this->enabled;
     }
 }

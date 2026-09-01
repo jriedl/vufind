@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Configuration-Based Hierarchy Driver
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Hierarchy_Drivers
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:hierarchy_components Wiki
+ * @link     https://vufind.org/wiki/development:plugins:hierarchy_components Wiki
  */
+
 namespace VuFind\Hierarchy\Driver;
 
 /**
  * Configuration-Based Hierarchy Driver
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Hierarchy_Drivers
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:hierarchy_components Wiki
+ * @link     https://vufind.org/wiki/development:plugins:hierarchy_components Wiki
  */
 class ConfigurationBased extends AbstractBase
 {
@@ -43,7 +45,7 @@ class ConfigurationBased extends AbstractBase
      *
      * @var string
      */
-    protected $defaultTreeRenderer = 'JSTree';
+    protected $defaultTreeRenderer = 'HTMLTree';
 
     /**
      * Show Tree
@@ -54,9 +56,8 @@ class ConfigurationBased extends AbstractBase
      */
     public function showTree()
     {
-        $treeConfigDriver = isset($this->config->HierarchyTree->show)
-            ? $this->config->HierarchyTree->show : false;
-        return ($this->enabled && $treeConfigDriver);
+        $treeConfigDriver = $this->config->HierarchyTree->show ?? false;
+        return $this->enabled && $treeConfigDriver;
     }
 
     /**
@@ -68,9 +69,8 @@ class ConfigurationBased extends AbstractBase
      */
     public function getTreeRendererType()
     {
-        return isset($this->config->HierarchyTree->treeRenderer)
-            ? $this->config->HierarchyTree->treeRenderer
-            : $this->defaultTreeRenderer;
+        return $this->config->HierarchyTree->treeRenderer
+            ?? $this->defaultTreeRenderer;
     }
 
     /**
@@ -80,9 +80,7 @@ class ConfigurationBased extends AbstractBase
      */
     public function getTreeSourceType()
     {
-        return isset($this->config->HierarchyTree->treeSource)
-            ? $this->config->HierarchyTree->treeSource
-            : 'Solr';
+        return $this->config->HierarchyTree->treeSource ?? 'Solr';
     }
 
     /**
@@ -95,8 +93,7 @@ class ConfigurationBased extends AbstractBase
      */
     public function getTreeCacheTime()
     {
-        return isset($this->config->HierarchyTree->solrCacheTime)
-            ? $this->config->HierarchyTree->solrCacheTime : 43200;
+        return $this->config->HierarchyTree->solrCacheTime ?? 43200;
     }
 
     /**
@@ -108,8 +105,7 @@ class ConfigurationBased extends AbstractBase
      */
     public function treeSorting()
     {
-        return isset($this->config->HierarchyTree->sorting)
-            ? $this->config->HierarchyTree->sorting : false;
+        return $this->config->HierarchyTree->sorting ?? false;
     }
 
     /**
@@ -124,6 +120,7 @@ class ConfigurationBased extends AbstractBase
         return isset($this->config->HierarchyTree)
             ? $this->config->HierarchyTree->toArray() : [];
     }
+
     /**
      * Get Collection Link Type from the config file
      *
@@ -133,5 +130,23 @@ class ConfigurationBased extends AbstractBase
     {
         return isset($this->config->Collections->link_type)
             ? ucwords(strtolower($this->config->Collections->link_type)) : 'All';
+    }
+
+    /**
+     * Get the Solr field name used for grouping together collection contents
+     *
+     * @param bool $hasSearch Is the user performing a search?
+     *
+     * @return string
+     */
+    public function getCollectionField(bool $hasSearch): string
+    {
+        if ($hasSearch && null !== ($field = $this->config->Collections->search_container_id_field ?? null)) {
+            return $field;
+        }
+        return match ($this->getCollectionLinkType()) {
+            'All' => 'hierarchy_parent_id',
+            'Top' => 'hierarchy_top_id',
+        };
     }
 }

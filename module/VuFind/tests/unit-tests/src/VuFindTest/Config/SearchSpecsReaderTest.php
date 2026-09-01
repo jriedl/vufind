@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Config SearchSpecsReader Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,30 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Config;
+
 use VuFind\Config\SearchSpecsReader;
 
 /**
  * Config SearchSpecsReader Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class SearchSpecsReaderTest extends \VuFindTest\Unit\TestCase
+class SearchSpecsReaderTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+    use \VuFindTest\Feature\ConfigRelatedServicesTrait;
+    use \VuFindTest\Feature\ReflectionTrait;
+
     /**
      * Test loading of a YAML file.
      *
@@ -49,12 +56,9 @@ class SearchSpecsReaderTest extends \VuFindTest\Unit\TestCase
     {
         // The searchspecs.yaml file should define author dismax fields (among many
         // other things).
-        $reader = $this->getServiceManager()->get('VuFind\SearchSpecsReader');
+        $reader = $this->getSearchSpecsReader();
         $specs = $reader->get('searchspecs.yaml');
-        $this->assertTrue(
-            isset($specs['Author']['DismaxFields'])
-            && !empty($specs['Author']['DismaxFields'])
-        );
+        $this->assertTrue(!empty($specs['Author']['DismaxFields']));
     }
 
     /**
@@ -64,8 +68,113 @@ class SearchSpecsReaderTest extends \VuFindTest\Unit\TestCase
      */
     public function testMissingFileRead()
     {
-        $reader = $this->getServiceManager()->get('VuFind\SearchSpecsReader');
+        $reader = $this->getSearchSpecsReader();
         $specs = $reader->get('notreallyasearchspecs.yaml');
         $this->assertEquals([], $specs);
+    }
+
+    /**
+     * Test direct loading of two single files.
+     *
+     * @return void
+     */
+    public function testYamlLoad()
+    {
+        $reader = $this->getSearchSpecsReader();
+        $core = $this->getFixtureDir() . 'configs/yaml/core.yaml';
+        $local = $this->getFixtureDir() . 'configs/yaml/local.yaml';
+        $this->assertEquals(
+            [
+                'top' => ['foo' => 'bar'],
+                'bottom' => ['goo' => 'gar'],
+            ],
+            $this->callMethod($reader, 'getFromPaths', [$core])
+        );
+        $this->assertEquals(
+            [
+                'top' => ['foo' => 'xyzzy'],
+                'middle' => ['moo' => 'cow'],
+            ],
+            $this->callMethod($reader, 'getFromPaths', [$local])
+        );
+    }
+
+    /**
+     * Test merging of two files.
+     *
+     * @return void
+     */
+    public function testYamlMerge()
+    {
+        $reader = $this->getSearchSpecsReader();
+        $core = $this->getFixtureDir() . 'configs/yaml/core.yaml';
+        $local = $this->getFixtureDir() . 'configs/yaml/local.yaml';
+        $this->assertEquals(
+            [
+                'top' => ['foo' => 'xyzzy'],
+                'middle' => ['moo' => 'cow'],
+                'bottom' => ['goo' => 'gar'],
+            ],
+            $this->callMethod($reader, 'getFromPaths', [$core, $local])
+        );
+    }
+
+    /**
+     * Test @parent_yaml directive.
+     *
+     * @return void
+     */
+    public function testParentYaml()
+    {
+        $reader = $this->getSearchSpecsReader($this->getFixtureDir() . 'configs/inheritance');
+
+        $this->assertEquals(
+            [
+                'top' => 'foo',
+                'middle' => 'bar',
+            ],
+            $reader->get('middle.yaml')
+        );
+
+        $this->assertEquals(
+            [
+                'top' => 'foo',
+                'middle' => 'bar',
+                'bottom' => 'baz',
+            ],
+            $reader->get('bottom.yaml')
+        );
+
+        $this->assertEquals(
+            [
+                'top' => 'foo',
+                'middle' => 'bar',
+                'bottom' => 'baz',
+            ],
+            $this->callMethod(
+                $reader,
+                'getFromPaths',
+                [
+                    $this->getFixturePath(
+                        'configs/inheritance/config/vufind/middle.yaml'
+                    ),
+                    $this->getFixturePath(
+                        'configs/inheritance/config/vufind/bottom.yaml'
+                    ),
+                ]
+            )
+        );
+    }
+
+    /**
+     * Get SearchSpecsReader.
+     *
+     * @param ?string $baseDirectory Optional directory to override APPLICATION_PATH
+     *
+     * @return SearchSpecsReader
+     */
+    protected function getSearchSpecsReader(?string $baseDirectory = null): SearchSpecsReader
+    {
+        return new SearchSpecsReader($this->getPathResolver($baseDirectory));
     }
 }

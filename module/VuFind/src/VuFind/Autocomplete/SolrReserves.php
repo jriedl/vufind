@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Solr Reserves Autocomplete Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,16 +17,17 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Autocomplete
  * @author   Tuan Nguyen <tuan@yorku.ca>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:autosuggesters Wiki
+ * @link     https://vufind.org/wiki/development:plugins:autosuggesters Wiki
  */
+
 namespace VuFind\Autocomplete;
 
 /**
@@ -33,11 +35,11 @@ namespace VuFind\Autocomplete;
  *
  * This class provides suggestions by using the local Solr reserves index.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Autocomplete
  * @author   Tuan Nguyen <tuan@yorku.ca>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:autosuggesters Wiki
+ * @link     https://vufind.org/wiki/development:plugins:autosuggesters Wiki
  */
 class SolrReserves extends Solr
 {
@@ -51,5 +53,38 @@ class SolrReserves extends Solr
         parent::__construct($results);
         $this->defaultDisplayField = 'course';
         $this->searchClassId = 'SolrReserves';
+    }
+
+    /**
+     * Try to turn an array of record drivers into an array of suggestions.
+     * Excluding `no_*_listed` matches since those are the translation values
+     * when there is no data in that field.
+     *
+     * @param array  $searchResults An array of record drivers
+     * @param string $query         User search query
+     * @param bool   $exact         Ignore non-exact matches?
+     *
+     * @return array
+     */
+    protected function getSuggestionsFromSearch($searchResults, $query, $exact)
+    {
+        $results = [];
+        foreach ($searchResults as $object) {
+            $current = $object->getRawData();
+            foreach ($this->displayField as $field) {
+                if (isset($current[$field]) && !preg_match('/no_.*_listed/', $current[$field])) {
+                    $bestMatch = $this->pickBestMatch(
+                        $current[$field],
+                        $query,
+                        $exact
+                    );
+                    if ($bestMatch) {
+                        $results[] = $bestMatch;
+                        break;
+                    }
+                }
+            }
+        }
+        return $results;
     }
 }

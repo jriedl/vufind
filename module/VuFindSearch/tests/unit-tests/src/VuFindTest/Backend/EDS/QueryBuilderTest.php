@@ -3,7 +3,7 @@
 /**
  * Unit tests for EDS query builder
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,31 +17,74 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\EDS;
 
+use PHPUnit\Framework\TestCase;
 use VuFindSearch\Backend\EDS\QueryBuilder;
-use PHPUnit_Framework_TestCase;
 
 /**
  * Unit tests for EDS query builder
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class QueryBuilderTest extends PHPUnit_Framework_TestCase
+class QueryBuilderTest extends TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+
+    /**
+     * Given a response, decode the JSON query objects for easier reading.
+     *
+     * @param array $response Raw response
+     *
+     * @return array
+     */
+    protected function decodeResponse($response)
+    {
+        foreach ($response as $i => $raw) {
+            $response[$i] = json_decode($raw, true);
+        }
+        return $response;
+    }
+
+    /**
+     * Test special case for blank queries.
+     *
+     * @return void
+     */
+    public function testBlankSearch()
+    {
+        $qb = new QueryBuilder();
+        $params = $qb->build(new \VuFindSearch\Query\Query());
+        $response = $params->getArrayCopy();
+        $response['query'] = $this->decodeResponse($response['query']);
+        $this->assertEquals(
+            [
+                'query' => [
+                    [
+                        'term' => '(FT yes) OR (FT no)',
+                        'field' => null,
+                        'bool' => 'AND',
+                    ],
+                ],
+            ],
+            $response
+        );
+    }
+
     /**
      * Test query parsing.
      *
@@ -51,22 +94,33 @@ class QueryBuilderTest extends PHPUnit_Framework_TestCase
     {
         // Set up an array of expected inputs (serialized objects) and outputs
         // (queries):
-        // @codingStandardsIgnoreStart
         $tests = [
-            ['advanced', ['AND,cheese', 'AND,SU:test']]
+            [
+                'advanced',
+                [
+                    [
+                        'term' => 'cheese',
+                        'field' => null,
+                        'bool' => 'AND',
+                    ],
+                    [
+                        'term' => 'test',
+                        'field' => 'SU',
+                        'bool' => 'AND',
+                    ],
+                ],
+            ],
         ];
-        // @codingStandardsIgnoreEnd
 
         $qb = new QueryBuilder();
         foreach ($tests as $test) {
-            list($input, $output) = $test;
-            $q = unserialize(
-                file_get_contents(
-                    PHPUNIT_SEARCH_FIXTURES . '/eds/query/' . $input
-                )
-            );
+            [$input, $output] = $test;
+            $q = unserialize($this->getFixture("eds/query/$input", 'VuFindSearch'));
             $response = $qb->build($q);
-            $this->assertEquals($output, $response->get('query'));
+            $this->assertEquals(
+                $output,
+                $this->decodeResponse($response->get('query'))
+            );
         }
     }
 }

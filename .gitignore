@@ -1,8 +1,66 @@
 # GNU Emacs temporary files
-
-ChangeLog
 \#*
 .\#*
-TAGS
 *~
-vendor/.git
+# Vim temporary files
+.*.sw[po]
+
+.php_cs_cache
+.phpmd.result-cache.php
+.phpstan_cache
+.rector
+.vagrant
+.vscode/*
+/downloads
+/Gruntfile.local.js
+/solr/vendor
+/themes/minktest
+/vendor
+ChangeLog
+/TAGS
+composer.phar
+env.bat
+env.sh
+import/solrmarc.log*
+lessphp_*.list
+module/VuFind/tests/.phpunit*
+node_modules
+public/swagger-ui
+tests/phpcs.cache.json
+themes/bootstrap5/scss/vendor/bootstrap
+local/DirLocations.ini
+local/config/vufind/*.ini
+local/config/vufind/*.json
+local/config/vufind/*.key
+local/config/vufind/*.yaml
+local/config/vufind.bak
+local/config/vufind/*
+!local/config/vufind/README.txt
+
+# CUSTOM TUEFIND IGNORES START HERE
+/import/marc_local.properties
+/import/marc_auth_local.properties
+nbproject
+/newsletter
+
+# Schema files & links
+schema_local_types.xml
+schema_local_fields.xml
+solrconfig.xml
+
+# Solr/SolrMarc plugins
+ConditionalInsertField.jar
+CustomDebugComponent.jar
+FacetPrefixSortComponent.jar
+KeywordChainParser.jar
+MultiLanguageDocTransformerFactory.jar
+MultiLanguageQueryParser.jar
+RangedSearches.jar
+
+# other logs & temporary files
+*.log
+*.log.*
+compiled.css
+
+# Solr synonym files
+/solr/vufind/biblio/conf/synonyms/*

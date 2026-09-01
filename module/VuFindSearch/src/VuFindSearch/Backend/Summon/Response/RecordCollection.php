@@ -3,7 +3,7 @@
 /**
  * WorldCat record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,27 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Summon\Response;
 
 use VuFindSearch\Response\AbstractRecordCollection;
 
+use function is_array;
+
 /**
  * WorldCat record collection.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class RecordCollection extends AbstractRecordCollection
 {
@@ -62,8 +65,7 @@ class RecordCollection extends AbstractRecordCollection
         // Determine the offset:
         $page = isset($this->response['query']['pageNumber'])
             ? $this->response['query']['pageNumber'] - 1 : 0;
-        $size = isset($this->response['query']['pageSize'])
-            ? $this->response['query']['pageSize'] : 0;
+        $size = $this->response['query']['pageSize'] ?? 0;
         $this->offset = $page * $size;
 
         $this->rewind();
@@ -76,8 +78,7 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getTotal()
     {
-        return isset($this->response['recordCount'])
-            ? $this->response['recordCount'] : 0;
+        return $this->response['recordCount'] ?? 0;
     }
 
     /**
@@ -87,8 +88,7 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getFacets()
     {
-        return isset($this->response['facetFields'])
-            ? $this->response['facetFields'] : [];
+        return $this->response['facetFields'] ?? [];
     }
 
     /**
@@ -98,12 +98,8 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getSpellcheck()
     {
-        if (isset($this->response['didYouMeanSuggestions'])
-            && is_array($this->response['didYouMeanSuggestions'])
-        ) {
-            return $this->response['didYouMeanSuggestions'];
-        }
-        return [];
+        return is_array($this->response['didYouMeanSuggestions'] ?? null)
+            ? $this->response['didYouMeanSuggestions'] : [];
     }
 
     /**
@@ -113,8 +109,7 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getBestBets()
     {
-        return isset($this->response['recommendationLists']['bestBet'])
-            ? $this->response['recommendationLists']['bestBet'] : false;
+        return $this->response['recommendationLists']['bestBet'] ?? false;
     }
 
     /**
@@ -124,8 +119,7 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getDatabaseRecommendations()
     {
-        return isset($this->response['recommendationLists']['database'])
-            ? $this->response['recommendationLists']['database'] : false;
+        return $this->response['recommendationLists']['database'] ?? false;
     }
 
     /**
@@ -135,7 +129,6 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getTopicRecommendations()
     {
-        return isset($this->response['topicRecommendations'])
-            ? $this->response['topicRecommendations'] : false;
+        return $this->response['topicRecommendations'] ?? false;
     }
 }

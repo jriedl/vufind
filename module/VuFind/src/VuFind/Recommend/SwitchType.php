@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SwitchType Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,16 +17,17 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
 
 /**
@@ -33,12 +35,12 @@ namespace VuFind\Recommend;
  *
  * This class recommends switching to a different search type.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
 class SwitchType implements RecommendInterface
 {
@@ -81,17 +83,18 @@ class SwitchType implements RecommendInterface
     {
         $params = explode(':', $settings);
         $this->newHandler = !empty($params[0]) ? $params[0] : 'AllFields';
-        $this->newHandlerName = isset($params[1]) ? $params[1] : 'All Fields';
+        $this->newHandlerName = $params[1] ?? 'All Fields';
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -101,7 +104,7 @@ class SwitchType implements RecommendInterface
     }
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *
@@ -115,11 +118,11 @@ class SwitchType implements RecommendInterface
         $this->results = $results;
 
         // If the handler is null, we can't figure out a single handler, so this
-        // is probably an advanced search.  In that case, we shouldn't try to change
+        // is probably an advanced search. In that case, we shouldn't try to change
         // anything!  We should only show recommendations if we know what handler is
         // being used and can determine that it is not the same as the new handler
         // that we want to recommend.
-        $this->active = (!is_null($handler) && $handler != $this->newHandler);
+        $this->active = (null !== $handler && $handler != $this->newHandler);
     }
 
     /**
@@ -135,7 +138,7 @@ class SwitchType implements RecommendInterface
     /**
      * Get the new search handler, or false if it does not apply.
      *
-     * @return string
+     * @return string|false
      */
     public function getNewHandler()
     {

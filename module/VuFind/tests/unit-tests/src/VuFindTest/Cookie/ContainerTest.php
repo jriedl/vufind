@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Cookie Container Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,37 +17,46 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Cookie;
+
 use VuFind\Cookie\Container;
+
+use function in_array;
 
 /**
  * Cookie Container Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ContainerTest extends \VuFindTest\Unit\TestCase
+class ContainerTest extends \PHPUnit\Framework\TestCase
 {
-    protected $ns;
+    /**
+     * Cookie container
+     *
+     * @var Container
+     */
+    protected $container;
 
     /**
      * Setup method: establish Container.
      *
      * @return void
      */
-    public function setup()
+    public function setUp(): void
     {
         $this->container = new Container('test');
     }
@@ -56,7 +66,7 @@ class ContainerTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    public function tearDown()
+    public function tearDown(): void
     {
         foreach ($this->container->getAllValues() as $k => $v) {
             unset($this->container->$k);
@@ -76,11 +86,11 @@ class ContainerTest extends \VuFindTest\Unit\TestCase
 
         // Test get/set of array:
         $this->container->testArray = [1, 2];
-        $this->assertEquals(2, count($this->container->testArray));
+        $this->assertCount(2, $this->container->testArray);
 
         // Test getAllValues:
         $all = $this->container->getAllValues();
-        $this->assertEquals(2, count($all));
+        $this->assertCount(2, $all);
         $this->assertTrue(in_array('value', array_keys($all)));
         $this->assertTrue(in_array('testArray', array_keys($all)));
     }

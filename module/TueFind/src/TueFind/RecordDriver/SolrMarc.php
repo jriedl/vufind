@@ -1,0 +1,760 @@
+<?php
+
+namespace TueFind\RecordDriver;
+
+use function array_key_exists;
+use function count;
+use function in_array;
+use function is_array;
+use function strlen;
+
+class SolrMarc extends SolrDefault
+{
+    use Feature\MarcAdvancedTrait {
+        \TueFind\RecordDriver\Feature\MarcAdvancedTrait::getFormats as getMarcTraitFormats;
+        \TueFind\RecordDriver\Feature\MarcAdvancedTrait::getTitle as getMarcTraitTitle;
+        \TueFind\RecordDriver\Feature\MarcAdvancedTrait::getLanguages as getMarcTraitLanguages;
+        \TueFind\RecordDriver\Feature\MarcAdvancedTrait::getISSNs as getMarcTraitISSNs;
+        \TueFind\RecordDriver\Feature\MarcAdvancedTrait::getISBNs as getMarcTraitISBNs;
+        // c.f. the overwritten functions below
+    }
+
+    public const ISIL_PREFIX_GND = '(DE-588)';
+    public const ISIL_PREFIX_K10PLUS = '(DE-627)';
+
+    // ISIL to e.g. determine the correct default local data block. Should be overridden in child classes.
+    public const ISIL_DEFAULT = 'DE-21'; // Universitätsbibliothek der Eberhard Karls Universität
+
+    protected $marcReaderClass = \TueFind\Marc\MarcReader::class;
+
+    /**
+     * Search for author and return its id (e.g. GND number or PPN)
+     *
+     * @param string $author_heading name of the author and birth/death years if exist, e.g. "Strecker, Christian 1960-"
+     * @param string $scheme_prefix  see class constants (ISIL_PREFIX_*)
+     */
+    protected function getAuthorIdByHeading($author_heading, $scheme_prefix): ?string
+    {
+        $authors = $this->getMarcReader()->getFieldsDelimiter('100|700');
+
+        foreach ($authors as $author) {
+            $subfield_a = $this->getSubfieldArray($author, ['a']);
+            $subfield_d = $this->getSubfieldArray($author, ['d']);
+            $current_author_heading = $subfield_a[0];
+            if (isset($subfield_d[0])) {
+                $current_author_heading .= ' ' . $subfield_d[0];
+            }
+            if ($author_heading == $subfield_a[0] || $author_heading == $current_author_heading) {
+                $subfields_0 = $this->getSubfieldArray($author, ['0']);
+                foreach ($subfields_0 as $subfield_0) {
+                    if (preg_match('"^' . preg_quote($scheme_prefix) . '"', $subfield_0[0])) {
+                        return substr($subfield_0[0], strlen($scheme_prefix));
+                    }
+                }
+                break;
+            }
+        }
+        return null;
+    }
+
+    public function getAuthorGNDNumber($author_heading): ?string
+    {
+        return $this->getAuthorIdByHeading($author_heading, self::ISIL_PREFIX_GND);
+    }
+
+    public function getAuthorPPN($author_heading): ?string
+    {
+        return $this->getAuthorIdByHeading($author_heading, self::ISIL_PREFIX_K10PLUS);
+    }
+
+    /**
+     * Special function for metadata vocabularies.
+     * Get names of all authors from 100a/700a only.
+     * (Special request from Google Scholar, b+c are completely omitted,
+     * even if this does not make sense in all cases, because
+     * the result might only be e.g. "Thomas" instead of "Thomas von Aquin"
+     * or "Benedikt" instead of "Benedikt XVI.")
+     */
+    public function getAuthorNames(): array
+    {
+        $authorNames = [];
+        $authors = $this->getMarcReader()->getFieldsDelimiter('100|700');
+
+        foreach ($authors as $author) {
+            $authorName = $this->getSubfieldArray($author, ['a']);
+            if (!empty($authorName) && isset($authorName[0])) {
+                $authorNames[] = $authorName[0];
+            }
+        }
+        return array_unique($authorNames);
+    }
+
+    /**
+     * This function is used to get author roles for a given author from MARC.
+     * VuFind only stores the first roles in Solr. If MARC roles cannot be found,
+     * Solr roles can be passed as fallback.
+     *
+     * (same result format as getPrimaryAuthorsRoles: ['role' => []])
+     *
+     * @param string $author_heading
+     * @param array  $fallback_roles
+     */
+    public function getAuthorRoles($author_heading): array
+    {
+        $roles = [];
+        $authors = $this->getMarcReader()->getFieldsDelimiter('100|700');
+        foreach ($authors as $author) {
+            $authorName = trim($this->getSubfield($author, 'a')) . ' ' . trim($this->getSubfield($author, 'd'));
+            if ($authorName == $author_heading) {
+                return $this->getSubfields($author, '4');
+            }
+        }
+        return $roles;
+    }
+
+    /**
+     * Get DOI from 024 instead of doi_str_mv field
+     */
+    public function getCleanDOIs()
+    {
+        $clean_dois = [];
+        $_024_fields = $this->getMarcReader()->getFields('024');
+        if (!$_024_fields) {
+            return;
+        }
+        foreach ($_024_fields as $_024_field) {
+            $subfields = $this->getSubfieldArray($_024_field, ['a', '2'], false);
+            if ($subfields && count($subfields) == 2) {
+                if (strtolower($subfields[1]) == 'doi') {
+                    $clean_dois[] = $subfields[0];
+                }
+            }
+        }
+        return $clean_dois;
+    }
+
+    /**
+     * Wrapper for parent's getFieldArray, allowing multiple fields to be
+     * processed at once
+     *
+     * @param array  $fields_and_subfields array(0 => field as string, 1 => subfields as array or string (string only 1))
+     * @param bool   $concat
+     * @param string $separator
+     */
+    protected function getFieldsArray($fields_and_subfields, $concat = true, $separator = ' '): array
+    {
+        $fields_array = [];
+        foreach ($fields_and_subfields as $field_and_subfield) {
+            $field = $field_and_subfield[0];
+            $subfields = (isset($field_and_subfield[1])) ? $field_and_subfield[1] : null;
+            if (null !== $subfields && !is_array($subfields)) {
+                $subfields = [$subfields];
+            }
+            $field_array = $this->getFieldArray($field, $subfields, $concat, $separator);
+            $fields_array = array_merge($fields_array, $field_array);
+        }
+        return array_unique($fields_array);
+    }
+
+    public function getLicense(): ?array
+    {
+        $licenseFields = $this->getMarcReader()->getFields('540');
+        foreach ($licenseFields as $licenseField) {
+            $id = null;
+            $idSubfield = $this->getMarcReader()->getSubfield($licenseField, 'f');
+            if ($idSubfield != false) {
+                $id = $idSubfield;
+            }
+
+            $url = null;
+            $urlSubfield = $this->getMarcReader()->getSubfield($licenseField, 'u');
+            if ($urlSubfield != false) {
+                $url = $urlSubfield;
+            }
+
+            if ($id == null && preg_match('"^http(s)?:' . preg_quote('//rightsstatements.org/vocab/InC/1.0', '"') . '(/?)$"', $url)) {
+                // force correct ID + english URL
+                $id = 'InC 1.0';
+                $url = 'https://rightsstatements.org/page/InC/1.0/?language=en';
+            }
+
+            if ($id != null && $url != null) {
+                return ['id' => $id, 'url' => $url];
+            }
+        }
+
+        return null;
+    }
+
+    public function isTADTagged()
+    {
+        $ita_fields = $this->getMarcReader()->getFields('ITA');
+        foreach ($ita_fields as $ita_field) {
+            $t_subfields = $this->getSubfieldArray($ita_field, ['t']);
+            if (count($t_subfields) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function isArticle()
+    {
+        $leader = $this->getMarcReader()->getLeader();
+
+        if ($leader[7] == 'a' || $leader[7] == 'b') {
+            return true;
+        }
+        $_935_fields = $this->getMarcReader()->getFields('935');
+        foreach ($_935_fields as $_935_field) {
+            $c_subfields = $this->getSubfieldArray($_935_field, ['c']);
+            foreach ($c_subfields as $c_subfield) {
+                if ($c_subfield == 'sodr') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public function isArticleCollection()
+    {
+        $aco_fields = $this->getMarcReader()->getFields('ACO');
+        return count($aco_fields) > 0;
+    }
+
+    public function isPrintedWork()
+    {
+        $fields = $this->getMarcReader()->getFields('007');
+        return isset($fields[0]) && (str_contains($fields[0], 't'));
+    }
+
+    public function isSubscriptionBundle(): bool
+    {
+        return $this->isSuperiorWork() && in_array('Subscription Bundle', $this->getFormats());
+    }
+
+    public function workIsTADCandidate(): bool
+    {
+        return ($this->isArticle() || $this->isArticleCollection()) && $this->isPrintedWork() && $this->isTADTagged();
+    }
+
+    public function suppressDisplayByFormat()
+    {
+        if (in_array('Weblog', $this->getFormats())) {
+            return true;
+        }
+        if (in_array('Subscription Bundle', $this->getFormats())) {
+            return true;
+        }
+        if (in_array('Literary Remains', $this->getFormats())) {
+            return true;
+        }
+        return false;
+    }
+
+    public function showContainerIdsAndTitles()
+    {
+        return !empty($this->getContainerIDsAndTitles())
+                || $this->getIssue() || $this->getPages()
+                || $this->getVolume() || $this->getYear();
+    }
+
+    public function showHBZ()
+    {
+        return !$this->suppressDisplayByFormat();
+    }
+
+    public function showJOP()
+    {
+        return count($this->getFormats()) > 0;
+    }
+
+    public function showWorldCat()
+    {
+        return count($this->getOCLC());
+    }
+
+    public function showPDA()
+    {
+        $formats = $this->getFormats();
+        return !empty($formats) && (in_array('Book', $formats)) && $this->isAvailableForPDA();
+    }
+
+    public function showSubito()
+    {
+        return !$this->suppressDisplayByFormat() && $this->getSubitoURL() != '';
+    }
+
+    public function getAllRecordLinks()
+    {
+        $parallel_ppns_and_type = [];
+        foreach (['775', '776'] as $tag) {
+            $fields = $this->getMarcReader()->getFields($tag);
+            foreach ($fields as $field) {
+                $subfields_w = $this->getSubfieldArray($field, ['w'], false /* do not concatenate entries */);
+                foreach ($subfields_w as $subfield_w) {
+                    if (preg_match('/^' . preg_quote(self::ISIL_PREFIX_K10PLUS, '/') . '(.*)/', $subfield_w, $ppn)) {
+                        $subfield_w = $this->getMarcReader()->getSubfields($field, 'w');
+                        $title = $this->getMarcReader()->getSubfield($field, 'i');
+                        $subfield_k = $this->getMarcReader()->getSubfields($field, 'k');
+                        if (!empty($subfield_w) && $subfield_w !== 'dangling' && !empty($title) && empty($subfield_k)) { //remove duplicates from getParallelEditionPPNs
+                            $link_ppn = $this->getFirstK10PlusPPNFromSubfieldW($field);
+                            $oneNpp = [
+                                'link' => ['type' => 'bib','value' => $link_ppn],
+                                'title' => $title,
+                                'value' => $link_ppn,
+                            ];
+                            array_push($parallel_ppns_and_type, $oneNpp);
+                        }
+                    }
+                }
+            }
+        }
+        return $parallel_ppns_and_type;
+    }
+
+    public function getParallelEditionPPNs()
+    {
+        $parallel_ppns_and_type = [];
+        foreach (['775', '776'] as $tag) {
+            $fields = $this->getMarcReader()->getFields($tag);
+            foreach ($fields as $field) {
+                $subfields_w = $this->getSubfieldArray($field, ['w'], false /* do not concatenate entries */);
+                foreach ($subfields_w as $subfield_w) {
+                    if (preg_match('/^' . preg_quote(self::ISIL_PREFIX_K10PLUS, '/') . '(.*)/', $subfield_w, $ppn)) {
+                        $subfield_k = $this->getMarcReader()->getSubfields($field, 'k');
+                        if (!empty($subfield_k) && $subfield_k !== 'dangling') {
+                            array_push($parallel_ppns_and_type, [ $ppn[1], $subfield_k ]);
+                        }
+                    }
+                }
+            }
+        }
+        return $parallel_ppns_and_type;
+    }
+
+    public function getUnlinkedParallelEditions()
+    {
+        $parallel_editions = [];
+        foreach (['775', '776'] as $tag) {
+            $fields = $this->getMarcReader()->getFields($tag);
+            foreach ($fields as $field) {
+                // If $w exists this is handled by getParallelEditionPPNs
+                $subfield_w = $this->getMarcReader()->getSubfield($field, 'w');
+                if (!empty($subfield_w)) {
+                    continue;
+                }
+
+                $parallel_edition = '';
+                $subfield_i = $this->getMarcReader()->getSubfield($field, 'i');
+                // If $i is not given we will not have a proper key for processing
+                if (empty($subfield_i)) {
+                    continue;
+                }
+                $subfield_a = $this->getMarcReader()->getSubfield($field, 'a');
+                if (!empty($subfield_a)) {
+                    $parallel_edition .= $subfield_a . ': ';
+                }
+                $further_subfields = $this->getSubfieldArray($field, ['t','d','h','g','o','u','z'], false);
+                $parallel_edition .= implode('. - ', $further_subfields);
+                $description = \TueFind\Utility::normalizeGermanParallelDescriptions($subfield_i);
+                array_push($parallel_editions, [ $description => $parallel_edition ]);
+            }
+        }
+        return $parallel_editions;
+    }
+
+    protected function getFirstK10PlusPPNFromSubfieldW($field)
+    {
+        $subfields_w = $this->getSubfieldArray($field, ['w'], false /* do not concatenate entries */);
+        foreach ($subfields_w as $subfield_w) {
+            if (preg_match('/^' . preg_quote(self::ISIL_PREFIX_K10PLUS, '/') . '(.*)/', $subfield_w, $match_ppn)) {
+                return $match_ppn[1];
+            }
+        }
+    }
+
+    public function getReferenceInformation(): array
+    {
+        $references = [];
+        $fields = $this->getMarcReader()->getFieldsDelimiter('770|772');
+
+        foreach ($fields as $field) {
+            $opening = $this->getMarcReader()->getSubfield($field, 'i') ? $this->getMarcReader()->getSubfield($field, 'i') . ':' : '';
+            $timeRange = $this->getMarcReader()->getSubfield($field, 'n') ? $this->getMarcReader()->getSubfield($field, 'n') : '';
+            if ($timeRange != '') {
+                if ($opening != '') {
+                    $opening .= ' ';
+                }
+                $opening .= '(' . $timeRange . '):';
+            }
+            $titles = [];
+            $this->getMarcReader()->getSubfield($field, 'a') ? $titles[] = $this->getMarcReader()->getSubfield($field, 'a') : '';
+            $this->getMarcReader()->getSubfield($field, 'd') ? $titles[] = $this->getMarcReader()->getSubfield($field, 'd') : '';
+            $this->getMarcReader()->getSubfield($field, 'h') ? $titles[] = $this->getMarcReader()->getSubfield($field, 'h') : '';
+            $this->getMarcReader()->getSubfield($field, 't') ? $titles[] = $this->getMarcReader()->getSubfield($field, 't') : '';
+            $description = $opening . ' ' . implode(', ', array_filter($titles) /*skip empty elements */);
+            $link_ppn = $this->getFirstK10PlusPPNFromSubfieldW($field);
+            $references[] = ['id' => $link_ppn, 'description' => $description];
+        }
+        return array_merge($references, $this->getOtherReferences());
+    }
+
+    public function getContainsInformation(): array
+    {
+        $contains = [];
+        $fields = $this->getMarcReader()->getFields('773');
+        foreach ($fields as $field) {
+            $opening = $this->getMarcReader()->getSubfield($field, 'i') ? $this->getMarcReader()->getSubfield($field, 'i') : '';
+            $titles = [];
+            $this->getMarcReader()->getSubfield($field, 'a') ? $titles[] = $this->getMarcReader()->getSubfield($field, 'a') : '';
+            $this->getMarcReader()->getSubfield($field, 't') ? $titles[] = $this->getMarcReader()->getSubfield($field, 't') : '';
+            $description = $opening . ': ' . implode(', ', array_filter($titles) /*skip empty elements */);
+            $link_ppn = $this->getFirstK10PlusPPNFromSubfieldW($field);
+            if (!empty($link_ppn)) {
+                $contains[] = ['id' => $link_ppn, 'description' => $description];
+            }
+        }
+        return $contains;
+    }
+
+    protected function getReferencesFrom787(): array
+    {
+        $references = [];
+
+        $fields = $this->getMarcReader()->getFields('787');
+        foreach ($fields as $field) {
+            $iSubfield = $this->getMarcReader()->getSubfield($field, 'i');
+            if ($iSubfield == false) {
+                continue;
+            }
+
+            $aSubfield = $this->getMarcReader()->getSubfield($field, 'a');
+            $dSubfield = $this->getMarcReader()->getSubfield($field, 'd');
+            $tSubfield = $this->getMarcReader()->getSubfield($field, 't');
+            $gSubfield = $this->getMarcReader()->getSubfield($field, 'g');
+
+            $title = '';
+            if ($tSubfield != false) {
+                $title = $tSubfield;
+            } elseif ($aSubfield != false) {
+                $title = $aSubfield;
+            }
+
+            if ($gSubfield != false) { // Year and Page information
+                $title .= ' ' . $gSubfield;
+            }
+
+            if ($dSubfield != false) {
+                $title .= ' (' . $dSubfield . ')';
+            }
+
+            $referencedId = null;
+            $ppn = $this->getFirstK10PlusPPNFromSubfieldW($field);
+            if (!empty($ppn)) {
+                $referencedId = $ppn;
+            }
+
+            $type = $iSubfield;
+            if (preg_match('"^(Rezension|Rezensiert in)(:)?$"i', $type)) {
+                $resultType = 'review';
+                if (!isset($references[$resultType])) {
+                    $references[$resultType] = [];
+                }
+
+                $author = '';
+                if ($aSubfield != false) {
+                    $author = $aSubfield;
+                }
+
+                $references[$resultType][] = ['id' => $referencedId,
+                                              'title' => $title,
+                                              'author' => $author];
+            } elseif (preg_match('"^Rezension von$"i', $type)) {
+                $resultType = 'reviewed_record';
+                if (!isset($references[$resultType])) {
+                    $references[$resultType] = [];
+                }
+                $author = '';
+                $authorFields = $this->getMarcReader()->getFields('100');
+                foreach ($authorFields as $authorField) {
+                    $a100Subfields = $this->getMarcReader()->getSubfields($authorField, 'a');
+                    foreach ($a100Subfields as $a100Subfield) {
+                        $a100 = $a100Subfield;
+                        if ($a100 != '') {
+                            $author = $a100;
+                            break 2;
+                        }
+                    }
+                }
+                $references[$resultType][] = ['id' => $referencedId,
+                                              'title' => $title,
+                                              'author' => $author];
+            } else {
+                $resultType = 'other';
+                if (!isset($references[$resultType])) {
+                    $references[$resultType] = [];
+                }
+                $references[$resultType][] = ['id' => $referencedId,
+                                              'description' => $type . ' "' . $title . '"'];
+            }
+        }
+
+        return $references;
+    }
+
+    public function getReviews(): array
+    {
+        return $this->getReferencesFrom787()['review'] ?? [];
+    }
+
+    public function getReviewedRecords(): array
+    {
+        return $this->getReferencesFrom787()['reviewed_record'] ?? [];
+    }
+
+    protected function getOtherReferences(): array
+    {
+        return $this->getReferencesFrom787()['other'] ?? [];
+    }
+
+    public function cleanISSN($issn)
+    {
+        if ($pos = strpos($issn, ' ')) {
+            $issn = substr($issn, 0, $pos);
+        }
+        return $issn;
+    }
+
+    public function getJOPISSNsAndAdditionalInformation()
+    {
+
+        $issns_and_additional_information = [];
+        $_022fields = $this->getMarcReader()->getFields('022');
+        foreach ($_022fields as $_022field) {
+            $subfield_a = $this->getMarcReader()->getSubfield($_022field, 'a') ? $this->getMarcReader()->getSubfield($_022field, 'a') : ''; //$a is non-repeatable in 022
+            if (!empty($subfield_a)) {
+                $subfield_2 = $this->getMarcReader()->getSubfield($_022field, '2') ? $this->getMarcReader()->getSubfield($_022field, '2') : '';
+                $additional_information = empty($subfield_2) ? '' : $this->translate($subfield_2);
+                $subfield_3 = $this->getMarcReader()->getSubfield($_022field, '3') ? $this->getMarcReader()->getSubfield($_022field, '3') : '';
+
+                if (!empty($subfield_3)) {
+                    if (!empty($additional_information)) {
+                        $additional_information .= ' ';
+                    }
+                    $additional_information .= $subfield_3;
+                }
+                $issns_and_additional_information[$this->cleanISSN($subfield_a)] = $additional_information;
+            }
+        }
+
+        $_029fields = $this->getMarcReader()->getFields('029');
+
+        foreach ($_029fields as $_029field) {
+            $x = $this->getMarcReader()->getSubfield($_029field, 'x');
+            if (!empty($x)) {
+                $subfield_a = $this->getMarcReader()->getSubfield($_029field, 'a') ? $this->getMarcReader()->getSubfield($_029field, 'a') : '';
+                $issn = $this->cleanISSN($subfield_a);
+                if (!array_key_exists($issn, $issns_and_additional_information)) {
+                    $issns_and_additional_information[$issn] = '';
+                }
+            }
+        }
+
+        if (!empty($issns_and_additional_information)) {
+            return $issns_and_additional_information;
+        }
+
+        // Fall back to the ISSN of the parallel (print) edition
+        $_776fields = $this->getMarcReader()->getFields('776');
+        foreach ($_776fields as $_776field) {
+            $subfield_x = $this->getMarcReader()->getSubfield($_776field, 'x') ? $this->getMarcReader()->getSubfield($_776field, 'x') : '';
+            $issn = $this->cleanISSN($subfield_x);
+            if (!empty($issn)) {
+                $issns_and_additional_information[$issn] = '';
+                return $issns_and_additional_information;
+            }
+        }
+        return [];
+    }
+
+    public function getSuperiorFrom773(): array
+    {
+        $superiors = [];
+
+        $_773_fields = $this->getMarcReader()->getFields('773');
+        foreach ($_773_fields as $_773_field) {
+            // Skip if "Do not display note"-flag is set
+            if ($_773_field['i1'] == '1') {
+                continue;
+            }
+
+            // non-repeatable subfields
+            $superior = '';
+            $mainHeading = $this->getMarcReader()->getSubfield($_773_field, 'a') ?? '';
+            $title = $this->getMarcReader()->getSubfield($_773_field, 't') ?? '';
+            $issn = $this->getMarcReader()->getSubfield($_773_field, 'x') ?? '';
+            // repeatable subfields
+            $related = $this->getMarcReader()->getSubfields($_773_field, 'g') ?? [];
+            $relationship = $this->getMarcReader()->getSubfields($_773_field, 'i') ?? [];
+
+            if (!empty($relationship[0])) {
+                $superior .= $relationship[0] . ': ';
+            }
+            if (!empty($mainHeading)) {
+                $superior .= $mainHeading;
+            } elseif (!empty($title)) {
+                $superior .= $title;
+            }
+            if (!empty($issn)) {
+                $superior .= ' (' . $issn . ')';
+            }
+            if (!empty($related[0])) {
+                $superior .= ' ' . $related[0];
+            }
+
+            $superiors[] = trim($superior);
+        }
+
+        return $superiors;
+    }
+
+    public function getLanguagesIso639_2(): array
+    {
+        $retVal = [];
+        $fields = $this->getMarcReader()->getFields('041');
+        foreach ($fields as $field) {
+            if (!empty($field['i1']) && !empty($field['i2'])) {
+                foreach ($this->getSubfields($field, 'a') as $subfield) {
+                    $retVal[] = $subfield;
+                }
+            }
+        }
+        return $retVal;
+    }
+
+    /**
+     * Initially, data has been stored in 856 (ind1=4 ind2=0)
+     * in the example from bsbfidaltertumswissenschaften.
+     *
+     * After that, it has been moved to LOK for fidreli.
+     *
+     * @return string|null
+     */
+    public function getKflUrl(): ?string
+    {
+        $fields = $this->getLOKBlockDefault();
+
+        foreach ($fields as $field) {
+            $subfields = [];
+            foreach ($field['subfields'] as $subfield) {
+                $subfields[$subfield['code']] = $subfield['data'];
+            }
+
+            if (isset($subfields['0']) && $subfields['0'] == '85640') {
+                // Later on, if a title may be licensed by multiple FIDs
+                // (e.g. IxTheo and RelBib) we must define how to pick
+                // the correct one.
+                if (isset($subfields['u'])) {
+                    // There might also be other URLs in this field,
+                    // but in the KfL context we only want to consider
+                    // the ones related to the KfL-specific domain.
+                    if (strstr($subfields['u'], 'proxy.fid-lizenzen.de') !== false) {
+                        return $subfields['u'];
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * This is a helper function to group the LOK blocks based on the
+     * library ISIL they belong to.
+     *
+     * @return array
+     */
+    protected function getLOKBlocks(): array
+    {
+        $lokBlocks = [];
+
+        $lokFields = $this->getMarcReader()->getFields('LOK');
+
+        $blockFields = [];
+        $library = null;
+        foreach ($lokFields as $lokField) {
+            $type = null;
+            $a = null;
+            foreach ($lokField['subfields'] as $subfield) {
+                if ($subfield['code'] == '0') {
+                    $type = $subfield['data'];
+                } elseif ($subfield['code'] == 'a') {
+                    $a = $subfield['data'];
+                }
+            }
+
+            if (preg_match('"^000"', $type)) {
+                if ($blockFields != [] && $library != null) {
+                    $lokBlocks[$library] = $blockFields;
+                }
+                $blockFields = [];
+                $library = null;
+            } elseif ($type == '040  ') {
+                $library = $a;
+            }
+
+            $blockFields[] = $lokField;
+        }
+
+        if ($blockFields != [] && $library != null) {
+            $lokBlocks[$library] = $blockFields;
+        }
+
+        return $lokBlocks;
+    }
+
+    protected function getLOKBlock(string $isil): array
+    {
+        $lokBlocks = $this->getLOKBlocks();
+        return $lokBlocks[$isil] ?? [];
+    }
+
+    protected function getLOKBlockDefault(): array
+    {
+        return $this->getLOKBlock(static::ISIL_DEFAULT);
+    }
+
+    public function getMarcRecord()
+    {
+        return $this->getMarcReader()->getRawMarcRecords();
+    }
+
+    // Needed to overcome MarcBasicTrait overwriting for specific functions
+    public function getPrimaryAuthors()
+    {
+        return parent::getPrimaryAuthors();
+    }
+
+    public function getFormats()
+    {
+        return parent::getFormats();
+    }
+
+    public function getLanguages()
+    {
+        return parent::getLanguages();
+    }
+
+    public function getTitle()
+    {
+        return parent::getTitle();
+    }
+
+    public function getISSNs()
+    {
+        return parent::getISSNs();
+    }
+}

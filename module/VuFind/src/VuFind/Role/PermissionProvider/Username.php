@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Username permission provider for VuFind.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,26 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authorization
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Role\PermissionProvider;
-use ZfcRbac\Service\AuthorizationService;
+
+use Lmc\Rbac\Mvc\Service\AuthorizationService;
+use VuFind\Db\Entity\UserEntityInterface;
+
+use function in_array;
 
 /**
  * Username permission provider for VuFind.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authorization
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Username implements PermissionProviderInterface
 {
@@ -67,9 +73,9 @@ class Username implements PermissionProviderInterface
     public function getPermissions($options)
     {
         // If no user is logged in, or the user doesn't match the passed-in
-        // whitelist, we can't grant the permission to any roles.
+        // filter, we can't grant the permission to any roles.
         $user = $this->auth->getIdentity();
-        if (!$user || !in_array($user->username, (array)$options)) {
+        if (!$user || !($user instanceof UserEntityInterface) || !in_array($user->getUsername(), (array)$options)) {
             return [];
         }
 

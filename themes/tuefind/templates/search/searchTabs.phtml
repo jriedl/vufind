@@ -1,0 +1,39 @@
+<?php
+  $hasSelectedTab = false;
+  $routeParams = $this->tuefind()->getRouteParams();
+  if($routeParams['controller'] == "Authority" && $routeParams['action'] == "Home") {
+    foreach($searchTabs as &$sTabs) {
+      if($sTabs['id'] == "SolrAuth") {
+        $sTabs['selected'] = 1;
+        $hasSelectedTab = true;
+      }else{
+        $sTabs['selected'] = '';
+      }
+      if(empty($sTabs['url'])) {
+        $sTabs['url'] = '/';
+      }
+    }
+  }
+  if (isset($searchTabs) && count($searchTabs) > 0): ?>
+  <ul class="nav nav-tabs tuefind-event-resetsearchhandlers" >
+    <?php foreach ($searchTabs as $tab): ?>
+        <?php if ($this->permission()->allowDisplay($tab['permission'])): ?>
+          <li class="nav-item <?=$tab['selected'] ? ' active ' : ''?>">
+            <a class="nav-link <?=$tab['selected'] ? ' active ' : ''?>" <?=$tab['selected'] ? '' : 'href="' . $this->escapeHtmlAttr($tab['url']) . '"' ?>><?=$this->transEsc($tab['label']); ?></a>
+          </li>
+        <?php elseif ($block = $this->permission()->getAlternateContent($tab['permission'])): ?>
+            <?=$block?>
+        <?php endif; ?>
+    <?php endforeach; ?>
+    <?php if (!$hasSelectedTab && !$this->translationEmpty('temporary_search_tab_title')): ?>
+      <!-- TueFind: Disable custom search tab -->
+      <!--<li class="active">
+        <a><?=$this->transEsc('temporary_search_tab_title')?></a>
+      </li>
+      -->
+    <?php endif; ?>
+  </ul>
+  <?php if ($this->showCounts): ?>
+    <?php $this->assetManager()->appendScriptLink('resultcount.js'); ?>
+  <?php endif; ?>
+<?php endif; ?>

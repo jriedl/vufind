@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ReDi Link Resolver Driver
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Leipzig University Library 2015
  *
@@ -17,44 +18,43 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Resolver_Drivers
  * @author   André Lahmann <lahmann@ub.uni-leipzig.de>
  * @author   Gregor Gawol <gawol@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:link_resolver_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:link_resolver_drivers Wiki
  */
+
 namespace VuFind\Resolver\Driver;
-use DOMDocument, Zend\Dom\DOMXPath;
+
+use DOMDocument;
+use DOMXPath;
+
+use function chr;
+use function count;
 
 /**
  * ReDi Link Resolver Driver
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Resolver_Drivers
  * @author   André Lahmann <lahmann@ub.uni-leipzig.de>
  * @author   Gregor Gawol <gawol@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:link_resolver_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:link_resolver_drivers Wiki
  */
-class Redi implements DriverInterface
+class Redi extends AbstractBase
 {
     /**
      * HTTP client
      *
-     * @var \Zend\Http\Client
+     * @var \Laminas\Http\Client
      */
     protected $httpClient;
-
-    /**
-     * Base URL for link resolver
-     *
-     * @var string
-     */
-    protected $baseUrl;
 
     /**
      * Parsed resolver links
@@ -66,12 +66,12 @@ class Redi implements DriverInterface
     /**
      * Constructor
      *
-     * @param string            $baseUrl    Base URL for link resolver
-     * @param \Zend\Http\Client $httpClient HTTP client
+     * @param string               $baseUrl    Base URL for link resolver
+     * @param \Laminas\Http\Client $httpClient HTTP client
      */
-    public function __construct($baseUrl, \Zend\Http\Client $httpClient)
+    public function __construct($baseUrl, \Laminas\Http\Client $httpClient)
     {
-        $this->baseUrl = $baseUrl;
+        parent::__construct($baseUrl);
         $this->httpClient = $httpClient;
     }
 
@@ -86,7 +86,7 @@ class Redi implements DriverInterface
      */
     public function fetchLinks($openURL)
     {
-        $url = $this->baseUrl . '?' . $openURL;
+        $url = $this->getResolverUrl($openURL);
         $feed = $this->httpClient->setUri($url)->send()->getBody();
         return $feed;
     }
@@ -141,13 +141,15 @@ class Redi implements DriverInterface
         if ($doiTerm->length == $doiDefinition->length) {
             for ($i = 0; $i < $doiTerm->length; $i++) {
                 $href = $xpath
-                    ->query(".//@href", $doiDefinition->item($i))
+                    ->query('.//@href', $doiDefinition->item($i))
                     ->item(0)->textContent;
                 $retval[] = [
                     'title' => $doiTerm->item($i)->textContent
                         . $doiDefinition->item($i)->textContent,
                     'href' => $href,
-                    'service_type' => 'getFullTxt',
+                    'access' => 'unknown',
+                    'coverage' => null,
+                    'service_type' => 'getDOI',
                 ];
             }
         }
@@ -205,14 +207,13 @@ class Redi implements DriverInterface
 
         if ($ezbResultsNodesText->length == $ezbResultsNodesURL->length) {
             for ($i = 0; $i < $ezbResultsNodesText->length; $i++) {
-
                 $accessClass = 'unknown';
                 $accessClassExpressions = [
-                    "denied"    => "//div[@class='t_ezb_result']["
+                    'denied'    => "//div[@class='t_ezb_result']["
                         . ($i + 1) . "]/p/span[@class='t_ezb_red']",
-                    "limited" => "//div[@class='t_ezb_result']["
+                    'limited' => "//div[@class='t_ezb_result']["
                         . ($i + 1) . "]/p/span[@class='t_ezb_yellow']",
-                    "open"  => "//div[@class='t_ezb_result']["
+                    'open'  => "//div[@class='t_ezb_result']["
                         . ($i + 1) . "]/p/span[@class='t_ezb_green']",
                 ]; // $i+1 because XPath-element-counting starts with 1
                 foreach ($accessClassExpressions as $key => $value) {
@@ -224,17 +225,18 @@ class Redi implements DriverInterface
                 $itemInfo = '';
 
                 $expression = "//div[@class='t_ezb_result']["
-                    . ($i + 1) . "]/p/sup";
+                    . ($i + 1) . ']/p/sup';
                 if ($xpath->evaluate("count({$expression})") == 1) {
                     $itemInfo = $this->parseRediInfo(
-                        $xml, $xpath->query($expression)->item(0)->textContent
+                        $xml,
+                        $xpath->query($expression)->item(0)->textContent
                     );
                 }
 
                 $retval[] = [
                     'title' => $ezbResultsNodesText->item($i)->textContent,
                     'href' => $ezbResultsNodesURL->item($i)
-                        ->attributes->getNamedItem("href")->textContent,
+                        ->attributes->getNamedItem('href')->textContent,
                     'access'       => $accessClass,
                     'coverage'     => $itemInfo,
                     'service_type' => 'getFullTxt',

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * OAI Module Controller
  *
- * PHP Version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,34 +17,38 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA    02111-1307    USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_a_controller Wiki
+ * @link     https://vufind.org/wiki/development:plugins:controllers Wiki
  */
+
 namespace VuFind\Controller;
+
+use VuFind\Config\Config;
+use VuFindApi\Formatter\RecordFormatter;
 
 /**
  * OAIController Class
  *
  * Controls the OAI server
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_a_controller Wiki
+ * @link     https://vufind.org/wiki/development:plugins:controllers Wiki
  */
 class OaiController extends AbstractBase
 {
     /**
      * Display OAI server form.
      *
-     * @return \Zend\View\Model\ViewModel
+     * @return \Laminas\View\Model\ViewModel
      */
     public function homeAction()
     {
@@ -54,21 +59,21 @@ class OaiController extends AbstractBase
     /**
      * Standard OAI server.
      *
-     * @return \Zend\Http\Response
+     * @return \Laminas\Http\Response
      */
     public function authserverAction()
     {
-        return $this->handleOAI('VuFind\OAI\Server\Auth');
+        return $this->handleOAI(\VuFind\OAI\Server\Auth::class);
     }
 
     /**
      * Standard OAI server.
      *
-     * @return \Zend\Http\Response
+     * @return \Laminas\Http\Response
      */
     public function serverAction()
     {
-        return $this->handleOAI('VuFind\OAI\Server');
+        return $this->handleOAI(\VuFind\OAI\Server::class);
     }
 
     /**
@@ -76,14 +81,14 @@ class OaiController extends AbstractBase
      *
      * @param string $serverClass Class to load for handling OAI requests.
      *
-     * @return \Zend\Http\Response
+     * @return \Laminas\Http\Response
      */
     protected function handleOAI($serverClass)
     {
         // Check if the OAI Server is enabled before continuing
-        $config = $this->getConfig();
+        $config = $this->getConfigArray();
         $response = $this->getResponse();
-        if (!isset($config->OAI)) {
+        if (!isset($config['OAI'])) {
             $response->setStatusCode(404);
             $response->setContent('OAI Server Not Configured.');
             return $response;
@@ -99,19 +104,21 @@ class OaiController extends AbstractBase
                 $this->getRequest()->getQuery()->toArray(),
                 $this->getRequest()->getPost()->toArray()
             );
-            $server = new $serverClass(
-                $this->getServiceLocator()->get('VuFind\SearchResultsPluginManager'),
-                $this->getServiceLocator()->get('VuFind\RecordLoader'),
-                $this->getServiceLocator()->get('VuFind\DbTablePluginManager'),
-                $config, $baseURL, $params
+            $server = $this->getService($serverClass);
+            $server->init(new Config($config), $baseURL, $params);
+            $server->setRecordLinkerHelper(
+                $this->getViewRenderer()->plugin('recordLinker')
             );
-            $server->setRecordLinkHelper(
-                $this->getViewRenderer()->plugin('recordlink')
+            $server->setRecordFormatter(
+                $this->getService(RecordFormatter::class)
             );
             $xml = $server->getResponse();
         } catch (\Exception $e) {
             $response->setStatusCode(500);
-            $response->setContent($e->getMessage());
+            $error = APPLICATION_ENV === 'development'
+                ? $e->getMessage()
+                : $this->translate('An error has occurred');
+            $response->setContent($error);
             return $response;
         }
 

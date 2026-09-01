@@ -1,10 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Make sure VUFIND_HOME is set:
 if [ -z "$VUFIND_HOME" ]
 then
-  echo "Please set the VUFIND_HOME environment variable."
-  exit 1
+  # set VUFIND_HOME to the absolute path of the directory containing this script
+  # https://stackoverflow.com/questions/4774054/reliable-way-for-a-bash-script-to-get-the-full-path-to-itself
+  export VUFIND_HOME="$(cd "$(dirname "$0")" && pwd -P)"/..
+  if [ "$VUFIND_HOME" = /.. ]
+  then
+    exit 1
+  fi
 fi
 
 # Find harvest directory for future use
@@ -108,15 +113,13 @@ else
 fi
 
 # Process all the files in the target directory:
-for file in $BASEPATH/*.xml $BASEPATH/*.mrc
+find -L $BASEPATH -maxdepth 1 \( -iname "*.xml" -o -iname "*.mrc" -o -iname "*.marc" \) -type f -print0 | sort -z | \
+  while read -d $'\0' file
 do
-  if [ -f $file ]
+  # Logging output handled by log() function
+  $VUFIND_HOME/import-marc-auth.sh $file $2 2> >(log $file)
+  if [ "$?" -eq "0" ] && [ $MOVE_DATA == true ]
   then
-    # Logging output handled by log() function
-    $VUFIND_HOME/import-marc-auth.sh $file $2 2> >(log $file)
-    if [ $MOVE_DATA == true ]
-    then
-      mv $file $BASEPATH/processed/`basename $file`
-    fi
+    mv $file $BASEPATH/processed/`basename $file`
   fi
 done

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Authentication view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\View\Exception\RuntimeException;
+
+use Lmc\Rbac\Identity\IdentityInterface;
+use RuntimeException;
+use VuFind\Db\Entity\UserEntityInterface;
+use VuFind\Db\Service\DbServiceAwareInterface;
+use VuFind\Db\Service\DbServiceAwareTrait;
+use VuFind\Db\Service\LoginTokenServiceInterface;
+use VuFind\Exception\ILS as ILSException;
 
 /**
  * Authentication view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class Auth extends \Zend\View\Helper\AbstractHelper
+class Auth extends \Laminas\View\Helper\AbstractHelper implements DbServiceAwareInterface
 {
+    use ClassBasedTemplateRendererTrait;
+    use DbServiceAwareTrait;
+
     /**
      * Authentication manager
      *
@@ -47,13 +59,24 @@ class Auth extends \Zend\View\Helper\AbstractHelper
     protected $manager;
 
     /**
+     * ILS Authenticator
+     *
+     * @var \VuFind\Auth\ILSAuthenticator
+     */
+    protected $ilsAuthenticator;
+
+    /**
      * Constructor
      *
-     * @param \VuFind\Auth\Manager $manager Authentication manager
+     * @param \VuFind\Auth\Manager          $manager          Authentication manager
+     * @param \VuFind\Auth\ILSAuthenticator $ilsAuthenticator ILS Authenticator
      */
-    public function __construct(\VuFind\Auth\Manager $manager)
-    {
+    public function __construct(
+        \VuFind\Auth\Manager $manager,
+        \VuFind\Auth\ILSAuthenticator $ilsAuthenticator
+    ) {
         $this->manager = $manager;
+        $this->ilsAuthenticator = $ilsAuthenticator;
     }
 
     /**
@@ -66,37 +89,11 @@ class Auth extends \Zend\View\Helper\AbstractHelper
      */
     protected function renderTemplate($name, $context = [])
     {
-        // Set up the needed context in the view:
-        $contextHelper = $this->getView()->plugin('context');
-        $oldContext = $contextHelper($this->getView())->apply($context);
-
-        // Get the current auth module's class name, then start a loop
-        // in case we need to use a parent class' name to find the appropriate
-        // template.
+        // Get the current auth module's class name
         $className = $this->getManager()->getAuthClassForTemplateRendering();
-        $topClassName = $className; // for error message
-        $resolver = $this->getView()->resolver();
-        while (true) {
-            // Guess the template name for the current class:
-            $template = 'Auth/' . $this->getBriefClass($className) . '/' . $name;
-            if ($resolver->resolve($template)) {
-                // Try to render the template....
-                $html = $this->getView()->render($template);
-                $contextHelper($this->getView())->restore($oldContext);
-                return $html;
-            } else {
-                // If the template doesn't exist, let's see if we can inherit a
-                // template from a parent class:
-                $className = get_parent_class($className);
-                if (empty($className)) {
-                    // No more parent classes left to try?  Throw an exception!
-                    throw new RuntimeException(
-                        'Cannot find ' . $name . ' template for auth module: '
-                        . $topClassName
-                    );
-                }
-            }
-        }
+        $template = 'Auth/%s/' . $name;
+        $context['topClass'] = $this->getBriefClass($className);
+        return $this->renderClassTemplate($template, $className, $context);
     }
 
     /**
@@ -112,12 +109,42 @@ class Auth extends \Zend\View\Helper\AbstractHelper
     /**
      * Checks whether the user is logged in.
      *
-     * @return \VuFind\Db\Row\User|bool Object if user is logged in, false
-     * otherwise.
+     * @return ?UserEntityInterface Object if user is logged in, null otherwise.
      */
-    public function isLoggedIn()
+    public function getUserObject(): ?UserEntityInterface
     {
-        return $this->getManager()->isLoggedIn();
+        return $this->getManager()->getUserObject();
+    }
+
+    /**
+     * Get the logged-in user's identity (null if not logged in)
+     *
+     * @return ?IdentityInterface
+     */
+    public function getIdentity(): ?IdentityInterface
+    {
+        return $this->getManager()->getIdentity();
+    }
+
+    /**
+     * Check if session initiator is used.
+     *
+     * @return bool
+     */
+    public function hasSessionInitiator(): bool
+    {
+        return $this->getManager()->hasSessionInitiator();
+    }
+
+    /**
+     * Get the URL to establish a session (needed when the internal VuFind login
+     * form is inadequate). Returns false when no session initiator is needed.
+     *
+     * @return ?string
+     */
+    public function getSessionInitiator(): ?string
+    {
+        return $this->getManager()->getSessionInitiator();
     }
 
     /**
@@ -130,6 +157,20 @@ class Auth extends \Zend\View\Helper\AbstractHelper
     public function getCreateFields($context = [])
     {
         return $this->renderTemplate('create.phtml', $context);
+    }
+
+    /**
+     * Get ILS patron record for the currently logged-in user.
+     *
+     * @return array|bool Patron array if available, false otherwise.
+     */
+    public function getILSPatron()
+    {
+        try {
+            return $this->ilsAuthenticator->storedCatalogLogin();
+        } catch (ILSException $e) {
+            return false;
+        }
     }
 
     /**
@@ -169,16 +210,15 @@ class Auth extends \Zend\View\Helper\AbstractHelper
     }
 
     /**
-     * Helper to grab the end of the class name
+     * Get login token data
      *
-     * @param string $className Class name to abbreviate
+     * @param int $userId user identifier
      *
-     * @return string
+     * @return array
      */
-    protected function getBriefClass($className)
+    public function getLoginTokens(int $userId): array
     {
-        $classParts = explode('\\', $className);
-        return array_pop($classParts);
+        return $this->getDbService(LoginTokenServiceInterface::class)->getByUser($userId);
     }
 
     /**
@@ -194,6 +234,18 @@ class Auth extends \Zend\View\Helper\AbstractHelper
     }
 
     /**
+     * Render the reset password form template.
+     *
+     * @param array $context Context for rendering template
+     *
+     * @return string
+     */
+    public function getResetPasswordForm($context = [])
+    {
+        return $this->renderTemplate('resetpassword.phtml', $context);
+    }
+
+    /**
      * Render the password recovery form template.
      *
      * @param array $context Context for rendering template
@@ -203,5 +255,25 @@ class Auth extends \Zend\View\Helper\AbstractHelper
     public function getPasswordRecoveryForm($context = [])
     {
         return $this->renderTemplate('recovery.phtml', $context);
+    }
+
+    /**
+     * Get the password recovery email template path.
+     *
+     * @return string
+     */
+    public function getPasswordRecoveryEmailTemplate()
+    {
+        $className = $this->getManager()->getAuthClassForTemplateRendering();
+        $template = 'Auth/%s/recovery-email.phtml';
+        $classTemplate = $this->getCachedClassTemplate($template, $className);
+        if (!$classTemplate) {
+            throw new RuntimeException(
+                'Cannot find '
+                . $this->getTemplateWithClass($template, '[brief class name]')
+                . " for class $className or any of its parent classes"
+            );
+        }
+        return $classTemplate;
     }
 }

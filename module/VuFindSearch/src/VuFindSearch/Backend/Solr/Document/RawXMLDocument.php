@@ -3,7 +3,7 @@
 /**
  * SOLR "raw XML" document class for manual overrides.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,65 +17,37 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
- * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Solr\Document;
 
 /**
  * SOLR "raw XML" document class for manual overrides.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
- * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class RawXMLDocument extends AbstractDocument
+class RawXMLDocument extends RawDocument
 {
-    /**
-     * Raw XML
-     *
-     * @var string
-     */
-    protected $xml;
-
     /**
      * Constructor.
      *
-     * @param string $xml XML document to pass to Solr
-     *
-     * @return void
+     * @param string  $content  Raw document text
+     * @param ?string $encoding Text encoding (null for unspecified)
      */
-    public function __construct($xml)
+    public function __construct(string $content, ?string $encoding = 'UTF-8')
     {
-        $this->xml = $xml;
-    }
-
-    /**
-     * Return serialized JSON representation.
-     *
-     * @return string
-     */
-    public function asJSON()
-    {
-        // @todo Implement XML to JSON conversion
-        throw new \Exception('JSON not supported here.');
-    }
-
-    /**
-     * Return serialized XML representation.
-     *
-     * @return string
-     */
-    public function asXML()
-    {
-        return $this->xml;
+        parent::__construct($content, 'text/xml', $encoding);
     }
 }

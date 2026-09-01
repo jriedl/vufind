@@ -1,10 +1,11 @@
 <?php
+
 /**
  * Solr aspect of the Search Multi-class (Results)
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2011.
+ * Copyright (C) Villanova University 2011, 2022.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,41 +17,64 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Solr
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\Solr;
-use VuFindSearch\Backend\Solr\Response\Json\Spellcheck;
+
+use VuFindSearch\Command\SearchCommand;
 use VuFindSearch\Query\AbstractQuery;
 use VuFindSearch\Query\QueryGroup;
+
+use function count;
 
 /**
  * Solr Search Parameters
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Solr
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Results extends \VuFind\Search\Base\Results
 {
     /**
-     * Facet details:
+     * Field facets.
      *
      * @var array
      */
     protected $responseFacets = null;
 
     /**
-     * Search backend identifiers.
+     * Query facets.
+     *
+     * @var array
+     */
+    protected $responseQueryFacets = null;
+
+    /**
+     * Pivot facets.
+     *
+     * @var array
+     */
+    protected $responsePivotFacets = null;
+
+    /**
+     * Counts of filtered-out facet values, indexed by field name.
+     */
+    protected $filteredFacetCounts = null;
+
+    /**
+     * Search backend identifier.
      *
      * @var string
      */
@@ -69,6 +93,22 @@ class Results extends \VuFind\Search\Base\Results
      * @var SpellingProcessor
      */
     protected $spellingProcessor = null;
+
+    /**
+     * CursorMark used for deep paging (e.g. OAI-PMH Server).
+     * Set to '*' to start paging a request and use the new value returned from the
+     * search request for the next request.
+     *
+     * @var null|string
+     */
+    protected $cursorMark = null;
+
+    /**
+     * Highest relevance of all the results
+     *
+     * @var null|float
+     */
+    protected $maxScore = null;
 
     /**
      * Get spelling processor.
@@ -96,6 +136,53 @@ class Results extends \VuFind\Search\Base\Results
     }
 
     /**
+     * Get cursorMark.
+     *
+     * @return null|string
+     */
+    public function getCursorMark()
+    {
+        return $this->cursorMark;
+    }
+
+    /**
+     * Set cursorMark.
+     *
+     * @param null|string $cursorMark New cursor mark
+     *
+     * @return void
+     */
+    public function setCursorMark($cursorMark)
+    {
+        $this->cursorMark = $cursorMark;
+    }
+
+    /**
+     * Get an array of the record ID mapped to its score, or to null if it has no score.
+     *
+     * @return array
+     */
+    public function getScores()
+    {
+        $scoreMap = [];
+        foreach ($this->results as $record) {
+            $data = $record->getRawData();
+            $scoreMap[$record->getUniqueId()] = $data['score'] ?? null;
+        }
+        return $scoreMap;
+    }
+
+    /**
+     * Getting the highest relevance of all the results
+     *
+     * @return null|float
+     */
+    public function getMaxScore()
+    {
+        return $this->maxScore;
+    }
+
+    /**
      * Support method for performAndProcessSearch -- perform a search based on the
      * parameters passed to the object.
      *
@@ -108,27 +195,54 @@ class Results extends \VuFind\Search\Base\Results
         $offset = $this->getStartRecord() - 1;
         $params = $this->getParams()->getBackendParameters();
         $searchService = $this->getSearchService();
+        $cursorMark = $this->getCursorMark();
+        if (null !== $cursorMark) {
+            $params->set('cursorMark', '' === $cursorMark ? '*' : $cursorMark);
+            // Override any default timeAllowed since it cannot be used with
+            // cursorMark
+            $params->set('timeAllowed', -1);
+        }
 
         try {
-            $collection = $searchService
-                ->search($this->backendId, $query, $offset, $limit, $params);
+            $command = new SearchCommand(
+                $this->backendId,
+                $query,
+                $offset,
+                $limit,
+                $params
+            );
+
+            $collection = $searchService->invoke($command)->getResult();
         } catch (\VuFindSearch\Backend\Exception\BackendException $e) {
             // If the query caused a parser error, see if we can clean it up:
-            if ($e->hasTag('VuFind\Search\ParserError')
+            if (
+                $e->hasTag(ErrorListener::TAG_PARSER_ERROR)
                 && $newQuery = $this->fixBadQuery($query)
             ) {
                 // We need to get a fresh set of $params, since the previous one was
                 // manipulated by the previous search() call.
                 $params = $this->getParams()->getBackendParameters();
-                $collection = $searchService
-                    ->search($this->backendId, $newQuery, $offset, $limit, $params);
+                $command = new SearchCommand(
+                    $this->backendId,
+                    $newQuery,
+                    $offset,
+                    $limit,
+                    $params
+                );
+                $collection = $searchService->invoke($command)->getResult();
             } else {
                 throw $e;
             }
         }
 
+        $this->extraSearchBackendDetails = $command->getExtraRequestDetails();
+
         $this->responseFacets = $collection->getFacets();
+        $this->filteredFacetCounts = $collection->getFilteredFacetCounts();
+        $this->responseQueryFacets = $collection->getQueryFacets();
+        $this->responsePivotFacets = $collection->getPivotFacets();
         $this->resultTotal = $collection->getTotal();
+        $this->maxScore = $collection->getMaxScore();
 
         // Process spelling suggestions
         $spellcheck = $collection->getSpellcheck();
@@ -136,8 +250,16 @@ class Results extends \VuFind\Search\Base\Results
         $this->suggestions = $this->getSpellingProcessor()
             ->getSuggestions($spellcheck, $this->getParams()->getQuery());
 
+        // Update current cursorMark
+        if (null !== $cursorMark) {
+            $this->setCursorMark($collection->getCursorMark());
+        }
+
         // Construct record drivers for all the items in the response:
         $this->results = $collection->getRecords();
+
+        // Store any errors:
+        $this->errors = $collection->getErrors();
     }
 
     /**
@@ -211,7 +333,9 @@ class Results extends \VuFind\Search\Base\Results
     public function getSpellingSuggestions()
     {
         return $this->getSpellingProcessor()->processSuggestions(
-            $this->getRawSuggestions(), $this->spellingQuery, $this->getParams()
+            $this->getRawSuggestions(),
+            $this->spellingQuery,
+            $this->getParams()
         );
     }
 
@@ -225,55 +349,24 @@ class Results extends \VuFind\Search\Base\Results
      */
     public function getFacetList($filter = null)
     {
-        // Make sure we have processed the search before proceeding:
         if (null === $this->responseFacets) {
             $this->performAndProcessSearch();
         }
+        return $this->buildFacetList($this->responseFacets, $filter);
+    }
 
-        // If there is no filter, we'll use all facets as the filter:
-        if (is_null($filter)) {
-            $filter = $this->getParams()->getFacetConfig();
+    /**
+     * Get counts of facet values filtered out by the HideFacetValueListener,
+     * indexed by field name.
+     *
+     * @return array
+     */
+    public function getFilteredFacetCounts(): array
+    {
+        if (null === $this->filteredFacetCounts) {
+            $this->performAndProcessSearch();
         }
-
-        // Start building the facet list:
-        $list = [];
-
-        // Loop through every field returned by the result set
-        $fieldFacets = $this->responseFacets->getFieldFacets();
-        foreach (array_keys($filter) as $field) {
-            $data = isset($fieldFacets[$field]) ? $fieldFacets[$field] : [];
-            // Skip empty arrays:
-            if (count($data) < 1) {
-                continue;
-            }
-            // Initialize the settings for the current field
-            $list[$field] = [];
-            // Add the on-screen label
-            $list[$field]['label'] = $filter[$field];
-            // Build our array of values for this field
-            $list[$field]['list']  = [];
-            // Should we translate values for the current facet?
-            $translate
-                = in_array($field, $this->getOptions()->getTranslatedFacets());
-            // Loop through values:
-            foreach ($data as $value => $count) {
-                // Initialize the array of data about the current facet:
-                $currentSettings = [];
-                $currentSettings['value'] = $value;
-                $currentSettings['displayText']
-                    = $translate ? $this->translate($value) : $value;
-                $currentSettings['count'] = $count;
-                $currentSettings['operator']
-                    = $this->getParams()->getFacetOperator($field);
-                $currentSettings['isApplied']
-                    = $this->getParams()->hasFilter("$field:" . $value)
-                    || $this->getParams()->hasFilter("~$field:" . $value);
-
-                // Store the collected values:
-                $list[$field]['list'][] = $currentSettings;
-            }
-        }
-        return $list;
+        return $this->filteredFacetCounts;
     }
 
     /**
@@ -286,23 +379,38 @@ class Results extends \VuFind\Search\Base\Results
      * may be useful for very large amounts of facets that can break the JSON parse
      * method because of PHP out of memory exceptions (default = -1, no limit).
      * @param string $facetSort    A facet sort value to use (null to retain current)
+     * @param int    $page         1 based. Offsets results by limit.
+     * @param bool   $ored         Whether or not facet is an OR facet or not
      *
-     * @return array an array with the facet values for each index field
+     * @return array list facet values for each index field with label and more bool
      */
-    public function getFullFieldFacets($facetfields, $removeFilter = true,
-        $limit = -1, $facetSort = null
+    public function getPartialFieldFacets(
+        $facetfields,
+        $removeFilter = true,
+        $limit = -1,
+        $facetSort = null,
+        $page = null,
+        $ored = false
     ) {
-        $clone = clone($this);
+        $clone = clone $this;
         $params = $clone->getParams();
 
         // Manipulate facet settings temporarily:
         $params->resetFacetConfig();
         $params->setFacetLimit($limit);
+        // Clear field-specific limits, as they can interfere with retrieval:
+        $params->setFacetLimitByField([]);
+        if (null !== $page && $limit != -1) {
+            $offset = ($page - 1) * $limit;
+            $params->setFacetOffset($offset);
+            // Return limit plus one so we know there's another page
+            $params->setFacetLimit($limit + 1);
+        }
         if (null !== $facetSort) {
             $params->setFacetSort($facetSort);
         }
         foreach ($facetfields as $facetName) {
-            $params->addFacet($facetName);
+            $params->addFacet($facetName, null, $ored);
 
             // Clear existing filters for the selected field if necessary:
             if ($removeFilter) {
@@ -324,11 +432,20 @@ class Results extends \VuFind\Search\Base\Results
 
         // Do search
         $result = $clone->getFacetList();
+        $filteredCounts = $clone->getFilteredFacetCounts();
 
         // Reformat into a hash:
         foreach ($result as $key => $value) {
-            unset($result[$key]);
-            $result[$key]['data'] = $value;
+            // Detect next page and crop results if necessary
+            $more = false;
+            if (
+                isset($page) && count($value['list']) > 0
+                && (count($value['list']) + ($filteredCounts[$key] ?? 0)) == $limit + 1
+            ) {
+                $more = true;
+                array_pop($value['list']);
+            }
+            $result[$key] = ['more' => $more, 'data' => $value];
         }
 
         // Send back data:
@@ -349,10 +466,9 @@ class Results extends \VuFind\Search\Base\Results
 
         // Start building the flare object:
         $flare = new \stdClass();
-        $flare->name = "flare";
+        $flare->name = 'flare';
         $flare->total = $this->resultTotal;
-        $visualFacets = $this->responseFacets->getPivotFacets();
-        $flare->children = $visualFacets;
+        $flare->children = $this->responsePivotFacets;
         return $flare;
     }
 }

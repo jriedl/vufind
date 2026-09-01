@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Related records view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,45 +17,66 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\View\Exception\RuntimeException, Zend\View\Helper\AbstractHelper;
+
+use VuFind\Config\ConfigManagerInterface;
+use VuFind\Related\PluginManager as RelatedManager;
+use VuFind\Search\Options\PluginManager as OptionsManager;
 
 /**
  * Related records view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class Related extends AbstractHelper
+class Related extends \Laminas\View\Helper\AbstractHelper
 {
-    /**
-     * Plugin manager for related record modules.
-     *
-     * @var \VuFind\Related\PluginManager
-     */
-    protected $pluginManager;
+    use ClassBasedTemplateRendererTrait;
 
     /**
      * Constructor
      *
-     * @param \VuFind\Related\PluginManager $pluginManager Plugin manager for related
-     * record modules.
+     * @param RelatedManager         $relatedPluginManager Plugin manager for related record modules
+     * @param ConfigManagerInterface $configManager        Configuration manager
+     * @param OptionsManager         $optionsManager       Search options plugin manager
      */
-    public function __construct(\VuFind\Related\PluginManager $pluginManager)
+    public function __construct(
+        protected RelatedManager $relatedPluginManager,
+        protected ConfigManagerInterface $configManager,
+        protected OptionsManager $optionsManager
+    ) {
+    }
+
+    /**
+     * Given a record source ID, return the appropriate related record configuration.
+     *
+     * @param string $source Source identifier
+     *
+     * @return array
+     */
+    protected function getConfigForSource(string $source): array
     {
-        $this->pluginManager = $pluginManager;
+        $options = $this->optionsManager->get($source);
+        $configName = $options->getSearchIni();
+        // Special case -- default Solr stores [Record] section in config.ini
+        if ($configName === 'searches') {
+            $configName = 'config';
+        }
+        $config = $this->configManager->getConfigArray($configName);
+        return $config['Record']['related'] ?? [];
     }
 
     /**
@@ -64,9 +86,23 @@ class Related extends AbstractHelper
      *
      * @return array
      */
-    public function getList(\VuFind\RecordDriver\AbstractBase $driver)
+    public function getList(\VuFind\RecordDriver\AbstractBase $driver): array
     {
-        return $driver->getRelated($this->pluginManager);
+        $retVal = [];
+        $config = $this->getConfigForSource($driver->getSearchBackendIdentifier());
+        foreach ($config as $current) {
+            $parts = explode(':', $current, 2);
+            $type = $parts[0];
+            $params = $parts[1] ?? null;
+            if ($this->relatedPluginManager->has($type)) {
+                $plugin = $this->relatedPluginManager->get($type);
+                $plugin->init($params, $driver);
+                $retVal[] = $plugin;
+            } else {
+                throw new \Exception("Related module {$type} does not exist.");
+            }
+        }
+        return $retVal;
     }
 
     /**
@@ -77,40 +113,11 @@ class Related extends AbstractHelper
      *
      * @return string
      */
-    public function render($related)
+    public function render(\VuFind\Related\RelatedInterface $related): string
     {
-        // Set up the rendering context:
-        $contextHelper = $this->getView()->plugin('context');
-        $oldContext = $contextHelper($this->getView())->apply(
-            ['related' => $related]
-        );
-
-        // Get the current related item module's class name, then start a loop
-        // in case we need to use a parent class' name to find the appropriate
-        // template.
-        $className = get_class($related);
-        $resolver = $this->getView()->resolver();
-        while (true) {
-            // Guess the template name for the current class:
-            $classParts = explode('\\', $className);
-            $template = 'Related/' . array_pop($classParts) . '.phtml';
-            // Try to resolve the template....
-            if ($resolver->resolve($template)) {
-                $html = $this->getView()->render($template);
-                $contextHelper($this->getView())->restore($oldContext);
-                return $html;
-            } else {
-                // If the template doesn't exist, let's see if we can inherit a
-                // template from a parent class:
-                $className = get_parent_class($className);
-                if (empty($className)) {
-                    // No more parent classes left to try?  Throw an exception!
-                    throw new RuntimeException(
-                        'Cannot find template for related items class: ' .
-                        get_class($related)
-                    );
-                }
-            }
-        }
+        $template = 'Related/%s.phtml';
+        $className = $related::class;
+        $context = ['related' => $related];
+        return $this->renderClassTemplate($template, $className, $context);
     }
 }

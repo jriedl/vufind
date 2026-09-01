@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ILL trait (for subclasses of AbstractRecord)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,40 +17,35 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use VuFind\Db\Type\AuditEventSubtype;
+use VuFind\Db\Type\AuditEventType;
+
+use function in_array;
+use function is_array;
 
 /**
  * ILL trait (for subclasses of AbstractRecord)
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 trait ILLRequestsTrait
 {
-    /**
-     * Action for dealing with blocked ILL requests.
-     *
-     * @return mixed
-     */
-    public function blockedILLRequestAction()
-    {
-        $this->flashMessenger()->setNamespace('error')
-            ->addMessage('ill_request_error_blocked');
-        return $this->redirectToRecord('#top');
-    }
-
     /**
      * Action for dealing with ILL requests.
      *
@@ -70,7 +66,7 @@ trait ILLRequestsTrait
             'ILLRequests',
             [
                 'id' => $driver->getUniqueID(),
-                'patron' => $patron
+                'patron' => $patron,
             ]
         );
         if (!$checkRequests) {
@@ -87,19 +83,26 @@ trait ILLRequestsTrait
         }
 
         // Block invalid requests:
-        if (!$catalog->checkILLRequestIsValid(
-            $driver->getUniqueID(), $gatheredDetails, $patron
-        )) {
-            return $this->blockedILLRequestAction();
+        $validRequest = $catalog->checkILLRequestIsValid(
+            $driver->getUniqueID(),
+            $gatheredDetails,
+            $patron
+        );
+        if ((is_array($validRequest) && !$validRequest['valid']) || !$validRequest) {
+            $this->flashMessenger()->addErrorMessage(
+                is_array($validRequest)
+                    ? $validRequest['status'] : 'ill_request_error_blocked'
+            );
+            return $this->redirectToRecord('#top');
         }
 
         // Send various values to the view so we can build the form:
 
         $extraFields = isset($checkRequests['extraFields'])
-            ? explode(":", $checkRequests['extraFields']) : [];
+            ? explode(':', $checkRequests['extraFields']) : [];
 
         // Process form submissions if necessary:
-        if (!is_null($this->params()->fromPost('placeILLRequest'))) {
+        if (null !== $this->params()->fromPost('placeILLRequest')) {
             // If we made it this far, we're ready to place the hold;
             // if successful, we will redirect and can stop here.
 
@@ -112,37 +115,53 @@ trait ILLRequestsTrait
 
             // Success: Go to Display ILL Requests
             if (isset($results['success']) && $results['success'] == true) {
-                $this->flashMessenger()->setNamespace('info')
-                    ->addMessage('ill_request_place_success');
-                if ($this->inLightbox()) {
-                    return false;
-                }
-                return $this->redirect()->toRoute(
-                    'myresearch-illrequests'
+                $msg = [
+                    'html' => true,
+                    'msg' => 'ill_request_place_success_html',
+                    'tokens' => [
+                        '%%url%%' => $this->url()
+                            ->fromRoute('myresearch-illrequests'),
+                    ],
+                ];
+                $this->flashMessenger()->addMessage($msg, 'success');
+                $this->getViewRenderer()->plugin('session')->put('reset_account_status', true);
+
+                $this->getAuditEventService()->addEvent(
+                    AuditEventType::ILS,
+                    AuditEventSubtype::PlaceILLRequest,
+                    $this->getUser(),
+                    data: [
+                        'username' => $patron['cat_username'],
+                        'details' => $details,
+                    ]
                 );
+
+                return $this->redirectToRecord($this->inLightbox() ? '?layout=lightbox' : '');
             } else {
                 // Failure: use flash messenger to display messages, stay on
                 // the current form.
                 if (isset($results['status'])) {
-                    $this->flashMessenger()->setNamespace('error')
-                        ->addMessage($results['status']);
+                    $this->flashMessenger()
+                        ->addMessage($results['status'], 'error');
                 }
                 if (isset($results['sysMessage'])) {
-                    $this->flashMessenger()->setNamespace('error')
-                        ->addMessage($results['sysMessage']);
+                    $this->flashMessenger()
+                        ->addMessage($results['sysMessage'], 'error');
                 }
             }
         }
 
         // Find and format the default required date:
-        $defaultRequired = $this->ILLRequests()
+        $defaultRequiredDate = $this->ILLRequests()
             ->getDefaultRequiredDate($checkRequests);
-        $defaultRequired = $this->getServiceLocator()->get('VuFind\DateConverter')
-            ->convertToDisplayDate("U", $defaultRequired);
+        $defaultRequiredDate = $this->getService(\VuFind\Date\Converter::class)
+            ->convertToDisplayDate('U', $defaultRequiredDate);
 
         // Get pickup libraries
         $pickupLibraries = $catalog->getILLPickUpLibraries(
-            $driver->getUniqueID(), $patron, $gatheredDetails
+            $driver->getUniqueID(),
+            $patron,
+            $gatheredDetails
         );
 
         // Get pickup locations. Note that these are independent of pickup library,
@@ -150,17 +169,31 @@ trait ILLRequestsTrait
         // selected.
         $pickupLocations = $catalog->getPickUpLocations($patron, $gatheredDetails);
 
+        // Check that there are pick up locations to choose from if the field is
+        // required:
+        if (in_array('pickUpLocation', $extraFields) && !$pickupLocations) {
+            $this->flashMessenger()
+                ->addErrorMessage('No pickup locations available');
+            return $this->redirectToRecord('#top');
+        }
+
+        $config = $this->getConfigArray();
+        $homeLibrary = ($config['Account']['set_home_library'] ?? true)
+            ? $this->getUser()->getHomeLibrary() : '';
+        // helpText is only for backward compatibility with legacy code:
+        $helpText = $helpTextHtml = $checkRequests['helpText'];
+
         $view = $this->createViewModel(
-            [
-                'gatheredDetails' => $gatheredDetails,
-                'pickupLibraries' => $pickupLibraries,
-                'pickupLocations' => $pickupLocations,
-                'homeLibrary' => $this->getUser()->home_library,
-                'extraFields' => $extraFields,
-                'defaultRequiredDate' => $defaultRequired,
-                'helpText' => isset($checkRequests['helpText'])
-                    ? $checkRequests['helpText'] : null
-            ]
+            compact(
+                'gatheredDetails',
+                'pickupLibraries',
+                'pickupLocations',
+                'homeLibrary',
+                'extraFields',
+                'defaultRequiredDate',
+                'helpText',
+                'helpTextHtml'
+            )
         );
         $view->setTemplate('record/illrequest');
         return $view;

@@ -3,7 +3,7 @@
 /**
  * Primo Central record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,15 +17,16 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Primo\Response;
 
 use VuFindSearch\Response\AbstractRecordCollection;
@@ -33,11 +34,11 @@ use VuFindSearch\Response\AbstractRecordCollection;
 /**
  * Primo Central record collection.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class RecordCollection extends AbstractRecordCollection
 {
@@ -68,19 +69,32 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getTotal()
     {
-        return isset($this->response['recordCount'])
-            ? $this->response['recordCount'] : 0;
+        return $this->response['recordCount'] ?? 0;
     }
 
     /**
-     * Return facet information.
+     * Return available facets.
+     *
+     * Returns an associative array with the field name as key. The value is an
+     * associative array of available facets for the field, indexed by facet value.
      *
      * @return array
      */
     public function getFacets()
     {
-        return isset($this->response['facets'])
-            ? $this->response['facets'] : [];
+        return $this->response['facets'] ?? [];
+    }
+
+    /**
+     * Set facets.
+     *
+     * @param array $facets Facet fields
+     *
+     * @return void
+     */
+    public function setFacets(array $facets): void
+    {
+        $this->response['facets'] = $facets;
     }
 
     /**
@@ -92,8 +106,20 @@ class RecordCollection extends AbstractRecordCollection
     {
         $page = isset($this->response['query']['pageNumber'])
             ? $this->response['query']['pageNumber'] - 1 : 0;
-        $size = isset($this->response['query']['pageSize'])
-            ? $this->response['query']['pageSize'] : 0;
+        $size = $this->response['query']['pageSize'] ?? 0;
         return $page * $size;
+    }
+
+    /**
+     * Return any errors.
+     *
+     * Each error can be a translatable string or an array that the Flashmessages
+     * view helper understands.
+     *
+     * @return array
+     */
+    public function getErrors()
+    {
+        return (array)($this->response['error'] ?? []);
     }
 }

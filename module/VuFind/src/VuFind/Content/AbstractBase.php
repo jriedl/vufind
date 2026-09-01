@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Abstract base for content loader plug-ins.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,34 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content;
+
 use VuFindCode\ISBN;
+
+use function is_object;
 
 /**
  * Abstract base for content loader plug-ins.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-abstract class AbstractBase implements \VuFindHttp\HttpServiceAwareInterface,
-    \Zend\Log\LoggerAwareInterface
+abstract class AbstractBase implements
+    \VuFindHttp\HttpServiceAwareInterface,
+    \Psr\Log\LoggerAwareInterface
 {
     use \VuFind\Log\LoggerAwareTrait;
     use \VuFindHttp\HttpServiceAwareTrait;
@@ -62,7 +68,7 @@ abstract class AbstractBase implements \VuFindHttp\HttpServiceAwareInterface,
      *
      * @param string $url URL for client to use
      *
-     * @return \Zend\Http\Client
+     * @return \Laminas\Http\Client
      * @throws \Exception
      */
     protected function getHttpClient($url = null)
@@ -79,7 +85,8 @@ abstract class AbstractBase implements \VuFindHttp\HttpServiceAwareInterface,
      * @param string $key     API key
      * @param ISBN   $isbnObj ISBN object
      *
-     * @return array
+     * @return array|string For array of strings returned, they all are escaped in the template and presented as list.
+     * If string is returned it is considered as raw HTML and is NOT escaped.
      */
     abstract public function loadByIsbn($key, ISBN $isbnObj);
 }

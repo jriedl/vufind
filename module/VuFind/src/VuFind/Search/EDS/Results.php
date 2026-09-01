@@ -1,9 +1,11 @@
 <?php
+
 /**
  * EDS API Results
  *
- * PHP version 5
+ * PHP version 8
  *
+ * Copyright (C) Villanova University 2022.
  * Copyright (C) EBSCO Industries 2013
  *
  * This program is free software; you can redistribute it and/or modify
@@ -16,45 +18,57 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  EBSCO
  * @author   Michelle Milton <mmilton@epnet.com>
+ * @author   Sudharma Kellampalli <skellamp@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\EDS;
 
-use EBSCO\EdsApi\SearchCriteria;
+use VuFindSearch\Command\SearchCommand;
 
 /**
  * EDS API Results
  *
- * @category VuFind2
+ * @category VuFind
  * @package  EBSCO
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Results extends \VuFind\Search\Base\Results
 {
     /**
-     * Search criteria available for a given search
+     * Search backend identifier.
+     *
+     * @var string
+     */
+    protected $backendId = 'EDS';
+
+    /**
+     * Facet list
      *
      * @var array
      */
-    protected $searchCriteria;
+    protected $responseFacets;
 
     /**
-     * Obtain the search criteria available for this searching session (if present)
+     * Store an empty response with an error message instead of performing a search.
      *
-     * @return SearchCriteria
+     * @param string|array $error Error message(s) to display to user.
+     *
+     * @return void
      */
-    public function getSearchCriteria()
+    protected function storeErrorResponse(string|array $error): void
     {
-        return $this->searchCriteria;
+        parent::storeErrorResponse($error);
+        $this->responseFacets = [];
     }
 
     /**
@@ -66,26 +80,39 @@ class Results extends \VuFind\Search\Base\Results
     protected function performSearch()
     {
         $query  = $this->getParams()->getQuery();
+        $allTerms = trim($query->getAllTerms());
+        if ($allTerms === '') {
+            $this->storeErrorResponse('empty_search_disallowed');
+            return;
+        }
         $limit  = $this->getParams()->getLimit();
         $offset = $this->getStartRecord() - 1;
         $params = $this->getParams()->getBackendParameters();
-        $collection = $this->getSearchService()->search(
-            'EDS', $query, $offset, $limit, $params
+        $command = new SearchCommand(
+            $this->backendId,
+            $query,
+            $offset,
+            $limit,
+            $params
         );
+        $collection = $this->getSearchService()->invoke($command)
+            ->getResult();
         if (null != $collection) {
             $this->responseFacets = $collection->getFacets();
             $this->resultTotal = $collection->getTotal();
 
-            //Add a publication date facet
-            $this->responseFacets[] = [
-                        'fieldName' => 'PublicationDate',
-                        'displayName' => 'PublicationDate',
-                        'displayText' => 'Publication Date',
-                        'counts' => []
-            ];
+            // Add fake date facets if flagged earlier; this is necessary in order
+            // to display the date range facet control in the interface.
+            $dateFacets = $this->getParams()->getDateFacetSettings();
+            if (!empty($dateFacets)) {
+                foreach ($dateFacets as $dateFacet) {
+                    $this->responseFacets[$dateFacet] = [''];
+                }
+            }
 
             // Construct record drivers for all the items in the response:
             $this->results = $collection->getRecords();
+            $this->restrictedView = $collection->isRestrictedView();
         }
     }
 
@@ -99,72 +126,39 @@ class Results extends \VuFind\Search\Base\Results
      */
     public function getFacetList($filter = null)
     {
-        // Loop through the facets returned by EDS
-        $facetResult = [];
-        if (is_array($this->responseFacets)) {
-            // Get the filter list -- we'll need to check it below:
-            $filterList = $this->getParams()->getFilters();
-
-            foreach ($this->responseFacets as $current) {
-                // The "displayName" value is actually the name of the field on
-                // EBSCO's side -- we'll probably need to translate this to a
-                // different value for actual display!
-                $field = $current['displayName'];
-
-                // Should we translate values for the current facet?
-                $translate = in_array(
-                    $field, $this->getOptions()->getTranslatedFacets()
-                );
-
-                // Loop through all the facet values to see if any are applied.
-                foreach ($current['counts'] as $facetIndex => $facetDetails) {
-                    // We need to check two things to determine if the current
-                    // value is an applied filter.  First, is the current field
-                    // present in the filter list?  Second, is the current value
-                    // an active filter for the current field?
-                    $orField = '~' . $field;
-                    $itemsToCheck = isset($filterList[$field])
-                        ? $filterList[$field] : [];
-                    if (isset($filterList[$orField])) {
-                        $itemsToCheck += $filterList[$orField];
-                    }
-                    $isApplied = in_array($facetDetails['value'], $itemsToCheck);
-
-                    // Inject "applied" value into EDS results:
-                    $current['counts'][$facetIndex]['isApplied'] = $isApplied;
-
-                    // Set operator:
-                    $current['counts'][$facetIndex]['operator']
-                        = $this->getParams()->getFacetOperator($field);
-
-                    // Create display value:
-                    $current['counts'][$facetIndex]['displayText'] = $translate
-                        ? $this->translate($facetDetails['displayText'])
-                        : $facetDetails['displayText'];
-
-                    // Create display value:
-                    $current['counts'][$facetIndex]['value']
-                        = $facetDetails['value'];
-                }
-                // The EDS API returns facets in the order they should be displayed
-                $current['label'] = isset($filter[$field])
-                    ? $filter[$field] : $field;
-
-                // Create a reference to counts called list for consistency with
-                // Solr output format -- this allows the facet recommendations
-                // modules to be shared between the Search and Summon modules.
-                $current['list'] = & $current['counts'];
-                $facetResult[] = $current;
-            }
+        if (null === $this->responseFacets) {
+            $this->performAndProcessSearch();
         }
-        ksort($facetResult);
+        return $this->buildFacetList($this->responseFacets, $filter);
+    }
 
-        // Rewrite the sorted array with appropriate keys:
-        $finalResult = [];
-        foreach ($facetResult as $current) {
-            $finalResult[$current['displayName']] = $current;
+    /**
+     * Get an array of the record ID mapped to its score.
+     *
+     * @return array
+     */
+    public function getScores()
+    {
+        $scoreMap = [];
+        foreach ($this->results as $record) {
+            $scoreMap[$record->getUniqueId()] = $record->getScore();
         }
+        return $scoreMap;
+    }
 
-        return $finalResult;
+    /**
+     * Getting the highest relevance of all the results
+     *
+     * @return ?float
+     */
+    public function getMaxScore()
+    {
+        if (
+            empty($this->results) ||
+            'relevance' != $this->getParams()->getSort()
+        ) {
+            return null;
+        }
+        return $this->results[0]->getScore();
     }
 }

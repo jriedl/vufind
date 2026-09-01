@@ -1,0 +1,224 @@
+<?php $this->assetManager()->appendScriptLink('collection_record.js'); ?>
+<div class="media">
+  <?php
+    $QRCode = $this->record($this->driver)->getQRCode('core');
+    $coverDetails = $this->record($this->driver)->getCoverDetails('collection-info', 'medium', $this->record($this->driver)->getThumbnail('large'));
+    $cover = $coverDetails['html'];
+    $preview = $this->record($this->driver)->getPreviews();
+  ?>
+  <?php if ($QRCode || $cover || $preview): ?>
+    <div class="media-left <?=$this->escapeHtmlAttr($coverDetails['size'])?>">
+      <?php /* Display thumbnail if appropriate: */ ?>
+      <?php if($cover): ?>
+        <?=$cover?>
+      <?php endif; ?>
+
+      <?php /* Display qrcode if appropriate: */ ?>
+      <?php if($QRCode): ?>
+        <span class="hidden-xs">
+          <br/><img alt="<?=$this->transEscAttr('QR Code')?>" class="qrcode" src="<?=$this->escapeHtmlAttr($QRCode);?>"/>
+        </span>
+      <?php endif; ?>
+
+    <?php if ($preview): ?><?=$preview?><?php endif; ?>
+  </div>
+  <?php endif; ?>
+  <div class="media-body">
+    <h1><?=$this->escapeHtml($this->driver->getShortTitle() . ' ' . $this->driver->getSubtitle() . ' ' . $this->driver->getTitleSection())?></h1>
+
+    <h2><?=$this->escapeHtml($this->driver->getShortTitle() . ' ' . $this->driver->getSubtitle() . ' ' . $this->driver->getTitleSection())?></h2>
+
+    <?php $summary = $this->driver->getSummary(); $summary = $summary[0] ?? false; ?>
+    <?php if ($summary): ?>
+      <p><?=$this->escapeHtml($summary)?></p>
+    <?php endif; ?>
+
+    <?php /* Display the lists that this record is saved to */ ?>
+    <div class="savedLists hidden alert alert-info" id="savedLists">
+      <strong><?=$this->transEsc('Saved in')?>:</strong>
+    </div>
+
+    <a id="moreInfoToggle" href="#" class="hidden"><?=$this->transEsc('more_info_toggle')?></a>
+    <?php /* Display Main Details */?>
+    <table id="collectionInfo" class="table table-striped" summary="<?=$this->transEsc('Bibliographic Details')?>">
+      <?php $authors = $this->driver->getDeduplicatedAuthors(); ?>
+      <?php if (isset($authors['main']) && !empty($authors['main'])): ?>
+      <tr>
+        <th><?=$this->transEsc(count($authors['main']) > 1 ? 'Main Authors' : 'Main Author')?>: </th>
+        <td>
+          <?php $i = 0; foreach ($authors['main'] as $author => $roles): ?><?=($i++ == 0)?'':', '?><a href="<?=$this->record($this->driver)->getLink('author', $author)?>"><?=$this->escapeHtml($author)?></a><?php if (count($roles) > 0): ?> (<?php $j = 0; foreach ($roles as $role): ?><?=($j++ == 0)?'':', '?><?=$this->transEsc("CreatorRoles::" . $role)?><?php endforeach; ?>)<?php endif; ?><?php endforeach; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php if (isset($authors['corporate']) && !empty($authors['corporate'])): ?>
+      <tr>
+        <th><?=$this->transEsc(count($authors['corporate']) > 1 ? 'Corporate Author' : 'Corporate Authors')?>: </th>
+        <td>
+          <?php $i = 0; foreach ($authors['corporate'] as $corporate => $roles): ?><?=($i++ == 0)?'':', '?><a href="<?=$this->record($this->driver)->getLink('author', $corporate)?>"><?=$this->escapeHtml($corporate)?></a><?php if (count($roles) > 0): ?> (<?php $j = 0; foreach ($roles as $role): ?><?=($j++ == 0)?'':', '?><?=$this->transEsc("CreatorRoles::" . $role)?><?php endforeach; ?>)<?php endif; ?><?php endforeach; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php if (isset($authors['secondary']) && !empty($authors['secondary'])): ?>
+      <tr>
+        <th><?=$this->transEsc('Other Authors')?>: </th>
+        <td>
+          <?php $i = 0; foreach ($authors['secondary'] as $author => $roles): ?><?=($i++ == 0)?'':', '?><a href="<?=$this->record($this->driver)->getLink('author', $author)?>"><?=$this->escapeHtml($author)?></a><?php if (count($roles) > 0): ?> (<?php $j = 0; foreach ($roles as $role): ?><?=($j++ == 0)?'':', '?><?=$this->transEsc("CreatorRoles::" . $role)?><?php endforeach; ?>)<?php endif; ?><?php endforeach; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php if (count($summary) > 1): ?>
+        <tr>
+          <th><?=$this->transEsc('Summary')?>: </th>
+          <td>
+            <?php foreach (array_slice($summary, 1) as $field): ?>
+              <?=$this->escapeHtml($field)?><br/>
+            <?php endforeach; ?>
+          </td>
+        </tr>
+      <?php endif; ?>
+
+      <?php $formats = $this->driver->getFormats(); if (!empty($formats)): ?>
+        <tr>
+          <th><?=$this->transEsc('Format')?>: </th>
+          <td><?=$this->record($this->driver)->getFormatList()?></td>
+        </tr>
+      <?php endif; ?>
+
+      <?php $langs = $this->driver->getLanguages(); if (!empty($langs)): ?>
+        <tr>
+          <th><?=$this->transEsc('Language')?>: </th>
+          <td><?php foreach ($langs as $lang): ?><?= $this->escapeHtml($lang)?><br/><?php endforeach; ?></td>
+        </tr>
+      <?php endif; ?>
+
+      <?php $publications = $this->driver->getPublicationDetails(); if (!empty($publications)): ?>
+      <tr>
+        <th><?=$this->transEsc('Published')?>: </th>
+        <td>
+          <?php foreach ($publications as $field): ?>
+            <?=$this->escapeHtml($field)?><br/>
+          <?php endforeach; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php $edition = $this->driver->getEdition(); if (!empty($edition)): ?>
+      <tr>
+        <th><?=$this->transEsc('Edition')?>: </th>
+        <td><?=$this->escapeHtml($edition)?></td>
+      </tr>
+      <?php endif; ?>
+
+      <?php /* Display series section if at least one series exists. */?>
+      <?php $series = $this->driver->getSeries(); if (!empty($series)): ?>
+      <tr>
+        <th><?=$this->transEsc('Series')?>: </th>
+        <td>
+          <?php foreach ($series as $field): ?>
+            <?php /* Depending on the record driver, $field may either be an array with
+               "name" and "number" keys or a flat string containing only the series
+               name.  We should account for both cases to maximize compatibility. */?>
+            <?php if (is_array($field)): ?>
+              <?php if (!empty($field['name'])): ?>
+                <a href="<?=$this->record($this->driver)->getLink('series', $field['name'])?>"><?=$this->escapeHtml($field['name'])?></a>
+                <?php if (!empty($field['number'])): ?>
+                  <?=$this->escapeHtml($field['number'])?>
+                <?php endif; ?>
+                <br/>
+              <?php endif; ?>
+            <?php else: ?>
+              <a href="<?=$this->record($this->driver)->getLink('series', $field)?>"><?=$this->escapeHtml($field)?></a><br/>
+            <?php endif; ?>
+          <?php endforeach; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php $subjects = $this->driver->getAllSubjectHeadings(); if (!empty($subjects)): ?>
+      <tr>
+        <th><?=$this->transEsc('Subjects')?>: </th>
+        <td>
+          <?php foreach ($subjects as $field): ?>
+          <div class="subjectLine">
+            <?php $subject = ''; ?>
+            <?php $i = 0; foreach ($field as $subfield): ?>
+              <?=($i++ == 0) ? '' : ' &gt; '?>
+              <?php $subject = trim($subject . ' ' . $subfield); ?>
+              <a title="<?=$this->escapeHtmlAttr($subject)?>" href="<?=$this->record($this->driver)->getLink('subject', $subject)?>" class="subjectHeading" rel="nofollow"><?=$this->escapeHtml($subfield)?></a>
+            <?php endforeach; ?>
+          </div>
+          <?php endforeach; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php
+        $openUrl = $this->openUrl($this->driver, 'record');
+        $openUrlActive = $openUrl->isActive();
+        // Account for replace_other_urls setting
+        $urls = $this->record($this->driver)->getLinkDetails($openUrlActive);
+      ?>
+      <?php if (!empty($urls) || $openUrlActive): ?>
+      <tr>
+        <th><?=$this->transEsc('Online Access')?>: </th>
+        <td>
+          <?php foreach ($urls as $current): ?>
+            <a href="<?=$this->escapeHtmlAttr($this->proxyUrl($current['url']))?>"><?=$this->escapeHtml($current['desc'])?></a><br/>
+          <?php endforeach; ?>
+          <?php if ($openUrlActive): ?>
+            <?=$openUrl->renderTemplate()?><br/>
+          <?php endif; ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+
+      <?php $notes = $this->driver->getGeneralNotes(); if (!empty($notes)): ?>
+        <tr>
+          <th><?=$this->transEsc('Notes')?>: </th>
+          <td>
+            <?php foreach ($notes as $field): ?>
+              <?=$this->escapeHtml($field)?><br/>
+            <?php endforeach; ?>
+          </td>
+        </tr>
+      <?php endif; ?>
+
+      <?php $credits = $this->driver->getProductionCredits(); if (!empty($credits)): ?>
+        <tr>
+          <th><?=$this->transEsc('Production Credits')?>: </th>
+          <td>
+            <?php foreach ($credits as $field): ?>
+              <?=$this->escapeHtml($field)?><br/>
+            <?php endforeach; ?>
+          </td>
+        </tr>
+      <?php endif; ?>
+
+      <?php $isbns = $this->driver->getISBNs(); if (!empty($isbns)): ?>
+        <tr>
+          <th><?=$this->transEsc('ISBN')?>: </th>
+          <td>
+            <?php foreach ($isbns as $field): ?>
+              <?=$this->escapeHtml($field)?><br/>
+            <?php endforeach; ?>
+          </td>
+        </tr>
+      <?php endif; ?>
+
+      <?php $issns = $this->driver->getISSNs(); if (!empty($issns)): ?>
+        <tr>
+          <th><?=$this->transEsc('ISSN')?>: </th>
+          <td>
+            <?php foreach ($issns as $field): ?>
+              <?=$this->escapeHtml($field)?><br/>
+            <?php endforeach; ?>
+          </td>
+        </tr>
+      <?php endif; ?>
+    </table>
+    <?php /* End Main Details */?>
+  </div>
+</div>

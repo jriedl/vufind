@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Truncate view helper
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,49 +17,50 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\View\Helper\AbstractHelper;
+
+use Laminas\View\Helper\AbstractHelper;
+use VuFind\String\PropertyStringInterface;
 
 /**
  * Truncate view helper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Truncate extends AbstractHelper
 {
     /**
      * Truncate a string
      *
-     * @param string $str    the string to be truncated
-     * @param string $len    how long the truncated string will be
-     * @param string $append what to add to the end of the string to
-     * indicate it's been truncated
+     * Note that any PropertyString with a plain string value that exceeds the maximum length is converted to a plain
+     * string before truncation. This means that the returned value is a plain string without e.g. any HTML content.
      *
-     * @return string
+     * @param string|PropertyStringInterface $str    The string to be truncated
+     * @param int                            $len    Maximum length of the resulting string
+     * @param string                         $append Truncation indicator to append to truncated strings
+     *
+     * @return string|PropertyStringInterface
      */
     public function __invoke($str, $len, $append = '...')
     {
         if ($len == 0) {
             return '';
-        } else if (strlen($str) > $len) {
-            if (function_exists('mb_substr')) {
-                return trim(mb_substr($str, 0, $len, 'UTF-8')) . $append;
-            } else {
-                return trim(substr($str, 0, $len)) . $append;
-            }
+        } elseif (mb_strlen((string)$str, 'UTF-8') > $len) {
+            return trim(mb_substr((string)$str, 0, $len, 'UTF-8')) . $append;
         }
         return $str;
     }

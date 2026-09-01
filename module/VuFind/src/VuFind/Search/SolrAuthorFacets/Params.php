@@ -1,8 +1,9 @@
 <?php
+
 /**
  * AuthorFacets aspect of the Search Multi-class (Params)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,32 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthorFacets
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\SolrAuthorFacets;
 
 /**
  * AuthorFacets Search Parameters
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthorFacets
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Params extends \VuFind\Search\Solr\Params
 {
     /**
      * Set parameters based on a search object
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -52,7 +54,7 @@ class Params extends \VuFind\Search\Solr\Params
 
         // Force custom facet settings:
         $this->facetConfig = [];
-        $this->addFacet('authorStr');
+        $this->addFacet('author_facet');
         $this->setFacetOffset(($this->getPage() - 1) * $this->getLimit());
         $this->setFacetLimit($this->getLimit() * 10);
         // Sorting - defaults to off with unlimited facets, so let's
@@ -67,16 +69,16 @@ class Params extends \VuFind\Search\Solr\Params
     /**
      * Support method for _initSearch() -- handle basic settings.
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
-     * @return boolean True if search settings were found, false if not.
+     * @return bool True if search settings were found, false if not.
      */
     protected function initBasicSearch($request)
     {
         // If no lookfor parameter was found, we have no search terms to
         // add to our array!
-        if (is_null($lookfor = $request->get('lookfor'))) {
+        if (null === ($lookfor = $request->get('lookfor'))) {
             return false;
         }
 
@@ -88,7 +90,7 @@ class Params extends \VuFind\Search\Solr\Params
     /**
      * Initialize view
      *
-     * @param \Zend\StdLib\Parameters $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void

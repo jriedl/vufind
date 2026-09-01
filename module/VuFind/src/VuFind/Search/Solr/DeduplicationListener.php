@@ -3,10 +3,13 @@
 /**
  * Solr deduplication (merged records) listener.
  *
- * PHP version 5
+ * See https://vufind.org/wiki/indexing:deduplication for details on how this is
+ * used.
+ *
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
- * Copyright (C) The National Library of Finland 2013.
+ * Copyright (C) The National Library of Finland 2013-2020.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -18,49 +21,48 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\Solr;
 
-use VuFindSearch\Backend\BackendInterface;
+use Laminas\EventManager\EventInterface;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Psr\Container\ContainerInterface;
+use VuFind\Service\GetServiceTrait;
+use VuFindSearch\Backend\Solr\Backend;
+use VuFindSearch\Service;
 
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\EventManager\EventInterface;
-use Zend\ServiceManager\ServiceLocatorInterface;
+use function in_array;
 
 /**
  * Solr merged record handling listener.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class DeduplicationListener
 {
+    use GetServiceTrait;
+
     /**
      * Backend.
      *
-     * @var BackendInterface
+     * @var Backend
      */
     protected $backend;
-
-    /**
-     * Superior service manager.
-     *
-     * @var ServiceLocatorInterface
-     */
-    protected $serviceLocator;
 
     /**
      * Search configuration file identifier.
@@ -86,19 +88,21 @@ class DeduplicationListener
     /**
      * Constructor.
      *
-     * @param BackendInterface        $backend          Search backend
-     * @param ServiceLocatorInterface $serviceLocator   Service locator
-     * @param string                  $searchConfig     Search config file id
-     * @param string                  $dataSourceConfig Data source file id
-     * @param bool                    $enabled          Whether deduplication is
+     * @param Backend            $backend          Search backend
+     * @param ContainerInterface $serviceLocator   Service locator
+     * @param string             $searchConfig     Search config file id
+     * @param string             $dataSourceConfig Data source file id
+     * @param bool               $enabled          Whether deduplication is
      * enabled
      *
      * @return void
      */
     public function __construct(
-        BackendInterface $backend,
-        ServiceLocatorInterface $serviceLocator,
-        $searchConfig, $dataSourceConfig = 'datasources', $enabled = true
+        Backend $backend,
+        ContainerInterface $serviceLocator,
+        $searchConfig,
+        $dataSourceConfig = 'datasources',
+        $enabled = true
     ) {
         $this->backend = $backend;
         $this->serviceLocator = $serviceLocator;
@@ -117,8 +121,16 @@ class DeduplicationListener
     public function attach(
         SharedEventManagerInterface $manager
     ) {
-        $manager->attach('VuFind\Search', 'pre', [$this, 'onSearchPre']);
-        $manager->attach('VuFind\Search', 'post', [$this, 'onSearchPost']);
+        $manager->attach(
+            Service::class,
+            Service::EVENT_PRE,
+            [$this, 'onSearchPre']
+        );
+        $manager->attach(
+            Service::class,
+            Service::EVENT_POST,
+            [$this, 'onSearchPost']
+        );
     }
 
     /**
@@ -130,14 +142,18 @@ class DeduplicationListener
      */
     public function onSearchPre(EventInterface $event)
     {
-        $backend = $event->getTarget();
-        if ($backend === $this->backend) {
-            $params = $event->getParam('params');
-            $context = $event->getParam('context');
-            if (($context == 'search' || $context == 'similar') && $params) {
+        $command = $event->getParam('command');
+        if ($command->getTargetIdentifier() === $this->backend->getIdentifier()) {
+            $params = $command->getSearchParameters();
+            $context = $command->getContext();
+            $contexts = ['search', 'similar', 'getids', 'workExpressions'];
+            if ($params && in_array($context, $contexts)) {
                 // If deduplication is enabled, filter out merged child records,
                 // otherwise filter out dedup records.
-                if ($this->enabled) {
+                if (
+                    $this->enabled && 'getids' !== $context
+                    && !$this->hasChildFilter($params)
+                ) {
                     $fq = '-merged_child_boolean:true';
                     if ($context == 'similar' && $id = $event->getParam('id')) {
                         $fq .= ' AND -local_ids_str_mv:"'
@@ -153,6 +169,19 @@ class DeduplicationListener
     }
 
     /**
+     * Check search parameters for child records filter
+     *
+     * @param \VuFindSearch\ParamBag $params Search parameters
+     *
+     * @return bool
+     */
+    public function hasChildFilter($params)
+    {
+        $filters = $params->get('fq');
+        return $filters != null && in_array('merged_child_boolean:true', $filters);
+    }
+
+    /**
      * Fetch appropriate dedup child
      *
      * @param EventInterface $event Event
@@ -162,13 +191,14 @@ class DeduplicationListener
     public function onSearchPost(EventInterface $event)
     {
         // Inject deduplication details into record objects:
-        $backend = $event->getParam('backend');
+        $command = $event->getParam('command');
 
-        if ($backend != $this->backend->getIdentifier()) {
+        if ($command->getTargetIdentifier() !== $this->backend->getIdentifier()) {
             return $event;
         }
-        $context = $event->getParam('context');
-        if ($this->enabled && ($context == 'search' || $context == 'similar')) {
+        $context = $command->getContext();
+        $contexts = ['search', 'similar', 'workExpressions'];
+        if ($this->enabled && in_array($context, $contexts)) {
             $this->fetchLocalRecords($event);
         }
         return $event;
@@ -183,19 +213,17 @@ class DeduplicationListener
      */
     protected function fetchLocalRecords($event)
     {
-        $config = $this->serviceLocator->get('VuFind\Config');
-        $searchConfig = $config->get($this->searchConfig);
-        $dataSourceConfig = $config->get($this->dataSourceConfig);
-        $recordSources = isset($searchConfig->Records->sources)
-            ? $searchConfig->Records->sources
-            : '';
+        $dataSourceConfig = $this->getService(\VuFind\Config\ConfigManagerInterface::class)
+            ->getConfigArray($this->dataSourceConfig);
+        $recordSources = $this->getActiveRecordSources($event);
         $sourcePriority = $this->determineSourcePriority($recordSources);
-        $params = $event->getParam('params');
+        $command = $event->getParam('command');
+        $params = $command->getSearchParameters();
         $buildingPriority = $this->determineBuildingPriority($params);
 
         $idList = [];
         // Find out the best records and list their IDs:
-        $result = $event->getTarget();
+        $result = $command->getResult();
         foreach ($result->getRecords() as $record) {
             $fields = $record->getRawData();
 
@@ -210,7 +238,11 @@ class DeduplicationListener
             $dedupData = [];
             foreach ($localIds as $localId) {
                 $localPriority = null;
-                list($source) = explode('.', $localId, 2);
+                [$source] = explode('.', $localId, 2);
+                // Ignore ID if source is not in the list of allowed record sources:
+                if ($recordSources && !in_array($source, $recordSources)) {
+                    continue;
+                }
                 if (!empty($buildingPriority)) {
                     if (isset($buildingPriority[$source])) {
                         $localPriority = -$buildingPriority[$source];
@@ -222,19 +254,15 @@ class DeduplicationListener
                     }
                 }
                 if (!isset($localPriority)) {
-                    if (isset($sourcePriority[$source])) {
-                        $localPriority = $sourcePriority[$source];
-                    } else {
-                        $localPriority = ++$undefPriority;
-                    }
+                    $localPriority = $sourcePriority[$source] ?? ++$undefPriority;
                 }
-                if (isset($localPriority) && $localPriority < $priority) {
+                if ($localPriority < $priority) {
                     $dedupId = $localId;
                     $priority = $localPriority;
                 }
                 $dedupData[$source] = [
                     'id' => $localId,
-                    'priority' => isset($localPriority) ? $localPriority : 99999
+                    'priority' => $localPriority,
                 ];
             }
             $fields['dedup_id'] = $dedupId;
@@ -291,8 +319,27 @@ class DeduplicationListener
             );
             $foundLocalRecord->setRawData($localRecordData);
             $foundLocalRecord->setHighlightDetails($record->getHighlightDetails());
+            $foundLocalRecord->setLabels($record->getLabels());
             $result->replace($record, $foundLocalRecord);
         }
+    }
+
+    /**
+     * Get currently active record sources.
+     *
+     * @param EventInterface $event Event
+     *
+     * @return array
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
+    protected function getActiveRecordSources($event): array
+    {
+        $searchConfig = $this->getService(\VuFind\Config\ConfigManagerInterface::class)
+            ->getConfigObject($this->searchConfig);
+        return !empty($searchConfig->Records->sources)
+            ? explode(',', $searchConfig->Records->sources)
+            : [];
     }
 
     /**
@@ -300,17 +347,20 @@ class DeduplicationListener
      * two parameters are unused in this default method, but they may be useful for
      * custom behavior in subclasses.
      *
-     * @param array  $localRecordData Local record data
-     * @param array  $dedupRecordData Dedup record data
-     * @param string $recordSources   List of active record sources, empty if all
-     * @param array  $sourcePriority  Array of source priorities keyed by source id
+     * @param array $localRecordData Local record data
+     * @param array $dedupRecordData Dedup record data
+     * @param array $recordSources   List of active record sources, empty if all
+     * @param array $sourcePriority  Array of source priorities keyed by source id
      *
      * @return array Local record data
      *
      * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    protected function appendDedupRecordFields($localRecordData, $dedupRecordData,
-        $recordSources, $sourcePriority
+    protected function appendDedupRecordFields(
+        $localRecordData,
+        $dedupRecordData,
+        $recordSources,
+        $sourcePriority
     ) {
         $localRecordData['local_ids_str_mv'] = $dedupRecordData['local_ids_str_mv'];
         return $localRecordData;
@@ -319,19 +369,22 @@ class DeduplicationListener
     /**
      * Function that determines the priority for sources
      *
-     * @param object $recordSources Record sources defined in searches.ini
+     * @param array $recordSources Record sources defined in searches.ini
      *
      * @return array Array keyed by source with priority as the value
      */
     protected function determineSourcePriority($recordSources)
     {
-        return array_flip(explode(',', $recordSources));
+        if (empty($recordSources)) {
+            return [];
+        }
+        return array_flip($recordSources);
     }
 
     /**
      * Function that determines the priority for buildings
      *
-     * @param object $params Query parameters
+     * @param \VuFindSearch\ParamBag $params Query parameters
      *
      * @return array Array keyed by building with priority as the value
      */
@@ -339,24 +392,20 @@ class DeduplicationListener
     {
         $result = [];
         foreach ($params->get('fq') as $fq) {
-            if (preg_match(
-                '/\bbuilding:"([^"]+)"/', //'/\bbuilding:"?\d+\/([^\/]+?)\//',
-                $fq,
-                $matches
-            )) {
-                $value = $matches[1];
-                if (preg_match('/^\d+\/([^\/]+?)\//', $value, $matches)) {
-                    // Hierarchical facets; take only first level:
-                    $result[] = $matches[1];
-                } else {
-                    $result[] = $value;
+            if (preg_match_all('/\bbuilding:"([^"]+)"/', $fq, $matches)) {
+                $values = $matches[1];
+                foreach ($values as $value) {
+                    if (preg_match('/^\d+\/([^\/]+?)\//', $value, $matches)) {
+                        // Hierarchical facets; take only first level:
+                        $result[] = $matches[1];
+                    } else {
+                        $result[] = $value;
+                    }
                 }
             }
         }
 
         array_unshift($result, '');
-        $result = array_flip($result);
-        return $result;
+        return array_flip($result);
     }
-
 }

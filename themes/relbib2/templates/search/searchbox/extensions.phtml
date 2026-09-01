@@ -1,0 +1,6 @@
+<br/>
+<?php
+    if ($this->tuefind()->getControllerName() == 'index') {
+        echo $this->content()->renderTranslated('snippets/searchbox_news');
+    }
+?>

@@ -1,0 +1,37 @@
+<?php
+    $this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/awesome.css');
+    $this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/solid.css');
+?>
+
+<section class="cw-p-2">
+<div id="map" class="map"></div>
+<?php $jsSnippet = <<<EOD
+$(function () {
+    IxTheo2.loadMap('comm');
+});
+EOD;
+?>
+<?=$this->assetManager()->outputInlineScriptString($jsSnippet)?>
+</section>
+
+<div class="cw-row">
+    <div class="cw-col-lg-12 cw-ml-lg-4">
+        <div class="cw-text-block"><br>
+            <h1 class="cw-h1">Theological Community</h1>
+
+            <p>Working together with various organizations in the theological community generates synergy effects in many forms. The organizations involved are informed about changes and innovations in the Index Theologicus (IxTheo) on a regular basis.</p>
+            <p>IxTheo currently works with the following institutions from the theological community:</p>
+            <ul>
+                <li>Vereinigung der Arbeitsgemeinschaften für Katholische Theologie (VAKT)</li>
+                <li>Wissenschaftliche Gesellschaft für Theologie (WGTh)</li>
+                <li>Evangelisch-Theologischer Fakultätentag</li>
+                <li>Katholisch-Theologischer Fakultätentag</li>
+                <li>Conferenza Episcopale Italiana</li>
+                <li>Globethics</li>
+                <li>International Academy of Practical Theology (IAPT)</li>
+                <li>RESILIENCE (Religious Studies Infrastructure: Tools, Innovation, Experts, Connections and Centres in Europe)</li>
+            </ul>
+            <p>IxTheo is always interested in new cooperations and partnerships with members of the theological community. If you are interested in working with us, please contact us at: <a href="mailto:ixtheo@ub.uni-tuebingen.de">ixtheo@ub.uni-tuebingen.de</a>.</p>
+        </div>
+    </div>
+</div>

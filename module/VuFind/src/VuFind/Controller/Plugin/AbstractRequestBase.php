@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind Action Helper - Requests Support Methods
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,27 +17,37 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Controller\Plugin;
+
+use Laminas\Mvc\Controller\Plugin\AbstractPlugin;
+use Laminas\Session\Container;
+use Laminas\Session\SessionManager;
+use VuFind\Crypt\HMAC;
+use VuFind\Date\Converter as DateConverter;
 use VuFind\ILS\Connection;
-use Zend\Mvc\Controller\Plugin\AbstractPlugin, Zend\Session\Container;
+
+use function count;
+use function get_class;
+use function in_array;
 
 /**
- * Zend action helper base class to perform request-related actions
+ * Action helper base class to perform request-related actions
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 abstract class AbstractRequestBase extends AbstractPlugin
 {
@@ -48,20 +59,41 @@ abstract class AbstractRequestBase extends AbstractPlugin
     protected $session;
 
     /**
+     * Session manager
+     *
+     * @var SessionManager
+     */
+    protected $sessionManager;
+
+    /**
      * HMAC generator
      *
-     * @var \VuFind\Crypt\HMAC
+     * @var HMAC
      */
     protected $hmac;
 
     /**
+     * Date converter
+     *
+     * @var DateConverter
+     */
+    protected $dateConverter;
+
+    /**
      * Constructor
      *
-     * @param \VuFind\Crypt\HMAC $hmac HMAC generator
+     * @param HMAC           $hmac           HMAC generator
+     * @param SessionManager $sessionManager Session manager
+     * @param DateConverter  $dateConverter  Date converter
      */
-    public function __construct(\VuFind\Crypt\HMAC $hmac)
-    {
+    public function __construct(
+        HMAC $hmac,
+        SessionManager $sessionManager,
+        DateConverter $dateConverter
+    ) {
         $this->hmac = $hmac;
+        $this->sessionManager = $sessionManager;
+        $this->dateConverter = $dateConverter;
     }
 
     /**
@@ -73,7 +105,10 @@ abstract class AbstractRequestBase extends AbstractPlugin
     protected function getSession()
     {
         if (!isset($this->session)) {
-            $this->session = new Container(get_class($this) . '_Helper');
+            $this->session = new Container(
+                get_class($this) . '_Helper',
+                $this->sessionManager
+            );
         }
         return $this->session;
     }
@@ -99,10 +134,24 @@ abstract class AbstractRequestBase extends AbstractPlugin
     public function rememberValidId($id)
     {
         // The session container doesn't allow modification of entries (as of
-        // ZF2beta5 anyway), so we have to do this in a roundabout way.
+        // 2012, anyway), so we have to do this in a roundabout way.
+        // TODO: investigate whether this limitation has been lifted.
         $existingArray = $this->getSession()->validIds;
         $existingArray[] = $id;
         $this->getSession()->validIds = $existingArray;
+    }
+
+    /**
+     * Validate supplied IDs against remembered IDs. Returns true if all supplied
+     * IDs are remembered, otherwise returns false.
+     *
+     * @param array $ids IDs to validate
+     *
+     * @return bool
+     */
+    public function validateIds($ids): bool
+    {
+        return !(bool)array_diff($ids, $this->getValidIds());
     }
 
     /**
@@ -111,7 +160,7 @@ abstract class AbstractRequestBase extends AbstractPlugin
      *
      * @param array $linkData An array of keys to check
      *
-     * @return boolean|array
+     * @return bool|array
      */
     public function validateRequest($linkData)
     {
@@ -133,7 +182,7 @@ abstract class AbstractRequestBase extends AbstractPlugin
 
         // Initialize gatheredDetails with any POST values we find; this will
         // allow us to repopulate the form with user-entered values if there
-        // is an error.  However, it is important that we load the POST data
+        // is an error. However, it is important that we load the POST data
         // FIRST and then override it with GET values in order to ensure that
         // the user doesn't bypass the hashkey verification by manipulating POST
         // values.
@@ -187,7 +236,7 @@ abstract class AbstractRequestBase extends AbstractPlugin
         }
 
         // If we got this far, something is wrong!
-         return false;
+        return false;
     }
 
     /**
@@ -200,21 +249,25 @@ abstract class AbstractRequestBase extends AbstractPlugin
      * @return bool
      */
     public function validateRequestGroupInput(
-        $gatheredDetails, $extraHoldFields, $requestGroups
+        $gatheredDetails,
+        $extraHoldFields,
+        $requestGroups
     ) {
         // Not having to care for requestGroup is equivalent to having a valid one.
         if (!in_array('requestGroup', $extraHoldFields)) {
             return true;
         }
-        if (!isset($gatheredDetails['level'])
+        if (
+            !isset($gatheredDetails['level'])
             || $gatheredDetails['level'] !== 'title'
         ) {
             return true;
         }
 
-        // Check the valid pickup locations for a match against user input:
+        // Check the valid request groups for a match against user input:
         return $this->validateRequestGroup(
-            $gatheredDetails['requestGroupId'], $requestGroups
+            $gatheredDetails['requestGroupId'],
+            $requestGroups
         );
     }
 
@@ -235,7 +288,7 @@ abstract class AbstractRequestBase extends AbstractPlugin
         }
 
         // If we got this far, something is wrong!
-         return false;
+        return false;
     }
 
     /**
@@ -249,12 +302,15 @@ abstract class AbstractRequestBase extends AbstractPlugin
      *
      * @return int A timestamp representing the default required date
      */
-    public function getDefaultRequiredDate($checkHolds, $catalog = null,
-        $patron = null, $holdInfo = null
+    public function getDefaultRequiredDate(
+        $checkHolds,
+        $catalog = null,
+        $patron = null,
+        $holdInfo = null
     ) {
         // Load config:
         $dateArray = isset($checkHolds['defaultRequiredDate'])
-             ? explode(":", $checkHolds['defaultRequiredDate'])
+             ? explode(':', $checkHolds['defaultRequiredDate'])
              : [0, 1, 0];
 
         // Process special "driver" prefix and adjust default date
@@ -272,7 +328,8 @@ abstract class AbstractRequestBase extends AbstractPlugin
         // If the driver setting is active, try it out:
         if ($useDriver && $catalog) {
             $check = $catalog->checkCapability(
-                'getHoldDefaultRequiredDate', [$patron, $holdInfo]
+                'getHoldDefaultRequiredDate',
+                [$patron, $holdInfo]
             );
             if ($check) {
                 $result = $catalog->getHoldDefaultRequiredDate($patron, $holdInfo);
@@ -297,9 +354,27 @@ abstract class AbstractRequestBase extends AbstractPlugin
      */
     protected function getDateFromArray($dateArray)
     {
-        list($d, $m, $y) = $dateArray;
+        if (!isset($dateArray[2])) {
+            return 0;
+        }
+        [$d, $m, $y] = $dateArray;
         return mktime(
-            0, 0, 0, date('m') + $m, date('d') + $d, date('Y') + $y
+            0,
+            0,
+            0,
+            date('m') + $m,
+            date('d') + $d,
+            date('Y') + $y
         );
+    }
+
+    /**
+     * Get remembered valid IDs
+     *
+     * @return array
+     */
+    protected function getValidIds(): array
+    {
+        return $this->getSession()->validIds ?? [];
     }
 }

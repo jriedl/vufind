@@ -1,10 +1,12 @@
 <?php
+
 /**
  * Primo Central Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
+ * Copyright (C) The National Library of Finland 2023.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,57 +18,96 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
 
 /**
  * Primo Central Controller
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Ere Maijala <ere.maijala@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class PrimoController extends AbstractSearch
 {
     /**
      * Constructor
+     *
+     * @param ServiceLocatorInterface $sm Service locator
      */
-    public function __construct()
+    public function __construct(ServiceLocatorInterface $sm)
     {
+        $this->accessPermission = 'access.PrimoModule';
         $this->searchClassId = 'Primo';
-        parent::__construct();
+        parent::__construct($sm);
     }
 
     /**
-     * Home action
+     * Show results of "cited by" search.
      *
      * @return mixed
      */
-    public function homeAction()
+    public function citedByAction()
     {
-        return $this->createViewModel();
+        $this->flashMessenger()->addInfoMessage('results_citing_title_note');
+        return $this->performCitationSearch();
     }
 
     /**
-     * Is the result scroller active?
+     * Show results of "cites" search.
      *
-     * @return bool
+     * @return mixed
      */
-    protected function resultScrollerActive()
+    public function citesAction()
     {
-        $config = $this->getServiceLocator()->get('VuFind\Config')->get('Primo');
-        return (isset($config->Record->next_prev_navigation)
-            && $config->Record->next_prev_navigation);
+        $this->flashMessenger()->addInfoMessage('results_cited_by_title_note');
+        return $this->performCitationSearch();
+    }
+
+    /**
+     * Perform a "cited" or "cited by" search
+     *
+     * @return mixed
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
+    protected function performCitationSearch()
+    {
+        if (!($id = trim($this->params()->fromQuery('lookfor', ''), '"'))) {
+            return $this->forwardTo('Primo', 'Home');
+        }
+        $driver = $this->getRecordLoader()->load($id, $this->searchClassId);
+
+        // Don't save to history -- history page doesn't handle correctly:
+        $this->saveToHistory = false;
+
+        $callback = function ($runner, $params, $searchId): void {
+            $options = $params->getOptions();
+            $options->disableHighlighting();
+            $options->spellcheckEnabled(false);
+            if ($lastLimit = $this->getSearchMemory()->retrieveLastSetting($this->searchClassId, 'limit')) {
+                $params->setLimit($lastLimit);
+            }
+        };
+
+        $view = $this->getSearchResultsView($callback);
+        $view->driver = $driver;
+        return $view;
     }
 
     /**
@@ -79,4 +120,3 @@ class PrimoController extends AbstractSearch
         return $this->resultsAction();
     }
 }
-

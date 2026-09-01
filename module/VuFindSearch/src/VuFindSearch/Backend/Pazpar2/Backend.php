@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Pazpar2 backend.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,34 +17,34 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Pazpar2;
 
-use VuFindSearch\Query\AbstractQuery;
-
-use VuFindSearch\ParamBag;
-
-use VuFindSearch\Response\RecordCollectionInterface;
-use VuFindSearch\Response\RecordCollectionFactoryInterface;
-
 use VuFindSearch\Backend\AbstractBackend;
+use VuFindSearch\ParamBag;
+use VuFindSearch\Query\AbstractQuery;
+use VuFindSearch\Response\RecordCollectionFactoryInterface;
+use VuFindSearch\Response\RecordCollectionInterface;
+
+use function intval;
 
 /**
  * Pazpar2 backend.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class Backend extends AbstractBackend
 {
@@ -81,13 +82,14 @@ class Backend extends AbstractBackend
     /**
      * Constructor.
      *
-     * @param Connector                        $connector Pazpar2 connector
-     * @param RecordCollectionFactoryInterface $factory   Record collection factory
+     * @param Connector                         $connector Pazpar2 connector
+     * @param ?RecordCollectionFactoryInterface $factory   Record collection factory (null for default)
      *
      * @return void
      */
-    public function __construct(Connector $connector,
-        RecordCollectionFactoryInterface $factory = null
+    public function __construct(
+        Connector $connector,
+        ?RecordCollectionFactoryInterface $factory = null
     ) {
         if (null !== $factory) {
             $this->setRecordCollectionFactory($factory);
@@ -123,14 +125,17 @@ class Backend extends AbstractBackend
      * Perform a search and return record collection.
      *
      * @param AbstractQuery $query  Search query
-     * @param integer       $offset Search offset
-     * @param integer       $limit  Search limit
-     * @param ParamBag      $params Search backend parameters
+     * @param int           $offset Search offset
+     * @param int           $limit  Search limit
+     * @param ?ParamBag     $params Search backend parameters
      *
      * @return RecordCollectionInterface
      */
-    public function search(AbstractQuery $query, $offset, $limit,
-        ParamBag $params = null
+    public function search(
+        AbstractQuery $query,
+        $offset,
+        $limit,
+        ?ParamBag $params = null
     ) {
         $baseParams = $this->getQueryBuilder()->build($query);
         if (null !== $params) {
@@ -139,7 +144,7 @@ class Backend extends AbstractBackend
         $this->connector->search($baseParams);
 
         /* Pazpar2 does not return all results immediately. Rather, we need to
-         * occassionally check with the Pazpar2 server on the status of the
+         * occasionally check with the Pazpar2 server on the status of the
          * search.
          *
          * This loop will continue to wait until the configured level of
@@ -148,7 +153,8 @@ class Backend extends AbstractBackend
          */
         $queryStart = time();
         $progress = $this->getSearchProgress();
-        while ($progress < $this->progressTarget
+        while (
+            $progress < $this->progressTarget
             && (time() - $queryStart) < $this->maxQueryTime
         ) {
             sleep(1);
@@ -160,9 +166,11 @@ class Backend extends AbstractBackend
         );
         $response = $this->connector->show($showParams);
 
-        $hits = isset($response->hit) ? $response->hit : [];
+        $hits = $response->hit ?? [];
         $collection = $this->createRecordCollection(
-            $hits, intval($response->merged), $offset
+            $hits,
+            intval($response->merged),
+            $offset
         );
         $this->injectSourceIdentifier($collection);
         return $collection;
@@ -171,12 +179,12 @@ class Backend extends AbstractBackend
     /**
      * Retrieve a single document.
      *
-     * @param string   $id     Document identifier
-     * @param ParamBag $params Search backend parameters
+     * @param string    $id     Document identifier
+     * @param ?ParamBag $params Search backend parameters
      *
      * @return RecordCollectionInterface
      */
-    public function retrieve($id, ParamBag $params = null)
+    public function retrieve($id, ?ParamBag $params = null)
     {
         $response   = $this->connector->record($id);
         $collection = $this->createRecordCollection([$response], 1);
@@ -263,6 +271,6 @@ class Backend extends AbstractBackend
     protected function getSearchProgress()
     {
         $statResponse = $this->connector->stat();
-        return (float) $statResponse->progress;
+        return (float)$statResponse->progress;
     }
 }

@@ -3,7 +3,7 @@
 /**
  * LibGuides record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,15 +17,16 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\LibGuides\Response;
 
 use VuFindSearch\Response\AbstractRecordCollection;
@@ -33,11 +34,11 @@ use VuFindSearch\Response\AbstractRecordCollection;
 /**
  * WorldCat record collection.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class RecordCollection extends AbstractRecordCollection
 {
@@ -68,8 +69,7 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getTotal()
     {
-        return isset($this->response['recordCount'])
-            ? $this->response['recordCount'] : 0;
+        return $this->response['recordCount'] ?? 0;
     }
 
     /**
@@ -90,7 +90,6 @@ class RecordCollection extends AbstractRecordCollection
      */
     public function getOffset()
     {
-        return isset($this->response['offset'])
-            ? $this->response['offset'] : 0;
+        return $this->response['offset'] ?? 0;
     }
 }

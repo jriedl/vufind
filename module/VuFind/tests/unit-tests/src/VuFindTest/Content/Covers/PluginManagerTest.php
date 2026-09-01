@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Content Covers Plugin Manager Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,51 +17,55 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Covers\Content;
+
 use VuFind\Content\Covers\PluginManager;
 
 /**
  * Content Covers Plugin Manager Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class PluginManagerTest extends \VuFindTest\Unit\TestCase
+class PluginManagerTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\ReflectionTrait;
+
     /**
      * Test results.
      *
      * @return void
      */
-    public function testShareByDefault()
+    public function testShareByDefault(): void
     {
-        $pm = new PluginManager(null);
-        $this->assertTrue($pm->shareByDefault());
+        $pm = new PluginManager(new \VuFindTest\Container\MockContainer($this));
+        $this->assertTrue($this->getProperty($pm, 'sharedByDefault'));
     }
 
     /**
      * Test expected interface.
      *
      * @return void
-     *
-     * @expectedException        Zend\ServiceManager\Exception\RuntimeException
-     * @expectedExceptionMessage Plugin ArrayObject does not belong to VuFind\Content\AbstractCover
      */
-    public function testExpectedInterface()
+    public function testExpectedInterface(): void
     {
-        $pm = new PluginManager(null);
-        $pm->validatePlugin(new \ArrayObject());
+        $this->expectException(\Laminas\ServiceManager\Exception\InvalidServiceException::class);
+        $this->expectExceptionMessage('Plugin ArrayObject does not belong to VuFind\\Content\\AbstractCover');
+
+        $pm = new PluginManager(new \VuFindTest\Container\MockContainer($this));
+        $pm->validate(new \ArrayObject());
     }
 }

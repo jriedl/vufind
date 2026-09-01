@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Storage retrieval requests trait (for subclasses of AbstractRecord)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,40 +17,35 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use VuFind\Db\Type\AuditEventSubtype;
+use VuFind\Db\Type\AuditEventType;
+
+use function in_array;
+use function is_array;
 
 /**
  * Storage retrieval requests trait (for subclasses of AbstractRecord)
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 trait StorageRetrievalRequestsTrait
 {
-    /**
-     * Action for dealing with blocked storage retrieval requests.
-     *
-     * @return mixed
-     */
-    public function blockedStorageRetrievalRequestAction()
-    {
-        $this->flashMessenger()->setNamespace('error')
-            ->addMessage('storage_retrieval_request_error_blocked');
-        return $this->redirectToRecord('#top');
-    }
-
     /**
      * Action for dealing with storage retrieval requests.
      *
@@ -70,7 +66,7 @@ trait StorageRetrievalRequestsTrait
             'StorageRetrievalRequests',
             [
                 'id' => $driver->getUniqueID(),
-                'patron' => $patron
+                'patron' => $patron,
             ]
         );
         if (!$checkRequests) {
@@ -87,58 +83,98 @@ trait StorageRetrievalRequestsTrait
         }
 
         // Block invalid requests:
-        if (!$catalog->checkStorageRetrievalRequestIsValid(
-            $driver->getUniqueID(), $gatheredDetails, $patron
-        )) {
-            return $this->blockedStorageRetrievalRequestAction();
+        $validRequest = $catalog->checkStorageRetrievalRequestIsValid(
+            $driver->getUniqueID(),
+            $gatheredDetails,
+            $patron
+        );
+        if ((is_array($validRequest) && !$validRequest['valid']) || !$validRequest) {
+            $this->flashMessenger()->addErrorMessage(
+                is_array($validRequest)
+                    ? $validRequest['status']
+                    : 'storage_retrieval_request_error_blocked'
+            );
+            return $this->redirectToRecord('#top');
         }
 
         // Send various values to the view so we can build the form:
         $pickup = $catalog->getPickUpLocations($patron, $gatheredDetails);
         $extraFields = isset($checkRequests['extraFields'])
-            ? explode(":", $checkRequests['extraFields']) : [];
+            ? explode(':', $checkRequests['extraFields']) : [];
+
+        // Check that there are pick up locations to choose from if the field is
+        // required:
+        if (in_array('pickUpLocation', $extraFields) && !$pickup) {
+            $this->flashMessenger()
+                ->addErrorMessage('No pickup locations available');
+            return $this->redirectToRecord('#top');
+        }
 
         // Process form submissions if necessary:
-        if (!is_null($this->params()->fromPost('placeStorageRetrievalRequest'))) {
+        if (null !== $this->params()->fromPost('placeStorageRetrievalRequest')) {
             // If we made it this far, we're ready to place the hold;
             // if successful, we will redirect and can stop here.
 
-            // Add Patron Data to Submitted Data
-            $details = $gatheredDetails + ['patron' => $patron];
-
-            // Attempt to place the hold:
-            $function = (string)$checkRequests['function'];
-            $results = $catalog->$function($details);
-
-            // Success: Go to Display Storage Retrieval Requests
-            if (isset($results['success']) && $results['success'] == true) {
-                $this->flashMessenger()->setNamespace('info')
-                    ->addMessage('storage_retrieval_request_place_success');
-                if ($this->inLightbox()) {
-                    return false;
-                }
-                return $this->redirect()->toRoute(
-                    'myresearch-storageretrievalrequests'
-                );
+            // Check that any pick up location is valid:
+            $validPickup = $this->storageRetrievalRequests()->validatePickUpInput(
+                $gatheredDetails['pickUpLocation'] ?? null,
+                $extraFields,
+                $pickup
+            );
+            if (!$validPickup) {
+                $this->flashMessenger()
+                    ->addErrorMessage('storage_retrieval_request_invalid_pickup');
             } else {
-                // Failure: use flash messenger to display messages, stay on
-                // the current form.
-                if (isset($results['status'])) {
-                    $this->flashMessenger()->setNamespace('error')
-                        ->addMessage($results['status']);
-                }
-                if (isset($results['sysMessage'])) {
-                    $this->flashMessenger()->setNamespace('error')
-                        ->addMessage($results['sysMessage']);
+                // Add Patron Data to Submitted Data
+                $details = $gatheredDetails + ['patron' => $patron];
+
+                // Attempt to place the hold:
+                $function = (string)$checkRequests['function'];
+                $results = $catalog->$function($details);
+
+                // Success: Go to Display Storage Retrieval Requests
+                if (isset($results['success']) && $results['success'] == true) {
+                    $msg = [
+                        'html' => true,
+                        'msg' => 'storage_retrieval_request_place_success_html',
+                        'tokens' => [
+                            '%%url%%' => $this->url()
+                                ->fromRoute('myresearch-storageretrievalrequests'),
+                        ],
+                    ];
+                    $this->flashMessenger()->addMessage($msg, 'success');
+                    $this->getViewRenderer()->plugin('session')->put('reset_account_status', true);
+
+                    $this->getAuditEventService()->addEvent(
+                        AuditEventType::ILS,
+                        AuditEventSubtype::PlaceStorageRetrievalRequest,
+                        $this->getUser(),
+                        data: [
+                            'username' => $patron['cat_username'],
+                            'details' => $details,
+                        ]
+                    );
+
+                    return $this->redirectToRecord($this->inLightbox() ? '?layout=lightbox' : '');
+                } else {
+                    // Failure: use flash messenger to display messages, stay on
+                    // the current form.
+                    if (isset($results['status'])) {
+                        $this->flashMessenger()->addErrorMessage($results['status']);
+                    }
+                    if (isset($results['sysMessage'])) {
+                        $this->flashMessenger()
+                            ->addMessage($results['sysMessage'], 'error');
+                    }
                 }
             }
         }
 
         // Find and format the default required date:
-        $defaultRequired = $this->storageRetrievalRequests()
+        $defaultRequiredDate = $this->storageRetrievalRequests()
             ->getDefaultRequiredDate($checkRequests);
-        $defaultRequired = $this->getServiceLocator()->get('VuFind\DateConverter')
-            ->convertToDisplayDate("U", $defaultRequired);
+        $defaultRequiredDate = $this->getService(\VuFind\Date\Converter::class)
+            ->convertToDisplayDate('U', $defaultRequiredDate);
         try {
             $defaultPickup
                 = $catalog->getDefaultPickUpLocation($patron, $gatheredDetails);
@@ -146,17 +182,23 @@ trait StorageRetrievalRequestsTrait
             $defaultPickup = false;
         }
 
+        $config = $this->getConfigArray();
+        $homeLibrary = ($config['Account']['set_home_library'] ?? true)
+            ? $this->getUser()->getHomeLibrary() : '';
+        // helpText is only for backward compatibility with legacy code:
+        $helpText = $helpTextHtml = $checkRequests['helpText'];
+
         $view = $this->createViewModel(
-            [
-                'gatheredDetails' => $gatheredDetails,
-                'pickup' => $pickup,
-                'defaultPickup' => $defaultPickup,
-                'homeLibrary' => $this->getUser()->home_library,
-                'extraFields' => $extraFields,
-                'defaultRequiredDate' => $defaultRequired,
-                'helpText' => isset($checkRequests['helpText'])
-                    ? $checkRequests['helpText'] : null
-            ]
+            compact(
+                'gatheredDetails',
+                'pickup',
+                'defaultPickup',
+                'homeLibrary',
+                'extraFields',
+                'defaultRequiredDate',
+                'helpText',
+                'helpTextHtml'
+            )
         );
         $view->setTemplate('record/storageretrievalrequest');
         return $view;

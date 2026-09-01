@@ -3,7 +3,7 @@
 /**
  * Unit tests for terms information.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,28 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Solr\Json\Response;
 
+use PHPUnit\Framework\TestCase;
 use VuFindSearch\Backend\Solr\Response\Json\Terms;
-use PHPUnit_Framework_TestCase as TestCase;
+
+use function get_class;
 
 /**
  * Unit tests for terms information.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class TermsTest extends TestCase
 {
@@ -54,11 +57,11 @@ class TermsTest extends TestCase
             [
                 'terms' => [
                     'field1' => $field1,
-                ]
+                ],
             ]
         );
 
-        $this->assertEquals('ArrayIterator', get_class($terms->getIterator()));
+        $this->assertEquals(\ArrayIterator::class, get_class($terms->getIterator()));
         $this->assertNull($terms->getFieldTerms('field2'));
         $fieldTerms = $terms->getFieldTerms('field1');
         $this->assertCount(3, $fieldTerms);

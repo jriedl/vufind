@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Factory for instantiating SMS objects
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2009.
  *
@@ -16,61 +17,74 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SMS
  * @author   Ronan McHugh <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\SMS;
-use Zend\ServiceManager\ServiceLocatorInterface;
+
+use Laminas\ServiceManager\Factory\FactoryInterface;
+use Psr\Container\ContainerInterface;
 
 /**
  * Factory for instantiating SMS objects
  *
- * @category VuFind2
+ * @category VuFind
  * @package  SMS
  * @author   Ronan McHugh <vufind-tech@lists.sourceforge.net>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  *
  * @codeCoverageIgnore
  */
-class Factory implements \Zend\ServiceManager\FactoryInterface
+class Factory implements FactoryInterface
 {
     /**
      * Create service
      *
-     * @param ServiceLocatorInterface $sm Service manager
+     * @param ContainerInterface $container Service manager
+     * @param string             $name      Requested service name (unused)
+     * @param array              $options   Extra options (unused)
      *
-     * @return mixed
+     * @return SMSInterface
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function createService(ServiceLocatorInterface $sm)
-    {
+    public function __invoke(
+        ContainerInterface $container,
+        $name,
+        ?array $options = null
+    ) {
         // Load configurations:
-        $mainConfig = $sm->get('VuFind\Config')->get('config');
-        $smsConfig = $sm->get('VuFind\Config')->get('sms');
+        $configManager = $container->get(\VuFind\Config\ConfigManagerInterface::class);
+        $mainConfig = $configManager->getConfigArray('config');
+        $smsConfig = $configManager->getConfigObject('sms');
 
         // Determine SMS type:
-        $type = isset($smsConfig->General->smsType)
-            ? $smsConfig->General->smsType : 'Mailer';
+        $type = $smsConfig->General->smsType ?? 'Mailer';
 
         // Initialize object based on requested type:
         switch (strtolower($type)) {
-        case 'clickatell':
-            $client = $sm->get('VuFind\Http')->createClient();
-            return new Clickatell($smsConfig, ['client' => $client]);
-        case 'mailer':
-            $options = ['mailer' => $sm->get('VuFind\Mailer')];
-            if (isset($mainConfig->Site->email)) {
-                $options['defaultFrom'] = $mainConfig->Site->email;
-            }
-            return new Mailer($smsConfig, $options);
-        default:
-            throw new \Exception('Unrecognized SMS type: ' . $type);
+            case 'clickatell':
+                $client = $container->get(\VuFindHttp\HttpService::class)
+                    ->createClient();
+                return new Clickatell($smsConfig, ['client' => $client]);
+            case 'mailer':
+                $options = [
+                    'mailer' => $container->get(\VuFind\Mailer\Mailer::class),
+                ];
+                if (isset($mainConfig['Site']['email'])) {
+                    $options['defaultFrom'] = $mainConfig['Site']['email'];
+                }
+                return new Mailer($smsConfig, $options);
+            default:
+                throw new \Exception('Unrecognized SMS type: ' . $type);
         }
     }
 }

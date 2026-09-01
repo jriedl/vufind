@@ -1,10 +1,11 @@
 <?php
+
 /**
  * Class to represent currently-selected theme and related information.
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2010.
+ * Copyright (C) Villanova University 2010-2023.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,28 +17,37 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFindTheme;
+
+use Laminas\Cache\Storage\StorageInterface;
+use Webmozart\Glob\Glob;
+
+use function is_array;
+use function strlen;
 
 /**
  * Class to represent currently-selected theme and related information.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Theme
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class ThemeInfo
 {
+    use \VuFind\Feature\MergeRecursiveTrait;
+
     /**
      * Base directory for theme files
      *
@@ -61,14 +71,21 @@ class ThemeInfo
     protected $safeTheme;
 
     /**
-     * Theme configuration
+     * Theme configuration cache
      *
      * @var array
      */
     protected $allThemeInfo = null;
 
+    /**
+     * Cache for merged configs
+     *
+     * @var StorageInterface
+     */
+    protected $cache = null;
+
     // Constant for use with findContainingTheme:
-    const RETURN_ALL_DETAILS = 'all';
+    public const RETURN_ALL_DETAILS = 'all';
 
     /**
      * Constructor
@@ -83,6 +100,18 @@ class ThemeInfo
     }
 
     /**
+     * Provide cache and activate info caching
+     *
+     * @param StorageInterface $cache cache object
+     *
+     * @return void
+     */
+    public function setCache(StorageInterface $cache)
+    {
+        $this->cache = $cache;
+    }
+
+    /**
      * Get the base directory for themes.
      *
      * @return string
@@ -90,6 +119,18 @@ class ThemeInfo
     public function getBaseDir()
     {
         return $this->baseDir;
+    }
+
+    /**
+     * Get the configuration file for the specified mixin.
+     *
+     * @param string $mixin Mixin name
+     *
+     * @return string
+     */
+    protected function getMixinConfig($mixin)
+    {
+        return $this->baseDir . "/$mixin/mixin.config.php";
     }
 
     /**
@@ -137,6 +178,27 @@ class ThemeInfo
     }
 
     /**
+     * Load configuration for the specified theme (and its mixins, if any) into the
+     * allThemeInfo property.
+     *
+     * @param string $theme Name of theme to load
+     *
+     * @return void
+     */
+    protected function loadThemeConfig($theme)
+    {
+        // Load theme configuration...
+        $this->allThemeInfo[$theme] = include $this->getThemeConfig($theme);
+        $this->allThemeInfo[$theme]['themeName'] = $theme;
+        // ..and if there are mixins, load those too!
+        if (isset($this->allThemeInfo[$theme]['mixins'])) {
+            foreach ($this->allThemeInfo[$theme]['mixins'] as $mix) {
+                $this->allThemeInfo[$mix] = include $this->getMixinConfig($mix);
+            }
+        }
+    }
+
+    /**
      * Get all the configuration details related to the current theme.
      *
      * @return array
@@ -144,13 +206,12 @@ class ThemeInfo
     public function getThemeInfo()
     {
         // Fill in the theme info cache if it is not already populated:
-        if (null === $this->allThemeInfo) {
+        if ($this->allThemeInfo === null) {
             // Build an array of theme information by inheriting up the theme tree:
             $this->allThemeInfo = [];
             $currentTheme = $this->getTheme();
             do {
-                $this->allThemeInfo[$currentTheme]
-                    = include $this->getThemeConfig($currentTheme);
+                $this->loadThemeConfig($currentTheme);
                 $currentTheme = $this->allThemeInfo[$currentTheme]['extends'];
             } while ($currentTheme);
         }
@@ -159,16 +220,72 @@ class ThemeInfo
     }
 
     /**
-     * Search the themes for a particular file.  If it exists, return the
+     * Get a configuration element, merged to reflect theme inheritance.
+     *
+     * @param string $key Configuration key to retrieve (or empty string to
+     * retrieve full configuration)
+     *
+     * @return array|string
+     */
+    public function getMergedConfig(string $key = '')
+    {
+        $currentTheme = $this->getTheme();
+        $allThemeInfo = $this->getThemeInfo();
+
+        $cacheKey = $currentTheme . '_' . $key;
+
+        if ($this->cache !== null) {
+            $cached = $this->cache->getItem($cacheKey);
+
+            if ($cached !== null) {
+                return $cached;
+            }
+        }
+
+        $merged = [];
+
+        while (!empty($currentTheme)) {
+            $currentThemeSet = array_merge(
+                (array)$currentTheme,
+                $allThemeInfo[$currentTheme]['mixins'] ?? [],
+            );
+
+            // from child to parent
+            foreach ($currentThemeSet as $theme) {
+                if (
+                    isset($allThemeInfo[$theme])
+                    && (empty($key) || isset($allThemeInfo[$theme][$key]))
+                ) {
+                    $current = empty($key)
+                        ? $allThemeInfo[$theme]
+                        : $allThemeInfo[$theme][$key];
+
+                    $merged = $this->mergeRecursive($current, $merged);
+                }
+            }
+
+            $currentTheme = $allThemeInfo[$currentTheme]['extends'];
+        }
+
+        if ($this->cache !== null) {
+            $this->cache->setItem($cacheKey, $merged);
+        }
+
+        return $merged;
+    }
+
+    /**
+     * Search the themes for a particular file. If it exists, return the
      * first matching theme name; otherwise, return null.
      *
      * @param string|array $relativePath Relative path (or array of paths) to
      * search within themes
      * @param string|bool  $returnType   If boolean true, return full file path;
      * if boolean false, return containing theme name; if self::RETURN_ALL_DETAILS,
-     * return an array containing both values (keyed with 'path' and 'theme').
+     * return an array containing both values (keyed with 'path', 'theme' and
+     * 'relativePath').
      *
-     * @return string
+     * @return string|array|null
      */
     public function findContainingTheme($relativePath, $returnType = false)
     {
@@ -180,21 +297,78 @@ class ThemeInfo
         $allThemeInfo = $this->getThemeInfo();
 
         while (!empty($currentTheme)) {
-            foreach ($allPaths as $currentPath) {
-                $file = "$basePath/$currentTheme/$currentPath";
-                if (file_exists($file)) {
-                    if (true === $returnType) {
-                        return $file;
-                    } else if (self::RETURN_ALL_DETAILS === $returnType) {
-                        return ['path' => $file, 'theme' => $currentTheme];
+            $currentThemeSet = array_merge(
+                (array)$currentTheme,
+                $allThemeInfo[$currentTheme]['mixins'] ?? []
+            );
+            foreach ($currentThemeSet as $theme) {
+                foreach ($allPaths as $currentPath) {
+                    $path = "$basePath/$theme/$currentPath";
+                    if (file_exists($path)) {
+                        // Depending on return type, send back the requested data:
+                        if (self::RETURN_ALL_DETAILS === $returnType) {
+                            $relativePath = $currentPath;
+                            return compact('path', 'theme', 'relativePath');
+                        }
+                        return $returnType ? $path : $theme;
                     }
-                    // Default return type:
-                    return $currentTheme;
                 }
             }
             $currentTheme = $allThemeInfo[$currentTheme]['extends'];
         }
 
         return null;
+    }
+
+    /**
+     * Search the themes for a file pattern. Returns all matching files.
+     *
+     * Note that for any matching file the last match in the theme hierarchy is
+     * returned.
+     *
+     * @param string|array $relativePathPattern Relative path pattern (or array of
+     * patterns) to search within themes
+     *
+     * @return array
+     */
+    public function findInThemes($relativePathPattern)
+    {
+        $basePath = $this->getBaseDir();
+        $allPaths = (array)$relativePathPattern;
+
+        $currentTheme = $this->getTheme();
+        $allThemeInfo = $this->getThemeInfo();
+
+        $allThemes = [];
+        while (!empty($currentTheme)) {
+            $allThemes = array_merge(
+                $allThemes,
+                (array)$currentTheme,
+                $allThemeInfo[$currentTheme]['mixins'] ?? []
+            );
+            $currentTheme = $allThemeInfo[$currentTheme]['extends'];
+        }
+
+        // Start from the base theme so that we can find any overrides properly
+        $allThemes = array_reverse($allThemes);
+        $results = [];
+        foreach ($allThemes as $theme) {
+            $themePath = "$basePath/$theme/";
+            foreach ($allPaths as $currentPath) {
+                $path = $themePath . $currentPath;
+                foreach (Glob::glob($path) as $file) {
+                    if (filetype($file) === 'dir') {
+                        continue;
+                    }
+                    $relativeFile = substr($file, strlen($themePath));
+                    $results[$relativeFile] = [
+                        'theme' => $theme,
+                        'file' => $file,
+                        'relativeFile' => $relativeFile,
+                    ];
+                }
+            }
+        }
+        return array_values($results);
     }
 }

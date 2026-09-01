@@ -3,7 +3,7 @@
 /**
  * SOLR spellcheck information.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,29 +17,34 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\Solr\Response\Json;
 
-use IteratorAggregate;
 use ArrayObject;
 use Countable;
+use IteratorAggregate;
+use Traversable;
+
+use function is_array;
+use function strlen;
 
 /**
  * SOLR spellcheck information.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class Spellcheck implements IteratorAggregate, Countable
 {
@@ -75,7 +80,9 @@ class Spellcheck implements IteratorAggregate, Countable
     public function __construct(array $spellcheck, $query)
     {
         $this->terms = new ArrayObject();
-        $list = new NamedList($spellcheck);
+        // Solr 6.4 and before use an array of arrays with two elements, while
+        // from Solr 6.5 on the array is associative.
+        $list = isset($spellcheck[0]) ? new NamedList($spellcheck) : $spellcheck;
         foreach ($list as $term => $info) {
             if (is_array($info)) {
                 $this->terms->offsetSet($term, $info);
@@ -121,7 +128,7 @@ class Spellcheck implements IteratorAggregate, Countable
             }
         }
 
-        // Store secondary suggestions in case merge yielded non-useful
+        // Store secondary suggestions in case merge yielded useless
         // result set:
         if (!$this->secondary) {
             $this->secondary = $spellcheck;
@@ -135,9 +142,9 @@ class Spellcheck implements IteratorAggregate, Countable
     /**
      * Return aggregated iterator.
      *
-     * @return ArrayIterator
+     * @return Traversable
      */
-    public function getIterator()
+    public function getIterator(): Traversable
     {
         return $this->terms->getIterator();
     }
@@ -147,9 +154,9 @@ class Spellcheck implements IteratorAggregate, Countable
     /**
      * Return number of terms.
      *
-     * @return integer
+     * @return int
      */
-    public function count()
+    public function count(): int
     {
         return $this->terms->count();
     }
@@ -161,9 +168,9 @@ class Spellcheck implements IteratorAggregate, Countable
      *
      * @param string $term Term to check
      *
-     * @return boolean
+     * @return bool
      */
-    protected function contains($term)
+    protected function contains(string $term)
     {
         if ($this->terms->offsetExists($term)) {
             return true;
@@ -198,7 +205,6 @@ class Spellcheck implements IteratorAggregate, Countable
      */
     public function compareTermLength($a, $b)
     {
-        return (strlen($b) - strlen($a));
+        return strlen($b) - strlen($a);
     }
-
 }

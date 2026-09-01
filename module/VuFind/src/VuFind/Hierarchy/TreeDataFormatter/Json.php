@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Hierarchy Tree Data Formatter (JSON)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2015.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  HierarchyTree_DataFormatter
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:hierarchy_components Wiki
+ * @link     https://vufind.org/wiki/development:plugins:hierarchy_components Wiki
  */
+
 namespace VuFind\Hierarchy\TreeDataFormatter;
 
 /**
  * Hierarchy Tree Data Formatter (JSON)
  *
- * @category VuFind2
+ * @category VuFind
  * @package  HierarchyTree_DataFormatter
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:hierarchy_components Wiki
+ * @link     https://vufind.org/wiki/development:plugins:hierarchy_components Wiki
  */
 class Json extends AbstractBase
 {
@@ -62,7 +64,7 @@ class Json extends AbstractBase
         $raw = [
             'id' => $record->id,
             'type' => $this->isCollection($record) ? 'collection' : 'record',
-            'title' => $this->pickTitle($record, $parentID)
+            'title' => $this->pickTitle($record, $parentID),
         ];
 
         if (isset($this->childMap[$record->id])) {
@@ -95,7 +97,7 @@ class Json extends AbstractBase
             // otherwise, we can just collect flat values.
             if ($this->sort) {
                 $positions = $this->getHierarchyPositionsInParents($current);
-                $sequence = isset($positions[$parentID]) ? $positions[$parentID] : 0;
+                $sequence = $positions[$parentID] ?? 0;
                 $json[] = [$sequence, $childNode];
             } else {
                 $json[] = $childNode;

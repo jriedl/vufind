@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Record tab plugin manager
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,107 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordTabs
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_tabs Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_tabs Wiki
  */
+
 namespace VuFind\RecordTab;
+
+use Laminas\ServiceManager\Factory\InvokableFactory;
 
 /**
  * Record tab plugin manager
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordTabs
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_tabs Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_tabs Wiki
  */
 class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
 {
+    /**
+     * Default plugin aliases.
+     *
+     * @var array
+     */
+    protected $aliases = [
+        'channels' => Channels::class,
+        'collectionhierarchytree' => CollectionHierarchyTree::class,
+        'collectionlist' => CollectionList::class,
+        'componentparts' => ComponentParts::class,
+        'description' => Description::class,
+        'excerpt' => Excerpt::class,
+        'formats' => Formats::class,
+        'hierarchytree' => HierarchyTree::class,
+        'holdingsils' => HoldingsILS::class,
+        'holdingsworldcat2' => HoldingsWorldCat2::class,
+        'map' => Map::class,
+        'preview' => Preview::class,
+        'reviews' => Reviews::class,
+        'search2collectionlist' => Search2CollectionList::class,
+        'staffviewarray' => StaffViewArray::class,
+        'staffviewmarc' => StaffViewMARC::class,
+        'staffviewoverdrive' => StaffViewOverdrive::class,
+        'toc' => TOC::class,
+        'usercomments' => UserComments::class,
+        'versions' => Versions::class,
+        // Legacy backward compatibility:
+        'similaritemscarousel' => Channels::class,
+    ];
+
+    /**
+     * Default plugin factories.
+     *
+     * @var array
+     */
+    protected $factories = [
+        Channels::class => ChannelsFactory::class,
+        CollectionHierarchyTree::class => CollectionHierarchyTreeFactory::class,
+        CollectionList::class => CollectionListFactory::class,
+        ComponentParts::class => ComponentPartsFactory::class,
+        Description::class => InvokableFactory::class,
+        Excerpt::class => ExcerptFactory::class,
+        Formats::class => InvokableFactory::class,
+        HierarchyTree::class => HierarchyTreeFactory::class,
+        HoldingsILS::class => HoldingsILSFactory::class,
+        HoldingsWorldCat2::class => HoldingsWorldCat2Factory::class,
+        Map::class => MapFactory::class,
+        OverdriveHoldings::class => InvokableFactory::class,
+        Preview::class => PreviewFactory::class,
+        Reviews::class => ReviewsFactory::class,
+        Search2CollectionList::class => CollectionListFactory::class,
+        StaffViewArray::class => InvokableFactory::class,
+        StaffViewMARC::class => InvokableFactory::class,
+        StaffViewOverdrive::class => InvokableFactory::class,
+        TOC::class => TOCFactory::class,
+        UserComments::class => UserCommentsFactory::class,
+        Versions::class => VersionsFactory::class,
+    ];
+
+    /**
+     * Constructor
+     *
+     * Make sure plugins are properly initialized.
+     *
+     * @param mixed $configOrContainerInstance Configuration or container instance
+     * @param array $v3config                  If $configOrContainerInstance is a
+     * container, this value will be passed to the parent constructor.
+     */
+    public function __construct(
+        $configOrContainerInstance = null,
+        array $v3config = []
+    ) {
+        $this->addAbstractFactory(PluginFactory::class);
+        parent::__construct($configOrContainerInstance, $v3config);
+    }
+
     /**
      * Return the name of the base class or interface that plug-ins must conform
      * to.
@@ -46,70 +126,6 @@ class PluginManager extends \VuFind\ServiceManager\AbstractPluginManager
      */
     protected function getExpectedInterface()
     {
-        return 'VuFind\RecordTab\TabInterface';
-    }
-
-    /**
-     * Get an array of service names by looking up the provided record driver in
-     * the provided tab configuration array.
-     *
-     * @param \VuFind\RecordDriver\AbstractBase $driver Record driver
-     * @param array                             $config Tab configuration
-     * (associative array including 'tabs' array mapping driver class => tab service
-     * name)
-     *
-     * @return array
-     */
-    protected function getTabServiceNames(\VuFind\RecordDriver\AbstractBase $driver,
-        array $config
-    ) {
-        // Get the current record driver's class name, then start a loop
-        // in case we need to use a parent class' name to find the appropriate
-        // setting.
-        $className = get_class($driver);
-        while (true) {
-            if (isset($config[$className]['tabs'])) {
-                return $config[$className]['tabs'];
-            }
-            $className = get_parent_class($className);
-            if (empty($className)) {
-                // No setting found...
-                return [];
-            }
-        }
-    }
-
-    /**
-     * Get an array of valid tabs for the provided record driver.
-     *
-     * @param \VuFind\RecordDriver\AbstractBase $driver  Record driver
-     * @param array                             $config  Tab configuration (map of
-     * driver class => tab service name
-     * @param \Zend\Http\Request                $request User request (optional)
-     *
-     * @return array                                    service name => tab object
-     */
-    public function getTabsForRecord(\VuFind\RecordDriver\AbstractBase $driver,
-        array $config, $request = null
-    ) {
-        $tabs = [];
-        foreach ($this->getTabServiceNames($driver, $config) as $tabKey => $svc) {
-            if (!$this->has($svc)) {
-                continue;
-            }
-            $newTab = $this->get($svc);
-            if (method_exists($newTab, 'setRecordDriver')) {
-                $newTab->setRecordDriver($driver);
-            }
-            if ($request instanceof \Zend\Http\Request
-                && method_exists($newTab, 'setRequest')
-            ) {
-                $newTab->setRequest($request);
-            }
-            if ($newTab->isActive()) {
-                $tabs[$tabKey] = $newTab;
-            }
-        }
-        return $tabs;
+        return TabInterface::class;
     }
 }

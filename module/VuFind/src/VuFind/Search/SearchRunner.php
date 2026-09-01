@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind Search Runner
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,35 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search;
+
+use Laminas\EventManager\EventManager;
+use Laminas\EventManager\EventManagerInterface;
+use Laminas\Stdlib\Parameters;
 use VuFind\Search\Results\PluginManager as ResultsManager;
-use Zend\EventManager\EventManagerInterface;
-use Zend\EventManager\EventManager;
-use Zend\Stdlib\Parameters;
+use VuFind\Search\Solr\ErrorListener;
+
+use function is_array;
+use function is_callable;
 
 /**
  * VuFind Search Runner
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class SearchRunner
 {
@@ -47,8 +54,8 @@ class SearchRunner
      *
      * @var string
      */
-    const EVENT_CONFIGURED = 'configured';
-    const EVENT_COMPLETE = 'complete';
+    public const EVENT_CONFIGURED = 'configured';
+    public const EVENT_COMPLETE = 'complete';
 
     /**
      * Event manager.
@@ -75,10 +82,16 @@ class SearchRunner
      * Constructor
      *
      * @param ResultsManager $resultsManager Results manager
+     * @param ?EventManager  $events         Event manager (optional)
      */
-    public function __construct(ResultsManager $resultsManager)
-    {
+    public function __construct(
+        ResultsManager $resultsManager,
+        ?EventManager $events = null
+    ) {
         $this->resultsManager = $resultsManager;
+        if (null !== $events) {
+            $this->setEventManager($events);
+        }
     }
 
     /**
@@ -90,13 +103,19 @@ class SearchRunner
      * and attaching listeners; if provided, will be passed three parameters:
      * this object, the search parameters object, and a unique identifier for
      * the current running search.
+     * @param string           $lastView      Last valid view parameter loaded
+     * from a previous search (optional; used for view persistence).
      *
      * @return \VuFind\Search\Base\Results
      *
      * @throws \VuFindSearch\Backend\Exception\BackendException
      */
-    public function run($rawRequest, $searchClassId = 'Solr', $setupCallback = null)
-    {
+    public function run(
+        $rawRequest,
+        $searchClassId = 'Solr',
+        $setupCallback = null,
+        $lastView = null
+    ) {
         // Increment the ID counter, then save the current value to a variable;
         // since events within this run could theoretically trigger additional
         // runs of the SearchRunner, we can't rely on the property value past
@@ -112,15 +131,17 @@ class SearchRunner
         // Set up the search:
         $results = $this->resultsManager->get($searchClassId);
         $params = $results->getParams();
+        $params->setLastView($lastView);
         $params->initFromRequest($request);
 
         if (is_callable($setupCallback)) {
-            $setupCallback($this, $params, $runningSearchId);
+            $setupCallback($this, $params, $runningSearchId, $results);
         }
 
         // Trigger the "configuration done" event.
         $this->getEventManager()->trigger(
-            self::EVENT_CONFIGURED, $this,
+            self::EVENT_CONFIGURED,
+            $this,
             compact('params', 'request', 'runningSearchId')
         );
 
@@ -131,7 +152,7 @@ class SearchRunner
             // catch exceptions more reliably:
             $results->performAndProcessSearch();
         } catch (\VuFindSearch\Backend\Exception\BackendException $e) {
-            if ($e->hasTag('VuFind\Search\ParserError')) {
+            if ($e->hasTag(ErrorListener::TAG_PARSER_ERROR)) {
                 // We need to create and process an "empty results" object to
                 // ensure that recommendation modules and templates behave
                 // properly when displaying the error message.
@@ -145,7 +166,9 @@ class SearchRunner
 
         // Trigger the "search completed" event.
         $this->getEventManager()->trigger(
-            self::EVENT_COMPLETE, $this, compact('results', 'runningSearchId')
+            self::EVENT_COMPLETE,
+            $this,
+            compact('results', 'runningSearchId')
         );
 
         return $results;
@@ -157,7 +180,6 @@ class SearchRunner
      * @param EventManagerInterface $events Event manager
      *
      * @return void
-     * @todo   Deprecate `VuFind\Search' event namespace (2.2)
      */
     public function setEventManager(EventManagerInterface $events)
     {

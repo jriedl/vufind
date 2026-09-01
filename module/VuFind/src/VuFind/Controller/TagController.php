@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Tag Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,35 +17,55 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
+use VuFind\Exception\Forbidden as ForbiddenException;
+use VuFind\Validator\CsrfInterface;
 
 /**
  * Tag Controller
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class TagController extends AbstractSearch
 {
+    use Feature\UserContentTrait;
+
+    /**
+     * Array of sort options for userListAction
+     *
+     * @var array
+     */
+    protected array $sortList = [
+        'posted desc' => 'sort_created_desc',
+        'posted asc' => 'sort_created_asc',
+        'title' => 'sort_title',
+    ];
+
     /**
      * Constructor
+     *
+     * @param ServiceLocatorInterface $sm Service locator
      */
-    public function __construct()
+    public function __construct(ServiceLocatorInterface $sm)
     {
         $this->searchClassId = 'Tags';
-        parent::__construct();
+        parent::__construct($sm);
     }
 
     /**
@@ -55,9 +76,71 @@ class TagController extends AbstractSearch
     public function homeAction()
     {
         if (!$this->tagsEnabled()) {
-            throw new \Exception('Tags disabled');
+            throw new ForbiddenException('Tags disabled');
         }
-        return $this->resultsAction();
+        return parent::resultsAction();
+    }
+
+    /**
+     * Get all tags for the logged in user
+     *
+     * @return View
+     */
+    public function userListAction()
+    {
+        $user = $this->getUser();
+        if (!$user) {
+            return $this->forceLogin();
+        }
+        if (!$this->tagsEnabled()) {
+            throw new ForbiddenException('Tags disabled.');
+        }
+        $paging = $this->getPagingParams($this->params());
+        $service = $this->getDbService(\VuFind\Db\Service\ResourceTagsServiceInterface::class);
+        $tags = $this->getUserContentRecordTitles(
+            $service->getResourceTagsPaginator(
+                $user->getId(),
+                null,
+                null,
+                $paging['sort'],
+                $paging['page'],
+                $paging['limit'],
+            )
+        );
+        return $this->createViewModel(
+            [
+                'tags' => $tags,
+                'sortList' => $this->getSortList($this->sortList, $paging['sort']),
+                'params' => $this->params()->fromQuery(),
+            ]
+        );
+    }
+
+    /**
+     * Delete given tags by the logged in user
+     *
+     * @return View
+     */
+    public function deleteTagsAction()
+    {
+        $user = $this->getUser();
+        if (!$user) {
+            return $this->forceLogin();
+        }
+        if ($this->formWasSubmitted(['deleteSelectedtag'])) {
+            $csrf = $this->getService(CsrfInterface::class);
+            if (!$csrf->isValid($this->getRequest()->getPost()->get('csrf'))) {
+                throw new \VuFind\Exception\BadRequest(
+                    'error_inconsistent_parameters'
+                );
+            }
+        }
+        if (!empty($tags = $this->params()->fromPost('deleteSelectedtag', []))) {
+            $tagService = $this->getDbService(\VuFind\Db\Service\ResourceTagsServiceInterface::class);
+            $tagService->deleteLinksByResourceTagsIdArray($tags);
+            $this->getDbService(\VuFind\Db\Service\TagServiceInterface::class)->deleteOrphanedTags();
+        }
+
+        return $this->redirect()->toRoute('tag-userlist');
     }
 }
-

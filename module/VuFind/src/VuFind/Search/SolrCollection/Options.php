@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Solr Collection aspect of the Search Multi-class (Options)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,56 +17,69 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\SolrCollection;
+
+use VuFind\Config\ConfigManagerInterface;
 
 /**
  * Solr Collection Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Options extends \VuFind\Search\Solr\Options
 {
     /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Config loader
+     * @param ConfigManagerInterface $configManager Config manager
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
+    public function __construct(ConfigManagerInterface $configManager)
     {
-        parent::__construct($configLoader);
+        $this->facetsIni = 'Collection';
+        parent::__construct($configManager);
 
-        // Load sort preferences (or defaults if none in .ini file):
-        $searchSettings = $configLoader->get('Collection');
-        if (isset($searchSettings->Sort)) {
-            $this->sortOptions = [];
-            foreach ($searchSettings->Sort as $key => $value) {
-                $this->sortOptions[$key] = $value;
-            }
+        // Load sort preferences from Collection.ini even though other settings are loaded from searches.ini
+        // (or set defaults if none in .ini file):
+        $searchSettings = $configManager->getConfigArray('Collection');
+        if (null !== ($sortOptions = $searchSettings['Sort'] ?? null)) {
+            $this->sortOptions = (array)$sortOptions;
         } else {
             $this->sortOptions = [
                 'title' => 'sort_title',
-                'year' => 'sort_year', 'year asc' => 'sort_year asc',
-                'author' => 'sort_author'
+                'year' => 'sort_year', 'year asc' => 'sort_year_asc',
+                'author' => 'sort_author',
             ];
         }
         $this->defaultSort = key($this->sortOptions);
     }
 
     /**
-     * Load all recommendation settings from the relevant ini file.  Returns an
+     * Return the route name for the facet list action. Returns false to cover
+     * unimplemented support.
+     *
+     * @return string|bool
+     */
+    public function getFacetListAction()
+    {
+        return 'search-collectionfacetlist';
+    }
+
+    /**
+     * Load all recommendation settings from the relevant ini file. Returns an
      * associative array where the key is the location of the recommendations (top
      * or side) and the value is the settings found in the file (which may be either
      * a single string or an array of strings).
@@ -77,9 +91,17 @@ class Options extends \VuFind\Search\Solr\Options
     public function getRecommendationSettings($handler = null)
     {
         // Collection recommendations
-        $searchSettings = $this->configLoader->get('Collection');
-        return isset($searchSettings->Recommend)
-            ? $searchSettings->Recommend->toArray()
-            : ['side' => ['CollectionSideFacets:Facets::Collection:true']];
+        $searchSettings = $this->configManager->getConfigArray('Collection');
+        return $searchSettings['Recommend'] ?? ['side' => ['CollectionSideFacets:Facets::Collection:true']];
+    }
+
+    /**
+     * Return the route name for the search results action.
+     *
+     * @return string
+     */
+    public function getSearchAction()
+    {
+        return 'collection';
     }
 }

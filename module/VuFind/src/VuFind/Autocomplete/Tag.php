@@ -1,10 +1,11 @@
 <?php
+
 /**
  * Tag Autocomplete Module
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2010.
+ * Copyright (C) Villanova University 2010-2023.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,31 +17,41 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Autocomplete
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:autosuggesters Wiki
+ * @link     https://vufind.org/wiki/development:plugins:autosuggesters Wiki
  */
+
 namespace VuFind\Autocomplete;
+
+use VuFind\Tags\TagsService;
 
 /**
  * Tag Autocomplete Module
  *
  * This class provides suggestions by using the local tag database.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Autocomplete
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:autosuggesters Wiki
+ * @link     https://vufind.org/wiki/development:plugins:autosuggesters Wiki
  */
-class Tag implements AutocompleteInterface, \VuFind\Db\Table\DbTableAwareInterface
+class Tag implements AutocompleteInterface
 {
-    use \VuFind\Db\Table\DbTableAwareTrait;
+    /**
+     * Constructor
+     *
+     * @param TagsService $tagsService Tag database service
+     */
+    public function __construct(protected TagsService $tagsService)
+    {
+    }
 
     /**
      * This method returns an array of strings matching the user's query for
@@ -53,12 +64,9 @@ class Tag implements AutocompleteInterface, \VuFind\Db\Table\DbTableAwareInterfa
     public function getSuggestions($query)
     {
         $tagList = [];
-        $tagTable = $this->getTagsTable();
-        $tags = $tagTable->matchText($query);
-        if ($tags) {
-            foreach ($tags as $tag) {
-                $tagList[] = $tag['tag'];
-            }
+        $tags = $this->tagsService->getNonListTagsFuzzilyMatchingString($query);
+        foreach ($tags as $tag) {
+            $tagList[] = $tag['tag'];
         }
         return $tagList;
     }
@@ -74,15 +82,5 @@ class Tag implements AutocompleteInterface, \VuFind\Db\Table\DbTableAwareInterfa
     public function setConfig($params)
     {
         // Ignore all parameters
-    }
-
-    /**
-     * Get access to the user table.
-     *
-     * @return \VuFind\Db\Table\Tags
-     */
-    public function getTagsTable()
-    {
-        return $this->getDbTableManager()->get('Tags');
     }
 }

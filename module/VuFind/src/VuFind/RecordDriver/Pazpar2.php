@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Model for Pazpar2 records.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,27 +17,32 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/other_than_marc Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_drivers Wiki
  */
+
 namespace VuFind\RecordDriver;
+
+use function count;
+use function in_array;
+use function is_array;
 
 /**
  * Model for Pazpar2 records.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/other_than_marc Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_drivers Wiki
  */
-class Pazpar2 extends SolrDefault
+class Pazpar2 extends DefaultRecord
 {
     /**
      * Pazpar2 fields
@@ -50,7 +56,7 @@ class Pazpar2 extends SolrDefault
      *
      * @param mixed $data Raw data representing the record; Record Model
      * objects are normally constructed by Record Driver objects using data
-     * passed in from a Search Results object.  The exact nature of the data may
+     * passed in from a Search Results object. The exact nature of the data may
      * vary depending on the data source -- the important thing is that the
      * Record Driver + Search Results objects work together correctly.
      *
@@ -77,15 +83,15 @@ class Pazpar2 extends SolrDefault
             if (count($data->attributes()) > 0) {
                 $children['_attr_'] = [];
                 foreach ($data->attributes() as $name => $attr) {
-                    $children['_attr_'][$name] = (string) $attr;
+                    $children['_attr_'][$name] = (string)$attr;
                 }
             }
             // If there's no children, we're at data
             if ($data->count() == 0) {
                 if (!isset($children['_attr_'])) {
-                    $children = (string) $data; // Flatten
+                    $children = (string)$data; // Flatten
                 } else {
-                    $children[$key] = (string) $data;
+                    $children[$key] = (string)$data;
                 }
             } else {
                 // If there's children, recurse on this XML
@@ -95,7 +101,8 @@ class Pazpar2 extends SolrDefault
             if (!isset($array[$key])) {
                 $array[$key] = $children;
             } else {
-                if (is_array($array[$key])
+                if (
+                    is_array($array[$key])
                     && is_numeric(current(array_keys($array[$key])))
                 ) {
                     $array[$key][] = $children;
@@ -103,7 +110,7 @@ class Pazpar2 extends SolrDefault
                     // Convert for multiple children
                     $array[$key] = [
                         $array[$key],
-                        $children
+                        $children,
                     ];
                 }
             }
@@ -112,7 +119,7 @@ class Pazpar2 extends SolrDefault
         if (count($xml->attributes()) > 0) {
             $array['_attr_'] = [];
             foreach ($xml->attributes() as $key => $attr) {
-                $array['_attr_'][$key] = (string) $attr;
+                $array['_attr_'][$key] = (string)$attr;
             }
         }
         return $array;
@@ -127,22 +134,19 @@ class Pazpar2 extends SolrDefault
      */
     public function getUniqueId()
     {
-        return isset($this->pz2fields['location']['md-id'])
-            ? $this->pz2fields['location']['md-id']
-            : $this->pz2fields['recid'];
+        return $this->pz2fields['location']['md-id'] ?? $this->pz2fields['recid'];
     }
 
     /**
-     * Get the main author of the record.
+     * Get the main authors of the record.
      *
-     * @return string
+     * @return array
      */
-    public function getPrimaryAuthor()
+    public function getPrimaryAuthors()
     {
-        $authors = isset($this->pz2fields['md-author']) ?
-            $this->pz2fields['md-author'] : '';
+        $authors = $this->pz2fields['md-author'] ?? [];
 
-        return is_array($authors) ? $authors[0] : $authors;
+        return empty($authors) ? [] : (array)$authors;
     }
 
     /**
@@ -160,7 +164,8 @@ class Pazpar2 extends SolrDefault
         }
         $providers = [];
         foreach ($this->pz2fields['location'] as $location) {
-            if (isset($location['_attr_']['name'])
+            if (
+                isset($location['_attr_']['name'])
                 && !in_array($location['_attr_']['name'], $providers)
             ) {
                 $providers[] = $location['_attr_']['name'];
@@ -181,19 +186,6 @@ class Pazpar2 extends SolrDefault
     }
 
     /**
-     * Get an array of all secondary authors (complementing getPrimaryAuthor()).
-     *
-     * @return array
-     */
-    public function getSecondaryAuthors()
-    {
-        $authors = isset($this->pz2fields['md-author']) ?
-            $this->pz2fields['md-author'] : '';
-
-        return is_array($authors) ? array_slice($authors, 1) : [];
-    }
-
-    /**
      * Get the full title of the record.
      *
      * @return string
@@ -210,8 +202,7 @@ class Pazpar2 extends SolrDefault
      */
     public function getShortTitle()
     {
-        return isset($this->pz2fields['md-title']) ?
-            $this->pz2fields['md-title'] : '';
+        return $this->pz2fields['md-title'] ?? '';
     }
 
     /**
@@ -235,31 +226,18 @@ class Pazpar2 extends SolrDefault
                 function ($url) {
                     return ['url' => $url];
                 },
-                (array) $this->pz2fields['location']['md-electronic-url']
+                (array)$this->pz2fields['location']['md-electronic-url']
             );
         }
         return [];
     }
 
     /**
-     * Does the OpenURL configuration indicate that we should display OpenURLs in
-     * the specified context?
-     *
-     * @param string $area 'results', 'record' or 'holdings'
-     *
-     * @return bool
-     */
-    public function openURLActive($area)
-    {
-        return AbstractBase::openURLActive($area);
-    }
-
-    /**
-     * Support method for getOpenURL() -- pick the OpenURL format.
+     * Support method for getOpenUrl() -- pick the OpenURL format.
      *
      * @return string
      */
-    protected function getOpenURLFormat()
+    protected function getOpenUrlFormat()
     {
         return 'Book';
     }

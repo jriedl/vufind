@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Collection list tab
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,27 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordTabs
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_tabs Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_tabs Wiki
  */
+
 namespace VuFind\RecordTab;
-use VuFind\Recommend\PluginManager as RecommendManager,
-    VuFind\Search\RecommendListener, VuFind\Search\SearchRunner;
+
+use VuFind\Recommend\PluginManager as RecommendManager;
+use VuFind\Search\Memory as SearchMemory;
+use VuFind\Search\RecommendListener;
+use VuFind\Search\SearchRunner;
 
 /**
  * Collection list tab
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordTabs
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_tabs Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_tabs Wiki
  */
 class CollectionList extends AbstractBase
 {
@@ -62,15 +67,34 @@ class CollectionList extends AbstractBase
     protected $recommendManager;
 
     /**
+     * Search memory
+     *
+     * @var SearchMemory
+     */
+    protected $searchMemory;
+
+    /**
+     * Search class id
+     *
+     * @var string
+     */
+    protected $searchClassId = 'SolrCollection';
+
+    /**
      * Constructor
      *
      * @param SearchRunner     $runner Search runner
      * @param RecommendManager $recMan Recommendation manager
+     * @param SearchMemory     $sm     Search memory
      */
-    public function __construct(SearchRunner $runner, RecommendManager $recMan)
-    {
+    public function __construct(
+        SearchRunner $runner,
+        RecommendManager $recMan,
+        SearchMemory $sm
+    ) {
         $this->runner = $runner;
         $this->recommendManager = $recMan;
+        $this->searchMemory = $sm;
     }
 
     /**
@@ -94,6 +118,16 @@ class CollectionList extends AbstractBase
     }
 
     /**
+     * Is this tab active?
+     *
+     * @return bool
+     */
+    public function isActive()
+    {
+        return parent::isActive() && $this->getRecordDriver()->tryMethod('isCollection');
+    }
+
+    /**
      * Get the processed search results.
      *
      * @return \VuFind\Search\SolrCollection\Results
@@ -105,8 +139,8 @@ class CollectionList extends AbstractBase
             $request = $this->getRequest()->getQuery()->toArray()
                 + $this->getRequest()->getPost()->toArray();
             $rManager = $this->recommendManager;
-            $cb = function ($runner, $params, $searchId) use ($driver, $rManager) {
-                $params->initFromRecordDriver($driver);
+            $cb = function ($runner, $params, $searchId) use ($driver, $rManager, $request): void {
+                $params->initFromRecordDriver($driver, '' !== ($request['lookfor'] ?? ''));
                 $listener = new RecommendListener($rManager, $searchId);
                 $listener->setConfig(
                     $params->getOptions()->getRecommendationSettings()
@@ -114,19 +148,15 @@ class CollectionList extends AbstractBase
                 $listener->attach($runner->getEventManager()->getSharedManager());
             };
             $this->results
-                = $this->runner->run($request, 'SolrCollection', $cb);
+                = $this->runner->run($request, $this->searchClassId, $cb);
+            // Add search id from the originating search for paginator:
+            $this->results->getUrlQuery()->setDefaultParameter(
+                'sid',
+                $this->searchMemory->getCurrentSearchId(),
+                true
+            );
         }
         return $this->results;
-    }
-
-    /**
-     * Get side recommendations.
-     *
-     * @return array
-     */
-    public function getSideRecommendations()
-    {
-        return $this->getResults()->getRecommendations('side');
     }
 
     /**
@@ -136,7 +166,7 @@ class CollectionList extends AbstractBase
      */
     public function supportsAjax()
     {
-        // No, special sidebar needed.
+        // No, search parameters from the URL are needed.
         return false;
     }
 }

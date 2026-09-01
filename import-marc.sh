@@ -1,12 +1,9 @@
-#!/bin/bash
-# $Id: index_file.sh 17 2008-06-20 14:40:13Z wayne.graham $
+#!/usr/bin/env bash
 #
 # Bash script to start the import of a binary marc file for Solr indexing.
 #
 # VUFIND_HOME
 #   Path to the vufind installation
-# SOLRMARC_HOME
-#   Path to the solrmarc installation
 # JAVA_HOME
 #   Path to the java
 # INDEX_OPTIONS
@@ -30,14 +27,13 @@ done
 shift $(($OPTIND - 1))
 
 #####################################################
-# Make sure we have the expected number of arguments
+# Print usage when called with no argument
 #####################################################
 E_BADARGS=65
-EXPECTED_ARGS=1
 
-if [ $# -ne $EXPECTED_ARGS ]
+if [ $# -eq 0 ]
 then
-  echo "    Usage: `basename $0` [-p ./path/to/import.properties] ./path/to/marc.mrc"
+  echo "    Usage: `basename $0` [-p ./path/to/import.properties] ./path/to/marc.mrc ..."
   exit $E_BADARGS
 fi
 
@@ -47,49 +43,38 @@ fi
 # Xmx and Xms set the heap size for the Java Virtual Machine
 # You may also want to add the following:
 # -XX:+UseParallelGC
-# -XX:+AggressiveOpts
 ##################################################
 if [ -z "$INDEX_OPTIONS" ]
 then
-  INDEX_OPTIONS='-Xms512m -Xmx512m -DentityExpansionLimit=0'
+  INDEX_OPTIONS='-Xms512m -Xmx6192m -DentityExpansionLimit=0 -Dsolrmarc.indexer.threadcount=4'
 fi
-
 
 ##################################################
 # Set SOLRCORE
 ##################################################
-if [ -z "$SOLRCORE" ]
+if [ ! -z "$SOLRCORE" ]
 then
-  SOLRCORE="biblio"
+  EXTRA_SOLRMARC_SETTINGS="$EXTRA_SOLRMARC_SETTINGS -Dsolr.core.name=$SOLRCORE"
 fi
-
 
 ##################################################
 # Set VUFIND_HOME
 ##################################################
 if [ -z "$VUFIND_HOME" ]
 then
-  VUFIND_HOME="/usr/local/vufind2"
+  # set VUFIND_HOME to the absolute path of the directory containing this script
+  # https://stackoverflow.com/questions/4774054/reliable-way-for-a-bash-script-to-get-the-full-path-to-itself
+  export VUFIND_HOME="$(cd "$(dirname "$0")" && pwd -P)"
+  if [ -z "$VUFIND_HOME" ]
+  then
+    exit 1
+  fi
 fi
 
-
-##################################################
-# Use SOLR_HOME if set
-##################################################
-if [ ! -z "$SOLR_HOME" ]
+if [ -z "$VUFIND_LOCAL_DIR" ]
 then
-  EXTRA_SOLRMARC_SETTINGS="$EXTRA_SOLRMARC_SETTINGS -Dsolr.path=$SOLR_HOME -Dsolr.solr.home=$SOLR_HOME -Dsolrmarc.solr.war.path=$SOLR_HOME/jetty/webapps/solr.war"
+  echo "WARNING: VUFIND_LOCAL_DIR environment variable is not set. Is this intentional?"
 fi
-
-
-##################################################
-# Set SOLRMARC_HOME
-##################################################
-if [ ! -z "$SOLRMARC_HOME" ]
-then
-  EXTRA_SOLRMARC_SETTINGS="$EXTRA_SOLRMARC_SETTINGS -Dsolrmarc.path=$VUFIND_HOME/import"
-fi
-
 
 #####################################################
 # Build java command
@@ -115,9 +100,22 @@ then
 fi
 
 ##################################################
+# Set log4j config file if not already provided
+##################################################
+if [ -z "$LOG4J_CONFIG" ]
+then
+  if [ -f "$VUFIND_LOCAL_DIR/import/log4j.properties" ]
+  then
+    LOG4J_CONFIG="$VUFIND_LOCAL_DIR/import/log4j.properties"
+  else
+    LOG4J_CONFIG="$VUFIND_HOME/import/log4j.properties"
+  fi
+fi
+
+##################################################
 # Set Command Options
 ##################################################
-JAR_FILE="$VUFIND_HOME/import/SolrMarc.jar"
+for i in $VUFIND_HOME/import/solrmarc_core_*.jar; do JAR_FILE="$i"; done
 
 #####################################################
 # Verify that JAR_FILE exists
@@ -129,20 +127,76 @@ then
 fi
 
 #####################################################
-# Normalize target file path to absolute path
+# Normalize file paths to absolute paths
 #####################################################
-MARC_PATH=`dirname $1`
-MARC_PATH=`cd $MARC_PATH && pwd`
-MARC_FILE=`basename $1`
+NORMALIZED_PATHS=()
+
+for f in "$@"; do
+  MARC_PATH=$(dirname "$f")
+  MARC_PATH=$(cd "$MARC_PATH" && pwd) # Resolve the full path to prevent relative path issues
+  MARC_FILE=$(basename "$f")
+  # Add the full path to the array
+  NORMALIZED_PATHS+=("$MARC_PATH/$MARC_FILE")
+done
+
+#####################################################
+# Set up SolrJ symlinks for performance (searching
+# all the Solr .jar files slows things down; this
+# helps by pointing to only the necessary ones)
+#####################################################
+if [ -z "$SOLRJ_DIR" ]
+then
+  SOLRJ_DIR="$VUFIND_HOME/solr/vendor/.solrj"
+fi
+
+REGENERATE_SOLRJ_DIR=0
+if [ -d "$SOLRJ_DIR" ]
+then
+  # validate the .solrj symlinks in case an upgrade has messed something up:
+  find $SOLRJ_DIR -type l ! -exec test -e {} \; -print | grep . > /dev/null
+  if [ $? -eq 0 ]
+  then
+    echo "Bad symlinks found in $SOLRJ_DIR; regenerating directory..."
+    find $SOLRJ_DIR -type l -exec rm {} \+
+    REGENERATE_SOLRJ_DIR=1
+  fi
+fi
+
+if [ ! -d "$SOLRJ_DIR" ]
+then
+  mkdir -p $SOLRJ_DIR
+  REGENERATE_SOLRJ_DIR=1
+fi
+
+if [ $REGENERATE_SOLRJ_DIR -eq 1 ]
+then
+  for file in $VUFIND_HOME/solr/vendor/server/solr-webapp/webapp/WEB-INF/lib/solr*.jar $VUFIND_HOME/solr/vendor/server/solr-webapp/webapp/WEB-INF/lib/http*.jar
+  do
+    ln -s $file $SOLRJ_DIR/`basename "$file"`
+  done
+fi
 
 #####################################################
 # Execute Importer
 #####################################################
 
-RUN_CMD="$JAVA $INDEX_OPTIONS -Duser.timezone=UTC -Dsolr.core.name=$SOLRCORE $EXTRA_SOLRMARC_SETTINGS -jar $JAR_FILE $PROPERTIES_FILE $MARC_PATH/$MARC_FILE"
-echo "Now Importing $1 ..."
-# solrmarc writes log messages to stderr, write RUN_CMD to the same place
-echo "`date '+%h %d, %H:%M:%S'` $RUN_CMD" >&2
-exec $RUN_CMD
+# Build the command as an array
+RUN_CMD=(
+  "$JAVA"
+  $INDEX_OPTIONS
+  -Duser.timezone=UTC
+  -Dlog4j.configuration="file://$LOG4J_CONFIG"
+  $EXTRA_SOLRMARC_SETTINGS
+  -jar "$JAR_FILE"
+  "$PROPERTIES_FILE"
+  -solrj "$SOLRJ_DIR"
+  -lib_local "$VUFIND_HOME/import/lib_local;$VUFIND_HOME/solr/vendor/modules/analysis-extras/lib"
+  "${NORMALIZED_PATHS[@]}"
+)
 
-exit 0
+# Debugging output
+echo "Now Importing: ${NORMALIZED_PATHS[*]}"
+echo "$(date '+%h %d, %H:%M:%S') ${RUN_CMD[*]}" >&2
+
+# Execute the command using the array
+exec "${RUN_CMD[@]}"

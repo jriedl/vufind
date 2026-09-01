@@ -1,8 +1,9 @@
 <?php
+
 /**
  * PermissionProvider ServerParam Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,30 +17,32 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Bernd Oberknapp <bo@ub.uni-freiburg.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Role\PermissionProvider;
+
 use VuFind\Role\PermissionProvider\ServerParam;
 
 /**
  * PermissionProvider ServerParam Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Bernd Oberknapp <bo@ub.uni-freiburg.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ServerParamTest extends \VuFindTest\Unit\TestCase
+class ServerParamTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test single option with matching string
@@ -51,7 +54,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader' => 'testvalue'],
             'testheader testvalue',
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -65,7 +68,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader' => 'testvalue'],
             ['testheader testvalue'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -79,7 +82,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader1' => 'testvalue1', 'testheader2' => 'testvalue2'],
             ['testheader1 testvalue1', 'testheader2 testvalue2'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -107,7 +110,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader' => 'testvalue1'],
             ['testheader testvalue1 testvalue2'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -135,7 +138,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader' => 'testvalue'],
             ['testheader ~ ^testvalue$'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -163,7 +166,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader' => 'testvalue'],
             ['testheader ! testval'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -191,7 +194,7 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
         $this->checkServerParams(
             ['testheader' => 'testvalue'],
             ['testheader !~ testval$'],
-            ['loggedin']
+            ['guest', 'loggedin']
         );
     }
 
@@ -220,8 +223,8 @@ class ServerParamTest extends \VuFindTest\Unit\TestCase
      */
     protected function checkServerParams($headers, $options, $expectedResult)
     {
-        $request = new \Zend\Http\PhpEnvironment\Request();
-        $request->setServer(new \Zend\Stdlib\Parameters($headers));
+        $request = new \Laminas\Http\PhpEnvironment\Request();
+        $request->setServer(new \Laminas\Stdlib\Parameters($headers));
         $header = new ServerParam($request);
         $result = $header->getPermissions($options);
         $this->assertEquals($result, $expectedResult);

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * JsTranslations helper for passing translation text to Javascript
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper\Root;
-use Zend\View\Helper\AbstractHelper;
 
 /**
  * JsTranslations helper for passing translation text to Javascript
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
-class JsTranslations extends AbstractHelper
+class JsTranslations extends AbstractJsStrings
 {
+    /**
+     * Translate helper
+     *
+     * @var Translate
+     */
+    protected $translate;
+
     /**
      * Translate + escape helper
      *
@@ -47,59 +55,38 @@ class JsTranslations extends AbstractHelper
     protected $transEsc;
 
     /**
-     * Variable name to store translations
-     *
-     * @var string
-     */
-    protected $varName;
-
-    /**
-     * Strings to translate (key = js key, value = string to translate)
-     *
-     * @var array
-     */
-    protected $strings = [];
-
-    /**
      * Constructor
      *
-     * @param TransEsc $transEsc Translate + escape helper
-     * @param string   $varName  Variable name to store translations
+     * @param Translate $translate Translate helper
+     * @param TransEsc  $transEsc  Translate + escape helper
+     * @param string    $varName   Variable name to store translations
      */
-    public function __construct(TransEsc $transEsc, $varName = 'vufindString')
-    {
+    public function __construct(
+        Translate $translate,
+        TransEsc $transEsc,
+        $varName = 'vufindString'
+    ) {
+        parent::__construct($varName);
+        $this->translate = $translate;
         $this->transEsc = $transEsc;
-        $this->varName = $varName;
     }
 
     /**
-     * Add strings to the internal array.
+     * Translate string
      *
-     * @param array $new Strings to add
-     *
-     * @return void
-     */
-    public function addStrings($new)
-    {
-        foreach ($new as $k => $v) {
-            $this->strings[$k] = $v;
-        }
-    }
-
-    /**
-     * Generate Javascript from the internal strings.
+     * @param string|array $translation String to translate
+     * @param string       $key         JSON object key
      *
      * @return string
      */
-    public function getScript()
+    protected function mapValue($translation, string $key): string
     {
-        $parts = [];
-        foreach ($this->strings as $k => $v) {
-            $translation = is_array($v)
-                ? call_user_func_array([$this->transEsc, '__invoke'], $v)
-                : $this->transEsc->__invoke($v);
-            $parts[] = $k . ': "' . addslashes($translation) . '"';
-        }
-        return $this->varName . ' = {' . implode(',', $parts) . '};';
+        $translateFunc
+            = str_ends_with($key, '_html') || str_ends_with($key, '_unescaped')
+            ? $this->translate : $this->transEsc;
+
+        // $translation could be a string or an array of parameters; this code
+        // normalizes it into a parameter list for the translator.
+        return ($translateFunc)(...((array)$translation));
     }
 }

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * FavoriteFacets recommendation module Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Recommend;
+
 use VuFind\Recommend\FavoriteFacets;
 
 /**
  * FavoriteFacets recommendation module Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class FavoriteFacetsTest extends \VuFindTest\Unit\TestCase
+class FavoriteFacetsTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\ConfigRelatedServicesTrait;
+
     /**
      * Test facet initialization with disabled tags.
      *
@@ -46,14 +51,12 @@ class FavoriteFacetsTest extends \VuFindTest\Unit\TestCase
      */
     public function testFacetInitWithDisabledTags()
     {
-        $configLoader = $this->getMockConfigLoader(
-            ['Social' => ['tags' => false]]
-        );
         $results = $this->getMockResults();
         $params = $results->getParams();
         $params->expects($this->exactly(0))->method('addFacet'); // no facets are expected in this case
-        $this->getFavoriteFacets($configLoader, $results);
+        $this->getFavoriteFacets($results, 'disabled');
     }
+
     /**
      * Test facet initialization with enabled tags.
      *
@@ -63,57 +66,37 @@ class FavoriteFacetsTest extends \VuFindTest\Unit\TestCase
     {
         $results = $this->getMockResults();
         $params = $results->getParams();
-        $params->expects($this->once())->method('addFacet')->with($this->equalTo('tags'), $this->equalTo('Your Tags'), $this->equalTo(false));
-        $this->getFavoriteFacets(null, $results);
+        $params->expects($this->once())->method('addFacet')
+            ->with($this->equalTo('tags'), $this->equalTo('Your Tags'), $this->equalTo(false));
+        $this->getFavoriteFacets($results);
     }
 
     /**
      * Get a fully configured module
      *
-     * @param \VuFind\Config\PluginManager                $configLoader config loader
-     * @param \VuFind\Search\Solr\Results                 $results      results object
-     * @param string                                      $settings     settings
-     * @param \Zend\StdLib\Parameters                     $request      request
-     * @param \VuFind\Search\Solr\HierarchicalFacetHelper $facetHelper  hierarchical facet helper (true to build default, null to omit)
+     * @param ?\VuFind\Search\Solr\Results $results    results object
+     * @param string                       $tagSetting Are tags enabled?
      *
      * @return FavoriteFacets
      */
-    protected function getFavoriteFacets($configLoader = null, $results = null, $settings = '', $request = null, $facetHelper = null)
-    {
-        if (null === $configLoader) {
-            $configLoader = $this->getMockConfigLoader();
-        }
+    protected function getFavoriteFacets(
+        ?\VuFind\Search\Solr\Results $results = null,
+        string $tagSetting = 'enabled',
+    ): FavoriteFacets {
         if (null === $results) {
             $results = $this->getMockResults();
         }
-        if (true === $facetHelper) {
-            $facetHelper = new \VuFind\Search\Solr\HierarchicalFacetHelper();
-        }
-        if (null === $request) {
-            $request = new \Zend\StdLib\Parameters([]);
-        }
-        $sf = new FavoriteFacets($configLoader, $facetHelper);
-        $sf->setConfig($settings);
-        $sf->init($results->getParams(), $request);
+        $sf = new FavoriteFacets(
+            $this->getMockConfigManager(),
+            $tagSetting
+        );
+        $sf->setConfig('');
+        $sf->init(
+            $results->getParams(),
+            new \Laminas\Stdlib\Parameters([])
+        );
         $sf->process($results);
         return $sf;
-    }
-
-    /**
-     * Get a mock config loader.
-     *
-     * @param array  $config Configuration to return
-     * @param string $key    Key to store configuration under
-     *
-     * @return \VuFind\Config\PluginManager
-     */
-    protected function getMockConfigLoader($config = [], $key = 'config')
-    {
-        $loader = $this->getMockBuilder('VuFind\Config\PluginManager')
-            ->disableOriginalConstructor()->getMock();
-        $loader->expects($this->once())->method('get')->with($this->equalTo($key))
-            ->will($this->returnValue(new \Zend\Config\Config($config)));
-        return $loader;
     }
 
     /**
@@ -128,10 +111,10 @@ class FavoriteFacetsTest extends \VuFindTest\Unit\TestCase
         if (null === $params) {
             $params = $this->getMockParams();
         }
-        $results = $this->getMockBuilder('VuFind\Search\Solr\Results')
+        $results = $this->getMockBuilder(\VuFind\Search\Solr\Results::class)
             ->disableOriginalConstructor()->getMock();
         $results->expects($this->any())->method('getParams')
-            ->will($this->returnValue($params));
+            ->willReturn($params);
         return $results;
     }
 
@@ -147,10 +130,10 @@ class FavoriteFacetsTest extends \VuFindTest\Unit\TestCase
         if (null === $query) {
             $query = new \VuFindSearch\Query\Query('foo', 'bar');
         }
-        $params = $this->getMockBuilder('VuFind\Search\Solr\Params')
+        $params = $this->getMockBuilder(\VuFind\Search\Solr\Params::class)
             ->disableOriginalConstructor()->getMock();
         $params->expects($this->any())->method('getQuery')
-            ->will($this->returnValue($query));
+            ->willReturn($query);
         return $params;
     }
 }

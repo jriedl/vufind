@@ -1,0 +1,66 @@
+<?php
+$formatProperty = function ($datafield, $name, $label) {
+    if (count($datafield) == 0) {
+        return '';
+    }
+    $that = $this;
+    $translate = function ($str) use ($that, $label) {
+        return $that->transEsc($label . $str);
+    };
+    return '<span class="author-property-' . $name . '">(' . implode(', ', array_unique(array_map($translate, $datafield))) . ')</span>';
+};
+$formattedAuthors = [];
+$authTabEnabled = $this->tuefind()->isSearchTabEnabled('SolrAuth');
+?>
+<?php if (!empty($data[$type])): ?>
+  <?php foreach ($data[$type] as $author => $dataFields): ?>
+    <?php ob_start(); ?>
+    <span class="author-data" property="<?=$this->escapeHtml($schemaLabel)?>" typeof="Person">
+      <span property="name">
+        <?php if (!$authTabEnabled): ?>
+          <a href="<?=$this->record($this->driver)->getLink('author', $author)?>">
+        <?php endif; ?>
+        <?=$this->escapeHtml(rtrim($author, ','))?>
+        <?php if (!$authTabEnabled): ?>
+          </a>
+        <?php endif; ?>
+      </span>
+      <?php
+        // TueFind: Show all author roles
+        $authorRoles = $this->driver->getAuthorRoles($author);
+        if(!empty($authorRoles)) {
+          $dataFields['role'] = $authorRoles;
+        }
+
+        // Display additional data using the appropriate translation prefix
+        // (for example, to render author roles correctly):
+        if (!empty($requiredDataFields)) {
+          foreach ($requiredDataFields as $field) {
+            $name = $field['name'];
+            $prefix = $field['prefix'] ?? '';
+            if (isset($dataFields[$name])) {
+                echo $formatProperty($dataFields[$name], $name, $prefix);
+            }
+          }
+        }
+      ?>
+
+      <?php if ($authTabEnabled): ?>
+        <?php $authorityId = $dataFields['id'][0] ?? ''; ?>
+        <?php if ($authorityId && $authorityDriver = $this->authority()->recordExists($authorityId)): ?>
+          <a href="<?=$this->record($authorityDriver)->getLink('titles-by', $authorityDriver)?>" rel="nofollow"><i class="fa fa-book" aria-hidden="true" title="<?=$this->transEsc('author_all_titles_tooltip')?>"></i></a>
+          <a href="<?=$this->recordLinker()->getUrl($authorityDriver)?>" rel="nofollow"><i class="fa fa-user-circle" aria-hidden="true" title="<?=$this->transEsc('author_details_tooltip')?>"></i></a>
+        <?php else: ?>
+          <a href="<?=$this->record($this->driver)->getLink('author', $author)?>" rel="nofollow"><i class="fa fa-book" aria-hidden="true" title="<?=$this->transEsc('author_all_titles_tooltip')?>"></i></a>
+        <?php endif; ?>
+      <?php endif; ?>
+    </span>
+    <?php
+      // Strip whitespace before close tags to avoid spaces in front of commas:
+      $formattedAuthors[] = trim(preg_replace('/\s+<\//', '</', ob_get_contents()));
+      ob_end_clean();
+    ?>
+  <?php endforeach; ?>
+<?php endif; ?>
+<?php // TueFind: Use ; instead of , as separator ?>
+<?=implode('; ', $formattedAuthors)?>

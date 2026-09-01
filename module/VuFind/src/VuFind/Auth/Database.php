@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Database authentication class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,33 +17,52 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Chris Hallberg <challber@villanova.edu>
  * @author   Franck Borel <franck.borel@gbv.de>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:authentication_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:authentication_handlers Wiki
  */
+
 namespace VuFind\Auth;
-use VuFind\Exception\Auth as AuthException, Zend\Crypt\Password\Bcrypt;
+
+use DateTime;
+use Laminas\Http\PhpEnvironment\Request;
+use VuFind\Crypt\PasswordHasher;
+use VuFind\Db\Entity\UserEntityInterface;
+use VuFind\Db\Service\UserServiceInterface;
+use VuFind\Exception\Auth as AuthException;
+use VuFind\Exception\AuthEmailNotVerified as AuthEmailNotVerifiedException;
+use VuFind\Exception\DuplicateKeyException;
+
+use function in_array;
+use function is_object;
 
 /**
  * Database authentication class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Chris Hallberg <challber@villanova.edu>
  * @author   Franck Borel <franck.borel@gbv.de>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:authentication_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:authentication_handlers Wiki
  */
 class Database extends AbstractBase
 {
+    /**
+     * Password hasher
+     *
+     * @var PasswordHasher
+     */
+    protected $hasher;
+
     /**
      * Username
      *
@@ -58,28 +78,41 @@ class Database extends AbstractBase
     protected $password;
 
     /**
-     * Attempt to authenticate the current user.  Throws exception if login fails.
+     * Constructor
      *
-     * @param \Zend\Http\PhpEnvironment\Request $request Request object containing
-     * account credentials.
+     * @param ?PasswordHasher $hasher Password hash service (null to create one)
+     */
+    public function __construct(?PasswordHasher $hasher = null)
+    {
+        $this->hasher = $hasher ?? new PasswordHasher();
+    }
+
+    /**
+     * Attempt to authenticate the current user. Throws exception if login fails.
+     *
+     * @param Request $request Request object containing account credentials.
      *
      * @throws AuthException
-     * @return \VuFind\Db\Row\User Object representing logged-in user.
+     * @return UserEntityInterface Object representing logged-in user.
      */
     public function authenticate($request)
     {
         // Make sure the credentials are non-blank:
-        $this->username = trim($request->getPost()->get('username'));
-        $this->password = trim($request->getPost()->get('password'));
+        $this->username = trim($request->getPost()->get('username', ''));
+        $this->password = trim($request->getPost()->get('password', ''));
         if ($this->username == '' || $this->password == '') {
             throw new AuthException('authentication_error_blank');
         }
 
         // Validate the credentials:
-        $user = $this->getUserTable()->getByUsername($this->username, false);
+        $userService = $this->getUserService();
+        $user = $userService->getUserByUsername($this->username);
         if (!is_object($user) || !$this->checkPassword($this->password, $user)) {
             throw new AuthException('authentication_error_invalid');
         }
+
+        // Verify email address:
+        $this->checkEmailVerified($user);
 
         // If we got this far, the login was successful:
         return $user;
@@ -93,118 +126,131 @@ class Database extends AbstractBase
     protected function passwordHashingEnabled()
     {
         $config = $this->getConfig();
-        return isset($config->Authentication->hash_passwords)
-            ? $config->Authentication->hash_passwords : false;
+        return $config->Authentication->hash_passwords ?? false;
+    }
+
+    /**
+     * Set the password in a UserEntityInterface object.
+     *
+     * @param UserEntityInterface $user User to update
+     * @param string              $pass Password to store
+     *
+     * @return void
+     */
+    protected function setUserPassword(UserEntityInterface $user, string $pass): void
+    {
+        if ($this->passwordHashingEnabled()) {
+            $user->setPasswordHash($this->hasher->create($pass));
+        } else {
+            $user->setRawPassword($pass);
+        }
     }
 
     /**
      * Create a new user account from the request.
      *
-     * @param \Zend\Http\PhpEnvironment\Request $request Request object containing
-     * new account details.
+     * @param Request $request Request object containing new account details.
      *
      * @throws AuthException
-     * @return \VuFind\Db\Row\User New user row.
+     * @return UserEntityInterface New user entity.
      */
     public function create($request)
     {
-        // Ensure that all expected parameters are populated to avoid notices
-        // in the code below.
-        $params = [
-            'firstname' => '', 'lastname' => '', 'username' => '',
-            'password' => '', 'password2' => '', 'email' => ''
-        ];
-        foreach ($params as $param => $default) {
-            $params[$param] = $request->getPost()->get($param, $default);
-        }
+        // Collect POST parameters from request
+        $params = $this->collectParamsFromRequest($request);
 
-        // Validate Input
-        $this->validateUsernameAndPassword($params);
+        // Validate username and password
+        $this->validateUsername($params);
+        $this->validatePassword($params);
 
-        // Invalid Email Check
-        $validator = new \Zend\Validator\EmailAddress();
-        if (!$validator->isValid($params['email'])) {
-            throw new AuthException('Email address is invalid');
-        }
-        if (!$this->emailAllowed($params['email'])) {
-            throw new AuthException('authentication_error_creation_blocked');
-        }
+        // Get the user table
+        $userService = $this->getUserService();
 
-        // Make sure we have a unique username
-        $table = $this->getUserTable();
-        if ($table->getByUsername($params['username'], false)) {
-            throw new AuthException('That username is already taken');
-        }
-        // Make sure we have a unique email
-        if ($table->getByEmail($params['email'])) {
-            throw new AuthException('That email address is already used');
-        }
+        // Make sure parameters are correct
+        $this->validateParams($params, $userService);
 
         // If we got this far, we're ready to create the account:
-        $user = $table->createRowForUsername($params['username']);
-        $user->firstname = $params['firstname'];
-        $user->lastname = $params['lastname'];
-        $user->email = $params['email'];
-        if ($this->passwordHashingEnabled()) {
-            $bcrypt = new Bcrypt();
-            $user->pass_hash = $bcrypt->create($params['password']);
-        } else {
-            $user->password = $params['password'];
+        $user = $this->createUserFromParams($params, $userService);
+        try {
+            $userService->persistEntity($user);
+        } catch (DuplicateKeyException $e) {
+            // In a scenario where the unique key of the user table is
+            // shorter than the username field length, it is possible that
+            // a user will pass validation but still get rejected due to
+            // the inability to generate a unique key. This is a very
+            // unlikely scenario, but if it occurs, we will treat it the
+            // same as a duplicate username. Other unexpected database
+            // errors will be passed through unmodified.
+            throw new AuthException('That username is already taken');
         }
-        $user->save();
+
+        // Verify email address:
+        $this->checkEmailVerified($user);
+
         return $user;
     }
 
     /**
      * Update a user's password from the request.
      *
-     * @param \Zend\Http\PhpEnvironment\Request $request Request object containing
-     * new account details.
+     * @param Request $request Request object containing new account details.
      *
      * @throws AuthException
-     * @return \VuFind\Db\Row\User New user row.
+     * @return UserEntityInterface Updated user entity.
      */
     public function updatePassword($request)
     {
         // Ensure that all expected parameters are populated to avoid notices
         // in the code below.
         $params = [
-            'username' => '', 'password' => '', 'password2' => ''
+            'username' => '', 'password' => '', 'password2' => '',
         ];
         foreach ($params as $param => $default) {
             $params[$param] = $request->getPost()->get($param, $default);
         }
 
-        // Validate Input
-        $this->validateUsernameAndPassword($params);
+        // Validate username and password, but skip validation of username policy
+        // since the account already exists):
+        $this->validateUsername($params, false);
+        $this->validatePassword($params);
 
         // Create the row and send it back to the caller:
-        $table = $this->getUserTable();
-        $user = $table->getByUsername($params['username'], false);
-        if ($this->passwordHashingEnabled()) {
-            $bcrypt = new Bcrypt();
-            $user->pass_hash = $bcrypt->create($params['password']);
-        } else {
-            $user->password = $params['password'];
-        }
-        $user->save();
+        $user = $this->getUserService()->getUserByUsername($params['username']);
+        $this->setUserPassword($user, $params['password']);
+        $this->getUserService()->persistEntity($user);
         return $user;
     }
 
     /**
-     * Make sure username and password aren't blank
-     * Make sure passwords match
+     * Make sure username isn't blank and matches the policy.
      *
-     * @param array $params request parameters
+     * @param array $params      Request parameters
+     * @param bool  $checkPolicy Whether to check the policy as well (default is
+     * true)
      *
      * @return void
      */
-    protected function validateUsernameAndPassword($params)
+    protected function validateUsername($params, $checkPolicy = true)
     {
         // Needs a username
         if (trim($params['username']) == '') {
             throw new AuthException('Username cannot be blank');
         }
+        if ($checkPolicy) {
+            // Check username policy
+            $this->validateUsernameAgainstPolicy($params['username']);
+        }
+    }
+
+    /**
+     * Make sure password isn't blank, matches the policy and passwords match.
+     *
+     * @param array $params Request parameters
+     *
+     * @return void
+     */
+    protected function validatePassword($params)
+    {
         // Needs a password
         if (trim($params['password']) == '') {
             throw new AuthException('Password cannot be blank');
@@ -213,15 +259,36 @@ class Database extends AbstractBase
         if ($params['password'] != $params['password2']) {
             throw new AuthException('Passwords do not match');
         }
-        // Password policy
+        // Check password policy
         $this->validatePasswordAgainstPolicy($params['password']);
+    }
+
+    /**
+     * Check if the user's email address has been verified (if necessary) and
+     * throws exception if not.
+     *
+     * @param UserEntityInterface $user User to check
+     *
+     * @return void
+     * @throws AuthEmailNotVerifiedException
+     */
+    protected function checkEmailVerified($user)
+    {
+        $config = $this->getConfig();
+        $verify_email = $config->Authentication->verify_email ?? false;
+        if ($verify_email && !$user->getEmailVerified()) {
+            throw new AuthEmailNotVerifiedException(
+                $user,
+                'authentication_error_email_not_verified_html'
+            );
+        }
     }
 
     /**
      * Check that the user's password matches the provided value.
      *
-     * @param string $password Password to check.
-     * @param object $userRow  The user row.  We pass this instead of the password
+     * @param string              $password Password to check.
+     * @param UserEntityInterface $userRow  The user row. We pass this instead of the password
      * because we may need to check different values depending on the password
      * hashing configuration.
      *
@@ -231,22 +298,21 @@ class Database extends AbstractBase
     {
         // Special case: hashing enabled:
         if ($this->passwordHashingEnabled()) {
-            if ($userRow->password) {
+            if ($userRow->getRawPassword()) {
                 throw new \VuFind\Exception\PasswordSecurity(
                     'Unexpected unencrypted password found in database'
                 );
             }
 
-            $bcrypt = new Bcrypt();
-            return $bcrypt->verify($password, $userRow->pass_hash);
+            return $this->hasher->verify($password, $userRow->getPasswordHash() ?? '');
         }
 
         // Default case: unencrypted passwords:
-        return $password == $userRow->password;
+        return $password == $userRow->getRawPassword();
     }
 
     /**
-     * Check that an email address is legal based on whitelist (if configured).
+     * Check that an email address is legal based on inclusion list (if configured).
      *
      * @param string $email Email address to check (assumed to be valid/well-formed)
      *
@@ -254,28 +320,29 @@ class Database extends AbstractBase
      */
     protected function emailAllowed($email)
     {
-        // If no whitelist is configured, all emails are allowed:
-        $config = $this->getConfig();
-        if (!isset($config->Authentication->domain_whitelist)
-            || empty($config->Authentication->domain_whitelist)
-        ) {
+        // If no inclusion list is configured, all emails are allowed:
+        $fullConfig = $this->getConfig();
+        $config = isset($fullConfig->Authentication)
+            ? $fullConfig->Authentication->toArray() : [];
+        $rawIncludeList = $config['legal_domains']
+            ?? $config['domain_whitelist']  // deprecated configuration
+            ?? null;
+        if (empty($rawIncludeList)) {
             return true;
         }
 
-        // Normalize the whitelist:
-        $whitelist = array_map(
+        // Normalize the allowed list:
+        $includeList = array_map(
             'trim',
-            array_map(
-                'strtolower', $config->Authentication->domain_whitelist->toArray()
-            )
+            array_map('strtolower', $rawIncludeList)
         );
 
         // Extract the domain from the email address:
         $parts = explode('@', $email);
         $domain = strtolower(trim(array_pop($parts)));
 
-        // Match domain against whitelist:
-        return in_array($domain, $whitelist);
+        // Match domain against allowed list:
+        return in_array($domain, $includeList);
     }
 
     /**
@@ -301,19 +368,92 @@ class Database extends AbstractBase
     /**
      * Does this authentication method support password recovery
      *
+     * @param ?string $target Authentication target for methods that support target selection
+     *
      * @return bool
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function supportsPasswordRecovery()
+    public function supportsPasswordRecovery(?string $target = null)
     {
         return true;
     }
 
     /**
-     * Password policy for a new password (e.g. minLength, maxLength)
+     * Get password recovery data (such as a user id or recovery token) based on form data submitted by the user.
+     *
+     * @param array $params Request params (form data)
+     *
+     * @return ?array Null if user not found, or associative array with following keys:
+     *   string email    User's email address
+     *   string username Username (optional, for display)
+     *   array  details  Array of user details required for resetPassword request
+     */
+    public function getPasswordRecoveryData(array $params): ?array
+    {
+        $userService = $this->getUserService();
+        $user = null;
+        if ($email = $params['email'] ?? null) {
+            $user = $userService->getUserByEmail($email);
+        } elseif ($username = $params['username'] ?? null) {
+            $user = $userService->getUserByUsername($username);
+        }
+        if ($email = $user?->getEmail()) {
+            return [
+                'email' => $email,
+                'username' => $user->getUsername(),
+                'details' => [
+                    'id' => $user->getId(),
+                ],
+            ];
+        }
+        return null;
+    }
+
+    /**
+     * Reset a user's password.
+     *
+     * @param array $recoveryData Account recovery data from getPasswordRecoveryData.
+     * @param array $params       User-entered form parameters.
+     *
+     * @throws AuthException
+     * @return void
+     */
+    public function resetPassword(array $recoveryData, array $params)
+    {
+        $this->validatePassword($params);
+        $user = $this->getUserService()->getUserById($recoveryData['details']['id']);
+        $this->setUserPassword($user, $params['password']);
+        // Also treat email address as verified
+        $user->setEmailVerified(new DateTime());
+        $this->getUserService()->persistEntity($user);
+    }
+
+    /**
+     * Username policy for a new account (e.g. minLength, maxLength)
      *
      * @return array
      */
-    public function getPasswordPolicy()
+    public function getUsernamePolicy()
+    {
+        $policy = parent::getUsernamePolicy();
+        // Limit maxLength to the database limit
+        if (!isset($policy['maxLength']) || $policy['maxLength'] > 255) {
+            $policy['maxLength'] = 255;
+        }
+        return $policy;
+    }
+
+    /**
+     * Password policy for a new password (e.g. minLength, maxLength)
+     *
+     * @param ?string $target Authentication target for methods that support target selection
+     *
+     * @return array
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
+    public function getPasswordPolicy(?string $target = null): array
     {
         $policy = parent::getPasswordPolicy();
         // Limit maxLength to the database limit
@@ -321,5 +461,79 @@ class Database extends AbstractBase
             $policy['maxLength'] = 32;
         }
         return $policy;
+    }
+
+    /**
+     * Collect parameters from request and populate them.
+     *
+     * @param Request $request Request object containing new account details.
+     *
+     * @return string[]
+     */
+    protected function collectParamsFromRequest($request)
+    {
+        // Ensure that all expected parameters are populated to avoid notices
+        // in the code below.
+        $params = [
+            'firstname' => '', 'lastname' => '', 'username' => '',
+            'password' => '', 'password2' => '', 'email' => '',
+        ];
+        foreach ($params as $param => $default) {
+            $params[$param] = $request->getPost()->get($param, $default);
+        }
+
+        return $params;
+    }
+
+    /**
+     * Validate parameters.
+     *
+     * @param string[]             $params      Parameters returned from collectParamsFromRequest()
+     * @param UserServiceInterface $userService User service
+     *
+     * @throws AuthException
+     *
+     * @return void
+     */
+    protected function validateParams(array $params, UserServiceInterface $userService): void
+    {
+        // Invalid Email Check
+        $validator = new \Laminas\Validator\EmailAddress();
+        if (!$validator->isValid($params['email'])) {
+            throw new AuthException('Email address is invalid');
+        }
+
+        // Check if Email is on allowed list (if applicable)
+        if (!$this->emailAllowed($params['email'])) {
+            throw new AuthException('authentication_error_creation_blocked');
+        }
+
+        // Make sure we have a unique username
+        if ($userService->getUserByUsername($params['username'])) {
+            throw new AuthException('That username is already taken');
+        }
+
+        // Make sure we have a unique email
+        if ($userService->getUserByEmail($params['email'])) {
+            throw new AuthException('That email address is already used');
+        }
+    }
+
+    /**
+     * Create a user entity object from given parameters.
+     *
+     * @param string[]             $params      Parameters returned from collectParamsFromRequest()
+     * @param UserServiceInterface $userService User service
+     *
+     * @return UserEntityInterface A user entity
+     */
+    protected function createUserFromParams(array $params, UserServiceInterface $userService)
+    {
+        $user = $userService->createEntityForUsername($params['username']);
+        $user->setFirstname($params['firstname']);
+        $user->setLastname($params['lastname']);
+        $this->getUserService()->updateUserEmail($user, $params['email'], true);
+        $this->setUserPassword($user, $params['password']);
+        return $user;
     }
 }

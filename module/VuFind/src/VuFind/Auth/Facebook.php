@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Facebook authentication module.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,28 +17,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Franck Borel <franck.borel@gbv.de>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Auth;
+
+use VuFind\Db\Entity\UserEntityInterface;
 use VuFind\Exception\Auth as AuthException;
 
 /**
  * Facebook authentication module.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authentication
  * @author   Franck Borel <franck.borel@gbv.de>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Facebook extends AbstractBase implements
     \VuFindHttp\HttpServiceAwareInterface
@@ -47,20 +51,23 @@ class Facebook extends AbstractBase implements
     /**
      * Session container
      *
-     * @var \Zend\Session\Container
+     * @var \Laminas\Session\Container
      */
     protected $session;
 
     /**
      * Constructor
+     *
+     * @param \Laminas\Session\Container $container Session container for persisting
+     * state information.
      */
-    public function __construct()
+    public function __construct(\Laminas\Session\Container $container)
     {
-        $this->session = new \Zend\Session\Container('Facebook');
+        $this->session = $container;
     }
 
     /**
-     * Validate configuration parameters.  This is a support method for getConfig(),
+     * Validate configuration parameters. This is a support method for getConfig(),
      * so the configuration MUST be accessed using $this->config; do not call
      * $this->getConfig() from within this method!
      *
@@ -85,13 +92,13 @@ class Facebook extends AbstractBase implements
     }
 
     /**
-     * Attempt to authenticate the current user.  Throws exception if login fails.
+     * Attempt to authenticate the current user. Throws exception if login fails.
      *
-     * @param \Zend\Http\PhpEnvironment\Request $request Request object containing
+     * @param \Laminas\Http\PhpEnvironment\Request $request Request object containing
      * account credentials.
      *
      * @throws AuthException
-     * @return \VuFind\Db\Row\User Object representing logged-in user.
+     * @return UserEntityInterface Object representing logged-in user.
      */
     public function authenticate($request)
     {
@@ -109,37 +116,38 @@ class Facebook extends AbstractBase implements
         }
 
         // If we made it this far, we should log in the user!
-        $user = $this->getUserTable()->getByUsername($details->id);
+        $userService = $this->getUserService();
+        $user = $this->getOrCreateUserByUsername($details->id);
         if (isset($details->first_name)) {
-            $user->firstname = $details->first_name;
+            $user->setFirstname($details->first_name);
         }
         if (isset($details->last_name)) {
-            $user->lastname = $details->last_name;
+            $user->setLastname($details->last_name);
         }
         if (isset($details->email)) {
-            $user->email = $details->email;
+            $userService->updateUserEmail($user, $details->email);
         }
 
         // Save and return the user object:
-        $user->save();
+        $userService->persistEntity($user);
         return $user;
     }
 
     /**
      * Get the URL to establish a session (needed when the internal VuFind login
-     * form is inadequate).  Returns false when no session initiator is needed.
+     * form is inadequate). Returns false when no session initiator is needed.
      *
      * @param string $target Full URL where external authentication method should
      * send user after login (some drivers may override this).
      *
-     * @return bool|string
+     * @return ?string
      */
-    public function getSessionInitiator($target)
+    public function getSessionInitiator(string $target): ?string
     {
         $base = 'https://www.facebook.com/dialog/oauth';
         // Adding the auth_method setting makes it possible to handle logins when
         // using an auth method that proxies others (e.g. ChoiceAuth)
-        $target .= ((strpos($target, '?') !== false) ? '&' : '?')
+        $target .= ((str_contains($target, '?')) ? '&' : '?')
             . 'auth_method=Facebook';
         $this->session->lastUri = $target;
         return $base . '?client_id='
@@ -165,7 +173,7 @@ class Facebook extends AbstractBase implements
         $response = $this->httpService->get($requestUrl);
         $parts = explode('&', $response->getBody(), 2);
         $parts = explode('=', $parts[0], 2);
-        return isset($parts[1]) ? $parts[1] : null;
+        return $parts[1] ?? null;
     }
 
     /**
@@ -173,7 +181,7 @@ class Facebook extends AbstractBase implements
      *
      * @param string $accessToken Access token
      *
-     * @return array
+     * @return object
      */
     protected function getDetailsFromAccessToken($accessToken)
     {

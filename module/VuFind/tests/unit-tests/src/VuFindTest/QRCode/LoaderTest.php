@@ -1,8 +1,9 @@
 <?php
+
 /**
  * QR Code Loader Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,50 +17,58 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\QRCode;
+
+use VuFind\Config\Config;
 use VuFind\QRCode\Loader;
 use VuFindTheme\ThemeInfo;
-use Zend\Config\Config;
+
+use function strlen;
 
 /**
  * QR Code Loader Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class LoaderTest extends \VuFindTest\Unit\TestCase
+class LoaderTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Theme to use for testing purposes.
      *
      * @var string
      */
-    protected $testTheme = 'bootstrap3';
+    protected $testTheme = 'bootstrap5';
 
     /**
      * Test that failure to load even the baseline image causes an exception.
      *
      * @return void
-     *
-     * @expectedException        Exception
-     * @expectedExceptionMessage Could not load default fail image.
      */
     public function testUtterFailure()
     {
-        $theme = $this->getMock('VuFindTheme\ThemeInfo', [], ['foo', 'bar']);
-        $theme->expects($this->once())->method('findContainingTheme')->with($this->equalTo(['images/noQRCode.gif']))->will($this->returnValue(false));
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Could not load default fail image.');
+
+        $theme = $this->getMockBuilder(\VuFindTheme\ThemeInfo::class)
+            ->setConstructorArgs(['foo', 'bar'])->getMock();
+        $theme->expects($this->once())
+            ->method('findContainingTheme')
+            ->with($this->equalTo(['images/noQRCode.gif']))
+            ->willReturn(false);
         $loader = $this->getLoader([], $theme);
         $loader->getImage();
     }
@@ -78,22 +87,38 @@ class LoaderTest extends \VuFindTest\Unit\TestCase
     }
 
     /**
+     * Test that requesting a too small image returns the fail image.
+     *
+     * @return void
+     */
+    public function testDefaultLoadingForTooSmallImage()
+    {
+        $loader = $this->getLoader();
+        $loader->loadQRCode('foofoofoofoofoofoofoofoofoofoofoofoo', ['size' => 1]);
+        $this->assertEquals('image/gif', $loader->getContentType());
+        $this->assertEquals('483', strlen($loader->getImage()));
+    }
+
+    /**
      * Get a loader object to test.
      *
      * @param array      $config Configuration
      * @param ThemeInfo  $theme  Theme info object (null to create default)
      * @param array|bool $mock   Array of functions to mock, or false for real object
      *
-     * @return void
+     * @return Loader
      */
-    protected function getLoader($config = [], $theme = null, $mock = false)
+    protected function getLoader($config = [], $theme = null, $mock = false): Loader
     {
         $config = new Config($config);
         if (null === $theme) {
             $theme = new ThemeInfo($this->getThemeDir(), $this->testTheme);
         }
         if ($mock) {
-            return $this->getMock('VuFind\QRCode\Loader', $mock, [$config, $theme]);
+            return $this->getMockBuilder(\VuFind\QRCode\Loader::class)
+                ->onlyMethods($mock)
+                ->setConstructorArgs([$config, $theme])
+                ->getMock();
         }
         return new Loader($config, $theme);
     }

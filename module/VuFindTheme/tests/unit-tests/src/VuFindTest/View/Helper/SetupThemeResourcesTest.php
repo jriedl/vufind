@@ -1,0 +1,165 @@
+<?php
+
+/**
+ * SetupThemeResources view helper Test Class
+ *
+ * PHP version 8
+ *
+ * Copyright (C) Villanova University 2010.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
+ *
+ * @category VuFind
+ * @package  Tests
+ * @author   Demian Katz <demian.katz@villanova.edu>
+ * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
+ */
+
+namespace VuFindTest\View\Helper;
+
+use Laminas\View\Helper\HeadLink;
+use Laminas\View\Helper\HeadMeta;
+use Laminas\View\Helper\HeadScript;
+use PHPUnit\Framework\MockObject\MockObject;
+use VuFindTheme\ResourceContainer;
+use VuFindTheme\View\Helper\SetupThemeResources;
+
+/**
+ * SetupThemeResources view helper Test Class
+ *
+ * @category VuFind
+ * @package  Tests
+ * @author   Demian Katz <demian.katz@villanova.edu>
+ * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
+ */
+class SetupThemeResourcesTest extends \PHPUnit\Framework\TestCase
+{
+    use \VuFindTest\Feature\ReflectionTrait;
+
+    /**
+     * Test the helper.
+     *
+     * @return void
+     */
+    public function testHelper()
+    {
+        $helper = new SetupThemeResources($this->getResourceContainer());
+        $helper->setView($this->getMockView());
+        $helper();
+    }
+
+    /**
+     * Test configuration parsing.
+     *
+     * @return void
+     */
+    public function testConfigParsing()
+    {
+        $tests = [
+            'foo:bar:baz' => ['foo', 'bar', 'baz'],
+            'http://foo/bar:baz:xyzzy' => ['http://foo/bar', 'baz', 'xyzzy'],
+        ];
+        foreach ($tests as $test => $expected) {
+            $this->assertEquals(
+                $expected,
+                $this->callMethod($this->getResourceContainer(), 'parseSetting', [$test])
+            );
+        }
+    }
+
+    /**
+     * Get a populated resource container for testing.
+     *
+     * @return ResourceContainer
+     */
+    protected function getResourceContainer()
+    {
+        $rc = new ResourceContainer();
+        $rc->setEncoding('utf-8');
+        $rc->setGenerator('fake-generator');
+        return $rc;
+    }
+
+    /**
+     * Get a fake view object.
+     *
+     * @return \Laminas\View\Renderer\PhpRenderer
+     */
+    protected function getMockView()
+    {
+        $view = new \Laminas\View\Renderer\PhpRenderer();
+        $container = new \VuFindTest\Container\MockViewHelperContainer($this);
+        $container->set('headMeta', $this->getMockHeadMeta());
+        $container->set('headLink', $this->getMockHeadLink());
+        $container->set('headScript', $this->getMockHeadScript());
+        $view->setHelperPluginManager($container);
+        return $view;
+    }
+
+    /**
+     * Get a fake HeadMeta helper.
+     *
+     * @return MockObject&HeadMeta
+     */
+    protected function getMockHeadMeta(): MockObject&HeadMeta
+    {
+        $mock = $this->getMockBuilder(\Laminas\View\Helper\HeadMeta::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__invoke', '__call'])
+            ->getMock();
+        $mock->expects($this->any())->method('__invoke')->willReturn($mock);
+        $mock->expects($this->exactly(2))
+            ->method('__call')
+            ->willReturnCallback(function ($method, $args) use ($mock) {
+                if ($method === 'prependHttpEquiv') {
+                    $this->assertEquals('Content-Type', $args[0]);
+                    $this->assertEquals('text/html; charset=utf-8', $args[1]);
+                    return $mock;
+                }
+                if ($method === 'appendName') {
+                    $this->assertEquals('Generator', $args[0]);
+                    $this->assertEquals('fake-generator', $args[1]);
+                    return $mock;
+                }
+                return null;
+            });
+        return $mock;
+    }
+
+    /**
+     * Get a fake HeadLink helper.
+     *
+     * @return MockObject&HeadLink
+     */
+    protected function getMockHeadLink(): MockObject&HeadLink
+    {
+        $mock = $this->createMock(HeadLink::class);
+        $mock->expects($this->any())->method('__invoke')->willReturn($mock);
+        return $mock;
+    }
+
+    /**
+     * Get a fake HeadScript helper.
+     *
+     * @return MockObject&HeadScript
+     */
+    protected function getMockHeadScript(): MockObject&HeadScript
+    {
+        $mock = $this->createMock(HeadScript::class);
+        $mock->expects($this->any())->method('__invoke')->willReturn($mock);
+        return $mock;
+    }
+}

@@ -3,7 +3,7 @@
 /**
  * Followup controller plugin tests.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,30 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Controller\Plugin;
 
+use Laminas\Session\Container;
 use VuFind\Controller\Plugin\Followup;
-use VuFindTest\Unit\TestCase as TestCase;
+
+use function get_class;
 
 /**
  * Followup controller plugin tests.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class FollowupTest extends TestCase
+class FollowupTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test clear behavior
@@ -49,7 +52,7 @@ class FollowupTest extends TestCase
      */
     public function testClear()
     {
-        $f = new Followup();
+        $f = new Followup(new Container('test'));
         $f->setController($this->getMockController());
         $this->assertFalse($f->clear('url'));  // nothing to clear yet
         $f->store();
@@ -64,13 +67,13 @@ class FollowupTest extends TestCase
      */
     public function testRetrieve()
     {
-        $f = new Followup();
+        $f = new Followup(new Container('test'));
         $f->setController($this->getMockController());
         $f->store();
         // standard controller-provided URL retrieval:
         $this->assertEquals('http://localhost/default-url', $f->retrieve('url'));
         // no parameters retrieves session object:
-        $this->assertEquals('Zend\Session\Container', get_class($f->retrieve()));
+        $this->assertEquals(Container::class, get_class($f->retrieve()));
         // test defaulting behavior:
         $this->assertEquals('foo', $f->retrieve('bar', 'foo'));
     }
@@ -82,7 +85,7 @@ class FollowupTest extends TestCase
      */
     public function testRetrieveAndClear()
     {
-        $f = new Followup();
+        $f = new Followup(new Container('test'));
         $f->store(['foo' => 'bar'], 'baz');
         $this->assertEquals('bar', $f->retrieveAndClear('foo'));
         $this->assertEquals('baz', $f->retrieveAndClear('url'));
@@ -95,12 +98,14 @@ class FollowupTest extends TestCase
      *
      * @param string $url URL for controller to report.
      *
-     * @return void
+     * @return \VuFind\Controller\AbstractBase
      */
-    protected function getMockController($url = 'http://localhost/default-url')
-    {
-        $controller = $this->getMock('VuFind\Controller\AbstractBase');
-        $controller->expects($this->any())->method('getServerUrl')->will($this->returnValue($url));
+    protected function getMockController(
+        $url = 'http://localhost/default-url'
+    ): \VuFind\Controller\AbstractBase {
+        $controller = $this->getMockBuilder(\VuFind\Controller\AbstractBase::class)
+            ->disableOriginalConstructor()->getMock();
+        $controller->expects($this->any())->method('getServerUrl')->willReturn($url);
         return $controller;
     }
 }

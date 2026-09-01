@@ -3,7 +3,7 @@
 /**
  * Memory unit tests.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,43 +17,44 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Search;
 
+use Laminas\Session\Container;
 use VuFind\Search\Memory;
-use VuFindTest\Unit\TestCase as TestCase;
 
 /**
  * Memory unit tests.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class MemoryTest extends TestCase
+class MemoryTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test basic memory.
      *
      * @return void
      */
-    public function testBasicMemory()
+    public function testBasicMemory(): void
     {
-        $mem = new Memory();
-        $this->assertEquals(null, $mem->retrieve());
+        $mem = $this->getMemory();
+        $this->assertEquals(null, $mem->retrieveSearch());
         $url = 'http://test';
-        $mem->rememberSearch($url);
-        $this->assertEquals($url, $mem->retrieve());
+        $mem->rememberSearch($url, -123);
+        $this->assertEquals($url, $mem->retrieveSearch());
     }
 
     /**
@@ -61,14 +62,14 @@ class MemoryTest extends TestCase
      *
      * @return void
      */
-    public function testForgetting()
+    public function testForgetting(): void
     {
-        $mem = new Memory();
+        $mem = $this->getMemory();
         $url = 'http://test';
-        $mem->rememberSearch($url);
-        $this->assertEquals($url, $mem->retrieve());
+        $mem->rememberSearch($url, -123);
+        $this->assertEquals($url, $mem->retrieveSearch());
         $mem->forgetSearch();
-        $this->assertEquals(null, $mem->retrieve());
+        $this->assertEquals(null, $mem->retrieveSearch());
     }
 
     /**
@@ -76,11 +77,11 @@ class MemoryTest extends TestCase
      *
      * @return void
      */
-    public function testEmptyURL()
+    public function testEmptyURL(): void
     {
-        $mem = new Memory();
-        $mem->rememberSearch('');
-        $this->assertEquals(null, $mem->retrieve());
+        $mem = $this->getMemory();
+        $mem->rememberSearch('', -123);
+        $this->assertEquals(null, $mem->retrieveSearch());
     }
 
     /**
@@ -88,14 +89,33 @@ class MemoryTest extends TestCase
      *
      * @return void
      */
-    public function testDisable()
+    public function testDisable(): void
     {
-        $mem = new Memory();
+        $mem = $this->getMemory();
         $url = 'http://test';
-        $mem->rememberSearch($url);
-        $this->assertEquals($url, $mem->retrieve());
+        $mem->rememberSearch($url, -123);
+        $this->assertEquals($url, $mem->retrieveSearch());
         $mem->disable();
-        $mem->rememberSearch('http://ignoreme');
-        $this->assertEquals($url, $mem->retrieve());
+        $mem->rememberSearch('http://ignoreme', -124);
+        $this->assertEquals($url, $mem->retrieveSearch());
+    }
+
+    /**
+     * Create a search memory class
+     *
+     * @return Memory
+     */
+    protected function getMemory(): Memory
+    {
+        $mockRequest = $this->createMock(\Laminas\Http\PhpEnvironment\Request::class);
+        $mockSearchService = $this->createMock(\VuFind\Db\Service\SearchServiceInterface::class);
+        $mockManager = $this->createMock(\VuFind\Search\Results\PluginManager::class);
+        return new Memory(
+            new Container('test'),
+            'fake_session',
+            $mockRequest,
+            $mockSearchService,
+            $mockManager
+        );
     }
 }

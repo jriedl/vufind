@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Search Recommendations Interface
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2009.
  *
@@ -16,15 +17,16 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
 
 /**
@@ -35,16 +37,16 @@ namespace VuFind\Recommend;
  *
  * Note that every class implementing this interface needs to be accompanied by
  * a template file in the Recommend subdirectory of every theme's template
- * directory.  For example, \VuFind\Recommend\SideFacets needs a corresponding
- * Recommend/SideFacets.phtml template.  The template will be rendered as a
+ * directory. For example, \VuFind\Recommend\SideFacets needs a corresponding
+ * Recommend/SideFacets.phtml template. The template will be rendered as a
  * partial with two available variables: recommend (the recommendation object)
  * and results (the search results object).
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
 interface RecommendInterface
 {
@@ -58,13 +60,14 @@ interface RecommendInterface
     public function setConfig($settings);
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
@@ -72,7 +75,7 @@ interface RecommendInterface
     public function init($params, $request);
 
     /**
-     * Called after the Search Results object has performed its main search.  This
+     * Called after the Search Results object has performed its main search. This
      * may be used to extract necessary information from the Search Results object
      * or to perform completely unrelated processing.
      *

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind XSLT importer
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,34 +17,50 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  XSLT
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/ Wiki
+ * @link     https://vufind.org/wiki/ Wiki
  */
+
 namespace VuFind\XSLT;
-use DOMDocument, VuFind\Config\Locator as ConfigLocator,
-    XSLTProcessor, Zend\Console\Console,
-    VuFindSearch\Backend\Solr\Document\RawXMLDocument,
-    Zend\ServiceManager\ServiceLocatorAwareInterface,
-    Zend\ServiceManager\ServiceLocatorInterface;
+
+use DOMDocument;
+use Laminas\ServiceManager\ServiceLocatorInterface;
+use VuFind\Service\GetServiceTrait;
+use VuFindSearch\Backend\Solr\Document\RawXMLDocument;
+use XSLTProcessor;
+
+use function count;
+use function in_array;
+use function is_array;
 
 /**
  * VuFind XSLT importer
  *
- * @category VuFind2
+ * @category VuFind
  * @package  XSLT
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/ Wiki
+ * @link     https://vufind.org/wiki/ Wiki
  */
-class Importer implements ServiceLocatorAwareInterface
+class Importer
 {
-    use \Zend\ServiceManager\ServiceLocatorAwareTrait;
+    use GetServiceTrait;
+
+    /**
+     * Constructor
+     *
+     * @param ServiceLocatorInterface $sm Service manager
+     */
+    public function __construct(ServiceLocatorInterface $sm)
+    {
+        $this->serviceLocator = $sm;
+    }
 
     /**
      * Save an XML file to the Solr index using the specified configuration.
@@ -54,9 +71,12 @@ class Importer implements ServiceLocatorAwareInterface
      * @param bool   $testMode   Are we in test-only mode?
      *
      * @throws \Exception
-     * @return void
+     * @return string            Transformed XML
      */
-    public function save($xmlFile, $properties, $index = 'Solr',
+    public function save(
+        $xmlFile,
+        $properties,
+        $index = 'Solr',
         $testMode = false
     ) {
         // Process the file:
@@ -64,11 +84,10 @@ class Importer implements ServiceLocatorAwareInterface
 
         // Save the results (or just display them, if in test mode):
         if (!$testMode) {
-            $solr = $this->getServiceLocator()->get('VuFind\Solr\Writer');
+            $solr = $this->getService(\VuFind\Solr\Writer::class);
             $solr->save($index, new RawXMLDocument($xml));
-        } else {
-            Console::write($xml . "\n");
         }
+        return $xml;
     }
 
     /**
@@ -83,34 +102,33 @@ class Importer implements ServiceLocatorAwareInterface
     protected function generateXML($xmlFile, $properties)
     {
         // Load properties file:
-        $properties = ConfigLocator::getConfigPath($properties, 'import');
+        $resolver = $this->getService(\VuFind\Config\PathResolver::class);
+        $properties = $resolver->getConfigPath($properties, 'import');
         if (!file_exists($properties)) {
             throw new \Exception("Cannot load properties file: {$properties}.");
         }
         $options = parse_ini_file($properties, true);
 
         // Make sure required parameter is set:
-        if (!isset($options['General']['xslt'])) {
+        if (!($filename = $options['General']['xslt'] ?? '')) {
             throw new \Exception(
                 "Properties file ({$properties}) is missing General/xslt setting."
             );
         }
-        $xslFile = ConfigLocator::getConfigPath(
-            $options['General']['xslt'], 'import/xsl'
-        );
+        $xslFile = $resolver->getConfigPath($filename, 'import/xsl');
 
         // Initialize the XSL processor:
         $xsl = $this->initProcessor($options);
 
         // Load up the style sheet
-        $style = new DOMDocument;
+        $style = new DOMDocument();
         if (!$style->load($xslFile)) {
             throw new \Exception("Problem loading XSL file: {$xslFile}.");
         }
         $xsl->importStyleSheet($style);
 
         // Load up the XML document
-        $xml = new DOMDocument;
+        $xml = new DOMDocument();
         if (!$xml->load($xmlFile)) {
             throw new \Exception("Problem loading XML file: {$xmlFile}.");
         }
@@ -118,9 +136,33 @@ class Importer implements ServiceLocatorAwareInterface
         // Process and return the XML through the style sheet
         $result = $xsl->transformToXML($xml);
         if (!$result) {
-            throw new \Exception("Problem transforming XML.");
+            throw new \Exception('Problem transforming XML.');
         }
         return $result;
+    }
+
+    /**
+     * Throw a helpful exception if a custom class does not exist.
+     *
+     * @param string $class Class that does not exist.
+     *
+     * @return void
+     * @throws \Exception
+     */
+    protected function throwMissingClassException(string $class): void
+    {
+        $parts = explode('\\', ltrim($class, '\\'));
+        $namespace = count($parts) > 1 ? array_shift($parts) : null;
+        $localModules = ($localModulesEnv = getenv('VUFIND_LOCAL_MODULES'))
+            ? array_map('trim', explode(',', $localModulesEnv)) : [];
+        if (empty($localModules)) {
+            $extraMsg = 'Did you forget to set VUFIND_LOCAL_MODULES?';
+        } elseif ($namespace && $namespace !== 'VuFind' && !in_array($namespace, $localModules)) {
+            $extraMsg = "Did you forget to add $namespace to VUFIND_LOCAL_MODULES?";
+        } else {
+            $extraMsg = '';
+        }
+        throw new \Exception(trim("Class $class does not exist. $extraMsg"));
     }
 
     /**
@@ -152,12 +194,15 @@ class Importer implements ServiceLocatorAwareInterface
             $classes = is_array($options['General']['custom_class'])
                 ? $options['General']['custom_class']
                 : [$options['General']['custom_class']];
-            $truncate = isset($options['General']['truncate_custom_class'])
-                ? $options['General']['truncate_custom_class'] : true;
+            $truncate = $options['General']['truncate_custom_class'] ?? true;
             foreach ($classes as $class) {
                 // Add a default namespace if none was provided:
-                if (false === strpos($class, '\\')) {
+                if (!str_contains($class, '\\')) {
                     $class = 'VuFind\XSLT\Import\\' . $class;
+                }
+                // Fail now if the custom class does not exist:
+                if (!class_exists($class)) {
+                    $this->throwMissingClassException($class);
                 }
                 // If necessary, dynamically generate the truncated version of the
                 // requested class:
@@ -171,7 +216,7 @@ class Importer implements ServiceLocatorAwareInterface
                 }
                 $methods = get_class_methods($class);
                 if (method_exists($class, 'setServiceLocator')) {
-                    $class::setServiceLocator($this->getServiceLocator());
+                    $class::setServiceLocator($this->serviceLocator);
                 }
                 foreach ($methods as $method) {
                     $xsl->registerPHPFunctions($class . '::' . $method);

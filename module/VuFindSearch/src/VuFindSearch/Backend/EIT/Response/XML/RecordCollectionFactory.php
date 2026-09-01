@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Simple XML-based factory for record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,38 +17,44 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\EIT\Response\XML;
 
-use VuFindSearch\Response\RecordCollectionFactoryInterface;
 use VuFindSearch\Exception\InvalidArgumentException;
+use VuFindSearch\Response\RecordCollectionFactoryInterface;
+
+use function gettype;
+use function is_array;
+use function is_callable;
+use function sprintf;
 
 /**
  * Simple XML-based factory for record collection.
  * Largely copied from the WorldCat XML-based factory
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Julia Bauder <bauderj@grinnell.edu>
  * @author   David Maus <maus@hab.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class RecordCollectionFactory implements RecordCollectionFactoryInterface
 {
     /**
      * Factory to turn data into a record object.
      *
-     * @var Callable
+     * @var callable
      */
     protected $recordFactory;
 
@@ -61,7 +68,7 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
     /**
      * Constructor.
      *
-     * @param Callable $recordFactory   Record factory function
+     * @param callable $recordFactory   Record factory function
      * @param string   $collectionClass Class of collection
      *
      * @return void
@@ -72,9 +79,7 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
             throw new InvalidArgumentException('Record factory must be callable.');
         }
         $this->recordFactory = $recordFactory;
-        $this->collectionClass = (null === $collectionClass)
-            ? 'VuFindSearch\Backend\EIT\Response\XML\RecordCollection'
-            : $collectionClass;
+        $this->collectionClass = $collectionClass ?? RecordCollection::class;
     }
 
     /**
@@ -96,7 +101,7 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
         }
         $collection = new $this->collectionClass($response);
         foreach ($response['docs'] as $doc) {
-            $collection->add(call_user_func($this->recordFactory, $doc));
+            $collection->add(($this->recordFactory)($doc), false);
         }
         return $collection;
     }

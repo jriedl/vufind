@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Admin Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,32 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFindAdmin\Controller;
 
 /**
  * Class controls VuFind administration.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class AdminController extends AbstractAdmin
 {
     /**
      * Display disabled message.
      *
-     * @return \Zend\View\Model\ViewModel
+     * @return \Laminas\View\Model\ViewModel
      */
     public function disabledAction()
     {
@@ -51,15 +53,14 @@ class AdminController extends AbstractAdmin
     /**
      * Admin home.
      *
-     * @return \Zend\View\Model\ViewModel
+     * @return \Laminas\View\Model\ViewModel
      */
     public function homeAction()
     {
-        $config = $this->getConfig();
+        $config = $this->getConfigArray();
         $xml = false;
-        if (isset($config->Index->url)) {
-            $response = $this->getServiceLocator()->get('VuFind\Http')
-                ->get($config->Index->url . '/admin/multicore');
+        if ($url = $config['Index']['url'] ?? null) {
+            $response = $this->getService(\VuFindHttp\HttpService::class)->get($url . '/admin/cores?wt=xml');
             $xml = $response->isSuccess() ? $response->getBody() : false;
         }
         $view = $this->createViewModel();
@@ -67,4 +68,3 @@ class AdminController extends AbstractAdmin
         return $view;
     }
 }
-

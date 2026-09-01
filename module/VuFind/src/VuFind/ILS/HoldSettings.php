@@ -1,11 +1,12 @@
 <?php
+
 /**
  * ILS Hold Settings Class
  *
  * This class is responsible for determining hold settings for VuFind based
  * on configuration and defaults.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -19,16 +20,17 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  ILS_Drivers
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_an_ils_driver Wiki
+ * @link     https://vufind.org/wiki/development:plugins:ils_drivers Wiki
  */
+
 namespace VuFind\ILS;
 
 /**
@@ -37,29 +39,29 @@ namespace VuFind\ILS;
  * This class is responsible for determining hold settings for VuFind based
  * on configuration and defaults.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  ILS_Drivers
  * @author   Andrew S. Nagy <vufind-tech@lists.sourceforge.net>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_an_ils_driver Wiki
+ * @link     https://vufind.org/wiki/development:plugins:ils_drivers Wiki
  */
 class HoldSettings
 {
     /**
      * ILS configuration
      *
-     * @var \Zend\Config\Config
+     * @var \VuFind\Config\Config
      */
     protected $config;
 
     /**
      * Constructor
      *
-     * @param \Zend\Config\Config $config Configuration representing the [Catalog]
+     * @param \VuFind\Config\Config $config Configuration representing the [Catalog]
      * section of config.ini
      */
-    public function __construct(\Zend\Config\Config $config)
+    public function __construct(\VuFind\Config\Config $config)
     {
         $this->config = $config;
     }
@@ -73,7 +75,7 @@ class HoldSettings
      */
     public function getHoldsMode()
     {
-        return isset($this->config->holds_mode) ? $this->config->holds_mode : 'all';
+        return $this->config->holds_mode ?? 'all';
     }
 
     /**
@@ -85,7 +87,6 @@ class HoldSettings
      */
     public function getTitleHoldsMode()
     {
-        return isset($this->config->title_level_holds_mode)
-            ? $this->config->title_level_holds_mode : 'disabled';
+        return $this->config->title_level_holds_mode ?? 'disabled';
     }
 }

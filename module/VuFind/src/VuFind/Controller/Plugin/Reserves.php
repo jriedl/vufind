@@ -1,10 +1,11 @@
 <?php
+
 /**
  * VuFind Action Helper - Reserves Support Methods
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2010.
+ * Copyright (C) Villanova University 2010, 2022.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,26 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Controller\Plugin;
-use Zend\Mvc\Controller\Plugin\AbstractPlugin;
+
+use Laminas\Mvc\Controller\Plugin\AbstractPlugin;
+use VuFindSearch\Command\RetrieveCommand;
+use VuFindSearch\Service;
 
 /**
- * Zend action helper to perform reserves-related actions
+ * Action helper to perform reserves-related actions
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller_Plugins
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class Reserves extends AbstractPlugin
 {
@@ -48,14 +53,27 @@ class Reserves extends AbstractPlugin
     protected $useIndex;
 
     /**
+     * Search service
+     *
+     * @var Service
+     */
+    protected $searchService;
+
+    /**
      * Constructor
      *
-     * @param bool $useIndex Do we need to use the Solr index for reserves (true)
-     * or the ILS driver (false)?
+     * @param bool     $useIndex      Do we need to use the Solr index for reserves
+     * (true) or the ILS driver (false)?
+     * @param ?Service $searchService Search service (only required when $useIndex
+     * is true).
      */
-    public function __construct($useIndex = false)
+    public function __construct($useIndex = false, ?Service $searchService = null)
     {
         $this->useIndex = $useIndex;
+        if ($useIndex && null === $searchService) {
+            throw new \Exception('Missing required search service');
+        }
+        $this->searchService = $searchService;
     }
 
     /**
@@ -72,9 +90,9 @@ class Reserves extends AbstractPlugin
     /**
      * Get reserve info from the catalog or Solr reserves index.
      *
-     * @param string $course Course ID to use as limit (optional)
-     * @param string $inst   Instructor ID to use as limit (optional)
-     * @param string $dept   Department ID to use as limit (optional)
+     * @param ?string $course Course ID to use as limit (optional)
+     * @param ?string $inst   Instructor ID to use as limit (optional)
+     * @param ?string $dept   Department ID to use as limit (optional)
      *
      * @return array
      */
@@ -84,9 +102,12 @@ class Reserves extends AbstractPlugin
         if ($this->useIndex()) {
             // get the selected reserve record from reserves index
             // and extract the bib IDs from it
-            $result = $this->getController()->getServiceLocator()
-                ->get('VuFind\Search')
-                ->retrieve('SolrReserves', $course . '|' . $inst . '|' . $dept);
+            $command = new RetrieveCommand(
+                'SolrReserves',
+                $course . '|' . $inst . '|' . $dept
+            );
+            $result = $this->searchService
+                ->invoke($command)->getResult();
             $bibs = [];
             if ($result->getTotal() < 1) {
                 return $bibs;
@@ -99,7 +120,7 @@ class Reserves extends AbstractPlugin
                     'BIB_ID' => $bib_id,
                     'bib_id' => $bib_id,
                     'course' => $course,
-                    'instructor' => $instructor
+                    'instructor' => $instructor,
                 ];
             }
             return $bibs;

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Solr aspect of the Search Multi-class (Options)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,230 +17,148 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Solr
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\Solr;
+
+use VuFind\Config\ConfigManagerInterface;
+use VuFind\Search\Base\DateRangeOptionsInterface;
 
 /**
  * Solr Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Solr
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class Options extends \VuFind\Search\Base\Options
+class Options extends \VuFind\Search\Base\Options implements DateRangeOptionsInterface
 {
-    /**
-     * Pre-assigned filters
-     *
-     * @var array
-     */
-    protected $hiddenFilters = [];
+    use \VuFind\Search\Options\ViewOptionsTrait;
 
     /**
-     * Hierarchical facets
+     * Facet list action route
      *
-     * @var array
+     * @var string
      */
-    protected $hierarchicalFacets = [];
+    protected string $facetListAction = 'search-facetlist';
 
     /**
-     * Hierarchical facet separators
+     * Available sort options for facets
      *
      * @var array
      */
-    protected $hierarchicalFacetSeparators = [];
+    protected $facetSortOptions = [
+        '*' => ['count' => 'sort_count', 'index' => 'sort_alphabetic'],
+    ];
 
     /**
      * Relevance sort override for empty searches
      *
-     * @var string
+     * @var ?string
      */
-    protected $emptySearchRelevanceOverride = null;
+    protected $emptySearchRelevanceOverride;
+
+    /**
+     * Whether to display record versions
+     *
+     * @var bool
+     */
+    protected $displayRecordVersions;
+
+    /**
+     * Solr field to be used as a tie-breaker.
+     *
+     * @var ?string
+     */
+    protected $sortTieBreaker;
 
     /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Config loader
+     * @param ConfigManagerInterface $configManager Config manager
      */
-    public function __construct(\VuFind\Config\PluginManager $configLoader)
+    public function __construct(ConfigManagerInterface $configManager)
     {
-        parent::__construct($configLoader);
-        $searchSettings = $configLoader->get($this->searchIni);
-        if (isset($searchSettings->General->default_limit)) {
-            $this->defaultLimit = $searchSettings->General->default_limit;
-        }
-        if (isset($searchSettings->General->limit_options)) {
-            $this->limitOptions
-                = explode(",", $searchSettings->General->limit_options);
-        }
-        if (isset($searchSettings->General->default_sort)) {
-            $this->defaultSort = $searchSettings->General->default_sort;
-        }
-        if (isset($searchSettings->General->empty_search_relevance_override)) {
-            $this->emptySearchRelevanceOverride
-                = $searchSettings->General->empty_search_relevance_override;
-        }
-        if (isset($searchSettings->DefaultSortingByType)
-            && count($searchSettings->DefaultSortingByType) > 0
-        ) {
-            foreach ($searchSettings->DefaultSortingByType as $key => $val) {
-                $this->defaultSortByHandler[$key] = $val;
-            }
-        }
-        if (isset($searchSettings->RSS->sort)) {
-            $this->rssSort = $searchSettings->RSS->sort;
-        }
-        if (isset($searchSettings->General->default_view)) {
-            $this->defaultView = $searchSettings->General->default_view;
-        }
-        if (isset($searchSettings->General->default_handler)) {
-            $this->defaultHandler = $searchSettings->General->default_handler;
-        }
-        if (isset($searchSettings->General->retain_filters_by_default)) {
-            $this->retainFiltersByDefault
-                = $searchSettings->General->retain_filters_by_default;
-        }
-        if (isset($searchSettings->General->default_filters)) {
-            $this->defaultFilters = $searchSettings->General->default_filters
-                ->toArray();
-        }
-        if (isset($searchSettings->Basic_Searches)) {
-            foreach ($searchSettings->Basic_Searches as $key => $value) {
-                $this->basicHandlers[$key] = $value;
-            }
-        }
-        if (isset($searchSettings->Advanced_Searches)) {
-            foreach ($searchSettings->Advanced_Searches as $key => $value) {
-                $this->advancedHandlers[$key] = $value;
-            }
-        }
+        parent::__construct($configManager);
 
-        // Load sort preferences (or defaults if none in .ini file):
-        if (isset($searchSettings->Sorting)) {
-            foreach ($searchSettings->Sorting as $key => $value) {
-                $this->sortOptions[$key] = $value;
-            }
-        } else {
+        $this->sortTieBreaker = $this->searchSettings['General']['tie_breaker_sort'] ?? null;
+        $this->emptySearchRelevanceOverride
+            = $this->searchSettings['General']['empty_search_relevance_override'] ?? null;
+        $this->displayRecordVersions = $this->searchSettings['General']['display_versions'] ?? true;
+
+        // Use default sort options if not specified in configuration:
+        if (!$this->sortOptions) {
             $this->sortOptions = ['relevance' => 'sort_relevance',
-                'year' => 'sort_year', 'year asc' => 'sort_year asc',
+                'year' => 'sort_year', 'year asc' => 'sort_year_asc',
                 'callnumber-sort' => 'sort_callnumber', 'author' => 'sort_author',
                 'title' => 'sort_title'];
         }
-        // Load view preferences (or defaults if none in .ini file):
-        if (isset($searchSettings->Views)) {
-            foreach ($searchSettings->Views as $key => $value) {
-                $this->viewOptions[$key] = $value;
-            }
-        } elseif (isset($searchSettings->General->default_view)) {
-            $this->viewOptions = [$this->defaultView => $this->defaultView];
-        } else {
-            $this->viewOptions = ['list' => 'List'];
-        }
+
+        // Set up views
+        $this->initViewOptions($this->searchSettings);
 
         // Load facet preferences
-        $facetSettings = $configLoader->get($this->facetsIni);
-        if (isset($facetSettings->Advanced_Settings->translated_facets)
-            && count($facetSettings->Advanced_Settings->translated_facets) > 0
-        ) {
-            foreach ($facetSettings->Advanced_Settings->translated_facets as $c) {
-                $this->translatedFacets[] = $c;
-            }
+        if ($delimiter = $this->facetSettings['Advanced_Settings']['delimiter'] ?? null) {
+            $this->setDefaultFacetDelimiter($delimiter);
         }
-        if (isset($facetSettings->Advanced_Settings->special_facets)) {
-            $this->specialAdvancedFacets
-                = $facetSettings->Advanced_Settings->special_facets;
+        if ($delimitedFacets = $this->facetSettings['Advanced_Settings']['delimited_facets'] ?? null) {
+            $this->setDelimitedFacets((array)$delimitedFacets);
         }
-        if (isset($facetSettings->SpecialFacets->hierarchical)) {
-            $this->hierarchicalFacets
-                = $facetSettings->SpecialFacets->hierarchical->toArray();
+        if ($hierarchical = $this->facetSettings['SpecialFacets']['hierarchical'] ?? null) {
+            $this->hierarchicalFacets = (array)$hierarchical;
+        }
+        if ($separators = $this->facetSettings['SpecialFacets']['hierarchicalFacetSeparators'] ?? null) {
+            $this->hierarchicalFacetSeparators = (array)$separators;
         }
 
-        if (isset($facetSettings->SpecialFacets->hierarchicalFacetSeparators)) {
-            $this->hierarchicalFacetSeparators = $facetSettings->SpecialFacets
-                ->hierarchicalFacetSeparators->toArray();
-        }
+        $this->hierarchicalFacetSortSettings
+            = (array)($this->facetSettings['SpecialFacets']['hierarchicalFacetSortOptions'] ?? []);
 
         // Load Spelling preferences
-        $config = $configLoader->get('config');
-        if (isset($config->Spelling->enabled)) {
-            $this->spellcheck = $config->Spelling->enabled;
+        if (null !== ($spellcheck = $this->mainConfig['Spelling']['enabled'] ?? null)) {
+            $this->spellcheck = $spellcheck;
         }
 
-        // Turn on highlighting if the user has requested highlighting or snippet
-        // functionality:
-        $highlight = !isset($searchSettings->General->highlighting)
-            ? false : $searchSettings->General->highlighting;
-        $snippet = !isset($searchSettings->General->snippets)
-            ? false : $searchSettings->General->snippets;
+        // Turn on first/last navigation if configured:
+        if ($this->mainConfig['Record']['first_last_navigation'] ?? false) {
+            $this->recordPageFirstLastNavigation = true;
+        }
+
+        // Turn on highlighting if the user has requested highlighting or snippet functionality:
+        $highlight = $this->searchSettings['General']['highlighting'] ?? false;
+        $snippet = $this->searchSettings['General']['snippets'] ?? false;
         if ($highlight || $snippet) {
             $this->highlight = true;
         }
 
-        // Load autocomplete preference:
-        if (isset($searchSettings->Autocomplete->enabled)) {
-            $this->autocompleteEnabled = $searchSettings->Autocomplete->enabled;
-        }
+        // Load autocomplete preferences:
+        $this->configureAutocomplete($this->searchSettings);
 
         // Load shard settings
-        if (isset($searchSettings->IndexShards)
-            && !empty($searchSettings->IndexShards)
-        ) {
-            foreach ($searchSettings->IndexShards as $k => $v) {
-                $this->shards[$k] = $v;
-            }
+        $this->shards = (array)($this->searchSettings['IndexShards'] ?? []);
+        if ($this->shards) {
             // If we have a default from the configuration, use that...
-            if (isset($searchSettings->ShardPreferences->defaultChecked)
-                && !empty($searchSettings->ShardPreferences->defaultChecked)
-            ) {
-                $defaultChecked
-                    = is_object($searchSettings->ShardPreferences->defaultChecked)
-                    ? $searchSettings->ShardPreferences->defaultChecked->toArray()
-                    : [$searchSettings->ShardPreferences->defaultChecked];
-                foreach ($defaultChecked as $current) {
-                    $this->defaultSelectedShards[] = $current;
-                }
+            if ($defaultShards = $this->searchSettings['ShardPreferences']['defaultChecked'] ?? null) {
+                $this->defaultSelectedShards = (array)$defaultShards;
             } else {
                 // If no default is configured, use all shards...
                 $this->defaultSelectedShards = array_keys($this->shards);
             }
             // Apply checkbox visibility setting if applicable:
-            if (isset($searchSettings->ShardPreferences->showCheckboxes)) {
-                $this->visibleShardCheckboxes
-                    = $searchSettings->ShardPreferences->showCheckboxes;
+            if (null !== ($visibleCheckboxes = $this->searchSettings['ShardPreferences']['showCheckboxes'] ?? null)) {
+                $this->visibleShardCheckboxes = $visibleCheckboxes;
             }
         }
-    }
-
-    /**
-     * Add a hidden (i.e. not visible in facet controls) filter query to the object.
-     *
-     * @param string $fq Filter query for Solr.
-     *
-     * @return void
-     */
-    public function addHiddenFilter($fq)
-    {
-        $this->hiddenFilters[] = $fq;
-    }
-
-    /**
-     * Get an array of hidden filters.
-     *
-     * @return array
-     */
-    public function getHiddenFilters()
-    {
-        return $this->hiddenFilters;
     }
 
     /**
@@ -264,6 +183,39 @@ class Options extends \VuFind\Search\Base\Options
     }
 
     /**
+     * Return the route name for the facet list action. Returns false to cover
+     * unimplemented support.
+     *
+     * @return string|bool
+     */
+    public function getFacetListAction()
+    {
+        return $this->facetListAction;
+    }
+
+    /**
+     * Override the facet list action (needed for new items).
+     *
+     * @param string $action New facet list action
+     *
+     * @return void
+     */
+    public function setFacetListAction(string $action): void
+    {
+        $this->facetListAction = $action;
+    }
+
+    /**
+     * Return the route name for the versions search action or false if disabled.
+     *
+     * @return string|bool
+     */
+    public function getVersionsAction()
+    {
+        return $this->displayRecordVersions ? 'search-versions' : false;
+    }
+
+    /**
      * Get the relevance sort override for empty searches.
      *
      * @return string Sort field or null if not set
@@ -274,22 +226,53 @@ class Options extends \VuFind\Search\Base\Options
     }
 
     /**
-     * Get an array of hierarchical facets.
+     * Get the field to be used as a sort tie-breaker.
      *
-     * @return array
+     * @return ?string Sort field or null if not set
      */
-    public function getHierarchicalFacets()
+    public function getSortTieBreaker()
     {
-        return $this->hierarchicalFacets;
+        return $this->sortTieBreaker;
     }
 
     /**
-     * Get hierarchical facet separators
+     * Does this search backend support scheduled searching?
+     *
+     * @return bool
+     */
+    public function supportsScheduledSearch()
+    {
+        // Solr supports this!
+        return true;
+    }
+
+    /**
+     * Get date range facets.
      *
      * @return array
      */
-    public function getHierarchicalFacetSeparators()
+    public function getDateRangeFacets(): array
     {
-        return $this->hierarchicalFacetSeparators;
+        return (array)($this->facetSettings['SpecialFacets']['dateRange'] ?? []);
+    }
+
+    /**
+     * Get full date range facets.
+     *
+     * @return array
+     */
+    public function getFullDateRangeFacets(): array
+    {
+        return (array)($this->facetSettings['SpecialFacets']['fullDateRange'] ?? []);
+    }
+
+    /**
+     * Get date range field types in the search index.
+     *
+     * @return array
+     */
+    public function getDateRangeFieldTypes(): array
+    {
+        return (array)($this->facetSettings['SpecialFacets']['dateRangeFieldType'] ?? []);
     }
 }

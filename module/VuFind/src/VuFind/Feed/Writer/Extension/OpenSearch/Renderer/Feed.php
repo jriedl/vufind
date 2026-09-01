@@ -1,8 +1,9 @@
 <?php
+
 /**
- * Zend\Feed\Renderer\Feed extension for Open Search
+ * Laminas\Feed\Renderer\Feed extension for Open Search
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Deutsches Archäologisches Institut 2015.
  *
@@ -16,27 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Feed_Plugins
  * @author   Sebastian Cuy <sebastian.cuy@uni-koeln.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Feed\Writer\Extension\OpenSearch\Renderer;
-use DOMDocument, DOMElement,
-    Zend\Feed\Writer\Extension\AbstractRenderer;
+
+use DOMDocument;
+use DOMElement;
+use Laminas\Feed\Writer\Extension\AbstractRenderer;
 
 /**
- * Zend\Feed\Renderer\Feed extension for Open Search
+ * Laminas\Feed\Renderer\Feed extension for Open Search
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Feed_Plugins
  * @author   Sebastian Cuy <sebastian.cuy@uni-koeln.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Feed extends AbstractRenderer
 {
@@ -71,10 +75,10 @@ class Feed extends AbstractRenderer
      *
      * @return void
      */
-    // @codingStandardsIgnoreStart
+    // phpcs:disable
     protected function _appendNamespaces()
     {
-        // @codingStandardsIgnoreEnd
+        // phpcs:enable
         // (We have to ignore coding standards here because the method name has
         // to have an underscore for compatibility w/ parent class)
         $this->getRootElement()->setAttribute(
@@ -158,7 +162,7 @@ class Feed extends AbstractRenderer
         if (!empty($searchTerms)) {
             $elem = $dom->createElement('opensearch:Query');
             $elem->setAttribute('role', 'request');
-            $elem->setAttribute('searchTerms', $searchTerms);
+            $elem->setAttribute('searchTerms', rawurlencode($searchTerms));
             if ($startIndex !== null) {
                 $elem->setAttribute('startIndex', $startIndex);
             }
@@ -186,6 +190,9 @@ class Feed extends AbstractRenderer
             if ($link['type'] != null) {
                 $mime = 'application/' . strtolower($link['type']) . '+xml';
                 $elem->setAttribute('type', $mime);
+            }
+            if ($link['title'] ?? null) {
+                $elem->setAttribute('title', $link['title']);
             }
             $elem->setAttribute('href', $link['url']);
             $root->appendChild($elem);

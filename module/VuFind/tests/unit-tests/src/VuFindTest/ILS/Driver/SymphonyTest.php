@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ILS driver test
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,37 +17,49 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTest\ILS\Driver;
+
 use VuFind\ILS\Driver\Symphony;
 
 /**
  * ILS driver test
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class SymphonyTest extends \VuFindTest\Unit\TestCase
+class SymphonyTest extends \PHPUnit\Framework\TestCase
 {
+    /**
+     * Driver object
+     *
+     * @var Symphony
+     */
     protected $driver;
 
     /**
-     * Constructor
+     * Standard setup method.
+     *
+     * @return void
      */
-    public function __construct()
+    public function setUp(): void
     {
-        $this->driver = new Symphony();
+        $loader = $this->getMockBuilder(\VuFind\Record\Loader::class)
+            ->disableOriginalConstructor()->getMock();
+
+        $this->driver = new Symphony($loader);
     }
 
     /**
@@ -56,10 +69,6 @@ class SymphonyTest extends \VuFindTest\Unit\TestCase
      */
     public function testBadBaseUrl()
     {
-        if (!version_compare(\PHP_VERSION, '5.3.4', '>=')) {
-            $this->markTestSkipped('Test requires PHP >= 5.3.4 (see VUFIND-660)');
-        }
-
         // Without SOAP functionality, we can't proceed:
         if (!class_exists('SoapClient')) {
             $this->markTestSkipped('SoapClient not installed');
@@ -70,6 +79,6 @@ class SymphonyTest extends \VuFindTest\Unit\TestCase
         );
         $this->driver->init();
         $pickup = @$this->driver->getPickUpLocations();
-        $this->assertTrue(empty($pickup));
+        $this->assertEmpty($pickup);
     }
 }

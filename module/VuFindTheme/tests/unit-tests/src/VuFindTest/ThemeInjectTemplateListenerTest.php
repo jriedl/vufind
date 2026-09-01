@@ -1,8 +1,9 @@
 <?php
+
 /**
  * InjectTemplateListener Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,39 +17,50 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest;
+
 use VuFindTheme\InjectTemplateListener;
 
 /**
  * InjectTemplateListener Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ThemeInjectTemplateListenerTest extends Unit\TestCase
+class ThemeInjectTemplateListenerTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\ReflectionTrait;
+
     /**
-     * Test namespace stripping.
+     * Test prefix stripping.
      *
      * @return void
      */
-    public function testNamespaceStripping()
+    public function testPrefixStripping()
     {
-        $l = new InjectTemplateListener();
+        $l = new InjectTemplateListener(['VuFind/']);
+        // We should strip a registered prefix:
         $this->assertEquals(
-            '', $this->callMethod($l, 'deriveModuleNamespace', ['dummy'])
+            'search',
+            $l->mapController(\VuFind\Controller\SearchController::class)
+        );
+        // We should NOT strip an unregistered prefix:
+        $this->assertEquals(
+            'vufindadmin/admin',
+            $l->mapController(\VuFindAdmin\Controller\AdminController::class)
         );
     }
 
@@ -59,9 +71,10 @@ class ThemeInjectTemplateListenerTest extends Unit\TestCase
      */
     public function testCamelCaseToLowerCase()
     {
-        $l = new InjectTemplateListener();
+        $l = new InjectTemplateListener(['VuFind/']);
         $this->assertEquals(
-            'testcase', $this->callMethod($l, 'inflectName', ['testCase'])
+            'testcase',
+            $this->callMethod($l, 'inflectName', ['VuFind/testCase'])
         );
     }
 }

@@ -1,9 +1,10 @@
 <?php
+
 /**
  * Model for MARC records without a fullrecord in Solr. The fullrecord is being
  * retrieved from an external source.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Leipzig University Library 2014.
  *
@@ -17,36 +18,41 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   André Lahmann <lahmann@ub.uni-leipzig.de>
  * @author   Ulf Seltmann <seltmann@ub.uni-leipzig.de>
  * @author   Gregor Gawol <gawol@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_drivers Wiki
  */
+
 namespace VuFind\RecordDriver;
-use VuFindHttp\HttpServiceAwareInterface as HttpServiceAwareInterface,
-    Zend\Log\LoggerAwareInterface as LoggerAwareInterface;
+
+use Psr\Log\LoggerAwareInterface;
+use VuFindHttp\HttpServiceAwareInterface as HttpServiceAwareInterface;
+
+use function sprintf;
 
 /**
  * Model for MARC records without a fullrecord in Solr. The fullrecord is being
  * retrieved from an external source.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   André Lahmann <lahmann@ub.uni-leipzig.de>
  * @author   Ulf Seltmann <seltmann@ub.uni-leipzig.de>
  * @author   Gregor Gawol <gawol@ub.uni-leipzig.de>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_drivers Wiki
- * @link     https://vufind.org/wiki/remote_marc_records
+ * @link     https://vufind.org/wiki/development:plugins:record_drivers Wiki
+ * @link     https://vufind.org/wiki/configuration:remote_marc_records
  */
 class SolrMarcRemote extends SolrMarc implements
-    HttpServiceAwareInterface, LoggerAwareInterface
+    HttpServiceAwareInterface,
+    LoggerAwareInterface
 {
     use \VuFindHttp\HttpServiceAwareTrait;
     use \VuFind\Log\LoggerAwareTrait;
@@ -61,40 +67,51 @@ class SolrMarcRemote extends SolrMarc implements
     /**
      * Constructor
      *
-     * @param \Zend\Config\Config $mainConfig     VuFind main configuration (omit for
-     * built-in defaults)
-     * @param \Zend\Config\Config $recordConfig   Record-specific configuration file
-     * (omit to use $mainConfig as $recordConfig)
-     * @param \Zend\Config\Config $searchSettings Search-specific configuration file
+     * @param \VuFind\Config\Config $mainConfig     VuFind main configuration (omit
+     * for built-in defaults)
+     * @param \VuFind\Config\Config $recordConfig   Record-specific configuration
+     * file (omit to use $mainConfig as $recordConfig)
+     * @param \VuFind\Config\Config $searchSettings Search-specific configuration
+     * file
      *
      * @throws \Exception
      */
-    public function __construct($mainConfig = null, $recordConfig = null,
+    public function __construct(
+        $mainConfig = null,
+        $recordConfig = null,
         $searchSettings = null
     ) {
         parent::__construct($mainConfig, $recordConfig, $searchSettings);
 
         // get config values for remote fullrecord service
-        if (! $mainConfig->Record->get('remote_marc_url')) {
+        $this->uriPattern = $mainConfig->Record->remote_marc_url ?? null;
+        if (!$this->uriPattern) {
             throw new \Exception('SolrMarcRemote baseUrl-setting missing.');
-        } else {
-            $this->uriPattern = $mainConfig->Record->get('remote_marc_url');
         }
     }
 
     /**
-     * Get access to the raw File_MARC object.
+     * Get access to the MarcReader object.
      *
-     * @return \File_MARCBASE
-     * @throws \Exception
-     * @throws \File_MARC_Exception
+     * @return MarcReader
      */
-    public function getMarcRecord()
+    public function getMarcReader()
+    {
+        $this->verifyFullRecordIsAvailable();
+        return parent::getMarcReader();
+    }
+
+    /**
+     * Load the fullrecord field if not already loaded
+     *
+     * @return void
+     */
+    protected function verifyFullRecordIsAvailable()
     {
         // handle availability of fullrecord
         if (!isset($this->fields['fullrecord'])) {
             // retrieve fullrecord from external source
-            if (! isset($this->fields['id'])) {
+            if (!isset($this->fields['id'])) {
                 throw new \Exception(
                     'No unique id given for fullrecord retrieval'
                 );
@@ -102,8 +119,6 @@ class SolrMarcRemote extends SolrMarc implements
             $this->fields['fullrecord']
                 = $this->getRemoteFullrecord($this->fields['id']);
         }
-
-        return parent::getMarcRecord();
     }
 
     /**

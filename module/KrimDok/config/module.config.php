@@ -1,0 +1,138 @@
+<?php
+
+namespace KrimDok\Module\Config;
+
+$config = [
+    'controllers' => [
+        'factories' => [
+            'KrimDok\Controller\BrowseController' => 'VuFind\Controller\AbstractBaseWithConfigFactory',
+            'KrimDok\Controller\HelpController' => 'VuFind\Controller\AbstractBaseFactory',
+            'KrimDok\Controller\MyResearchController' => 'VuFind\Controller\MyResearchControllerFactory',
+        ],
+        'aliases' => [
+            'Browse' => 'KrimDok\Controller\BrowseController',
+            'browse' => 'KrimDok\Controller\BrowseController',
+            'Help' => 'KrimDok\Controller\HelpController',
+            'help' => 'KrimDok\Controller\HelpController',
+            'MyResearch' => 'KrimDok\Controller\MyResearchController',
+            'myresearch' => 'KrimDok\Controller\MyResearchController',
+        ],
+    ],
+    'controller_plugins' => [
+        'factories' => [
+            'KrimDok\Controller\Plugin\NewItems' => 'VuFind\Controller\Plugin\NewItemsFactory',
+        ],
+        'aliases' => [
+            'newItems' => 'KrimDok\Controller\Plugin\NewItems',
+        ],
+    ],
+    'service_manager' => [
+        'factories' => [
+
+        ],
+        'aliases' => [
+
+        ],
+    ],
+    'doctrine' => [
+        'driver' => [
+            'orm_default' => [
+                'drivers' => [
+                    'KrimDok\Db\Entity' => 'vufind_attribute_driver',
+                ],
+            ],
+        ],
+    ],
+    'vufind' => [
+        'plugin_managers' => [
+            'auth' => [
+                'factories' => [
+                    'KrimDok\Auth\Database' => 'Laminas\ServiceManager\Factory\InvokableFactory',
+                ],
+                'aliases' => [
+                    'db' => 'KrimDok\Auth\Database',
+                    'database' => 'KrimDok\Auth\Database',
+                ],
+            ],
+            'db_entity' => [
+                'factories' => [
+                    'KrimDok\Db\Entity\User' => 'Laminas\ServiceManager\Factory\InvokableFactory',
+                ],
+                'aliases' => [
+                    'KrimDok\Db\Entity\UserEntityInterface' => 'KrimDok\Db\Entity\User',
+                    'TueFind\Db\Entity\UserEntityInterface' => 'KrimDok\Db\Entity\UserEntityInterface',
+                    'TueFind\Db\Entity\User' => 'KrimDok\Db\Entity\User',
+                ],
+            ],
+            'db_service' => [
+                'factories' => [
+                    'KrimDok\Db\Service\UserService' => 'VuFind\Db\Service\UserServiceFactory',
+                ],
+                'aliases' => [
+                    'TueFind\Db\Service\UserServiceInterface' => 'KrimDok\Db\Service\UserServiceInterface',
+                    'KrimDok\Db\Service\UserServiceInterface' => 'KrimDok\Db\Service\UserService',
+                ],
+            ],
+            'recorddataformatter_specs' => [
+                'factories' => [
+                    'KrimDok\RecordDataFormatter\Specs\DefaultRecord' => 'VuFind\RecordDataFormatter\Specs\DefaultRecordFactory',
+                ],
+                'aliases' => [
+                    'DefaultRecord' => 'KrimDok\RecordDataFormatter\Specs\DefaultRecord',
+                    'VuFind\RecordDataFormatter\Specs\DefaultRecord' => 'KrimDok\RecordDataFormatter\Specs\DefaultRecord',
+                ],
+            ],
+            'recorddriver' => [
+                'factories' => [
+                    'KrimDok\RecordDriver\SolrDefault' => 'TueFind\RecordDriver\SolrDefaultFactory',
+                    'KrimDok\RecordDriver\SolrMarc' => 'TueFind\RecordDriver\SolrMarcFactory',
+                ],
+                'aliases' => [
+                    'solrdefault' => 'KrimDok\RecordDriver\SolrDefault',
+                    'solrmarc' => 'KrimDok\RecordDriver\SolrMarc',
+                ],
+            ],
+            'search_backend' => [
+                'factories' => [
+                    'Solr' => 'KrimDok\Search\Factory\SolrDefaultBackendFactory',
+                    'Search2' => 'KrimDok\Search\Factory\Search2BackendFactory',
+                ],
+                'aliases' => [
+
+                ],
+            ],
+            'search_params' => [
+                'factories' => [
+
+                ],
+                'aliases' => [
+                    'solr' => 'KrimDok\Search\Solr\Params',
+                ],
+            ],
+            'search_results' => [
+                'factories' => [
+                    'KrimDok\Search\Search2\Results' => 'VuFind\Search\Search2\ResultsFactory',
+                    'KrimDok\Search\Solr\Results' => 'VuFind\Search\Solr\ResultsFactory',
+                ],
+                'aliases' => [
+                    'search2' => 'KrimDok\Search\Search2\Results',
+                    'solr' => 'KrimDok\Search\Solr\Results',
+                ],
+            ],
+        ],
+    ],
+];
+
+$recordRoutes = [ 'search2record' => 'Search2Record' ];
+$dynamicRoutes = [];
+$staticRoutes = [
+    'Help/FAQ',
+    'MyResearch/Newsletter',
+];
+
+$routeGenerator = new \VuFind\Route\RouteGenerator();
+$routeGenerator->addRecordRoutes($config, $recordRoutes);
+$routeGenerator->addDynamicRoutes($config, $dynamicRoutes);
+$routeGenerator->addStaticRoutes($config, $staticRoutes);
+
+return $config;

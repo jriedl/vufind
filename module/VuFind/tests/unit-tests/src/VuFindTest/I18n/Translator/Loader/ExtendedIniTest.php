@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ExtendedIni translation loader Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,40 +17,44 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\I18n\Translator\Loader;
+
 use VuFind\I18n\Translator\Loader\ExtendedIni;
 
 /**
  * ExtendedIni translation loader Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ExtendedIniTest extends \VuFindTest\Unit\TestCase
+class ExtendedIniTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+
     /**
      * Test translations.
      *
      * @return void
      */
-    public function testTranslations()
+    public function testTranslations(): void
     {
         $pathStack = [
-            realpath(__DIR__ . '/../../../../../../fixtures/language/base'),
-            realpath(__DIR__ . '/../../../../../../fixtures/language/overrides')
+            realpath($this->getFixtureDir() . 'language/base'),
+            realpath($this->getFixtureDir() . 'language/overrides'),
         ];
         $loader = new ExtendedIni($pathStack);
         $result = $loader->load('en', null);
@@ -69,10 +74,10 @@ class ExtendedIniTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    public function testFallback()
+    public function testFallback(): void
     {
         $pathStack = [
-            realpath(__DIR__ . '/../../../../../../fixtures/language/base'),
+            realpath($this->getFixtureDir() . 'language/base'),
         ];
         $loader = new ExtendedIni($pathStack, 'en');
         $result = $loader->load('fake', null);
@@ -93,10 +98,10 @@ class ExtendedIniTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    public function testFallbackToSelf()
+    public function testFallbackToSelf(): void
     {
         $pathStack = [
-            realpath(__DIR__ . '/../../../../../../fixtures/language/base'),
+            realpath($this->getFixtureDir() . 'language/base'),
         ];
         $loader = new ExtendedIni($pathStack, 'fake');
         $result = $loader->load('fake', null);
@@ -113,10 +118,10 @@ class ExtendedIniTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    public function testSelfAsParent()
+    public function testSelfAsParent(): void
     {
         $pathStack = [
-            realpath(__DIR__ . '/../../../../../../fixtures/language/base'),
+            realpath($this->getFixtureDir() . 'language/base'),
         ];
         $loader = new ExtendedIni($pathStack);
         $result = $loader->load('self-parent', null);
@@ -134,10 +139,10 @@ class ExtendedIniTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    public function testParentChain()
+    public function testParentChain(): void
     {
         $pathStack = [
-            realpath(__DIR__ . '/../../../../../../fixtures/language/base'),
+            realpath($this->getFixtureDir() . 'language/base'),
         ];
         $loader = new ExtendedIni($pathStack);
         $result = $loader->load('child2', null);
@@ -156,13 +161,128 @@ class ExtendedIniTest extends \VuFindTest\Unit\TestCase
      * Test missing path stack.
      *
      * @return void
-     *
-     * @expectedException        Zend\I18n\Exception\InvalidArgumentException
-     * @expectedExceptionMessage Ini file 'en.ini' not found
      */
-    public function testMissingPathStack()
+    public function testMissingPathStack(): void
     {
+        $this->expectException(\Laminas\I18n\Exception\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Ini file \'en.ini\' not found');
+
         $loader = new ExtendedIni();
         $loader->load('en', null);
+    }
+
+    /**
+     * Test alias behavior in default domain.
+     *
+     * @return void
+     */
+    public function testAliasingInDefaultDomain(): void
+    {
+        $pathStack = [
+            realpath($this->getFixtureDir() . 'language/aliases'),
+        ];
+        $loader = new ExtendedIni($pathStack, 'en');
+        $result = $loader->load('en', null);
+        $this->assertEquals(
+            [
+                'bar' => 'Translation',
+                'baz' => 'Domain Translation',
+                'foo' => 'Translation',
+                'xyzzy' => 'Domain Translation',
+                'foofoo' => 'Translation',
+            ],
+            (array)$result
+        );
+    }
+
+    /**
+     * Test alias behavior in non-default domain.
+     *
+     * @return void
+     */
+    public function testAliasingInNonDefaultDomain(): void
+    {
+        $pathStack = [
+            realpath($this->getFixtureDir() . 'language/aliases'),
+        ];
+        $loader = new ExtendedIni($pathStack, 'en');
+        $result = $loader->load('en', 'Domain');
+        $this->assertEquals(
+            [
+                'bar' => 'Domain Translation',
+                'foofoo' => 'Translation',
+            ],
+            (array)$result
+        );
+    }
+
+    /**
+     * Test circular alias infinite loop prevention.
+     *
+     * @return void
+     */
+    public function testCircularAliasSafety(): void
+    {
+        $pathStack = [
+            realpath($this->getFixtureDir() . 'language/circularaliases'),
+        ];
+        $loader = new ExtendedIni($pathStack, 'en');
+        $this->expectExceptionMessage('Circular alias detected resolving Domain::baz');
+        $loader->load('en', null);
+    }
+
+    /**
+     * Test inheriting aliases from a parent file.
+     *
+     * @return void
+     */
+    public function testInheritedAliasing(): void
+    {
+        $pathStack = [
+            realpath($this->getFixtureDir() . 'language/aliases'),
+        ];
+        $loader = new ExtendedIni($pathStack, 'en');
+        $result = $loader->load('en-gb', null);
+        $this->assertEquals(
+            [
+                'bar' => 'Translation',
+                'baz' => 'Domain Translation',
+                'foo' => 'Translation',
+                'xyzzy' => 'Child Overriding Alias',
+                '@parent_ini' => 'en.ini',
+                'foofoo' => 'Translation',
+            ],
+            (array)$result
+        );
+    }
+
+    /**
+     * Test that alias behavior can be disabled.
+     *
+     * @return void
+     */
+    public function testDisabledAliasing(): void
+    {
+        $pathStack = [
+            realpath($this->getFixtureDir() . 'language/aliases'),
+        ];
+        $loader = new ExtendedIni($pathStack, 'en');
+        $loader->disableAliases();
+        $result = $loader->load('en', null);
+        $this->assertEquals(
+            [
+                'bar' => 'Translation',
+            ],
+            (array)$result
+        );
+        $result = $loader->load('en-gb', null);
+        $this->assertEquals(
+            [
+                'bar' => 'Translation',
+                'xyzzy' => 'Child Overriding Alias',
+                '@parent_ini' => 'en.ini',
+            ],
+            (array)$result
+        );
     }
 }

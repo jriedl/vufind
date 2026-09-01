@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Solr Collection aspect of the Search Multi-class (Params)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,25 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\SolrCollection;
+
+use function sprintf;
 
 /**
  * Solr Collection Search Options
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_SolrAuthor
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class Params extends \VuFind\Search\Solr\Params
 {
@@ -58,22 +62,16 @@ class Params extends \VuFind\Search\Solr\Params
      * Pull the search parameters from the query and set up additional options using
      * a record driver representing a collection.
      *
-     * @param \VuFind\RecordDriver\AbstractBase $driver Record driver
+     * @param \VuFind\RecordDriver\AbstractBase $driver    Record driver
+     * @param bool                              $hasSearch Is the user performing a search?
      *
      * @return void
      */
-    public function initFromRecordDriver($driver)
+    public function initFromRecordDriver($driver, bool $hasSearch = false)
     {
-        $this->collectionID = $driver->getUniqueID();
+        $this->collectionID = $driver->tryMethod('getCollectionSearchId') ?? $driver->getUniqueID();
         if ($hierarchyDriver = $driver->getHierarchyDriver()) {
-            switch ($hierarchyDriver->getCollectionLinkType()) {
-            case 'All':
-                $this->collectionField = 'hierarchy_parent_id';
-                break;
-            case 'Top':
-                $this->collectionField = 'hierarchy_top_id';
-                break;
-            }
+            $this->collectionField = $hierarchyDriver->getCollectionField($hasSearch);
         }
 
         if (null === $this->collectionID) {
@@ -84,13 +82,25 @@ class Params extends \VuFind\Search\Solr\Params
         }
 
         // We don't spellcheck this screen; it's not for free user input anyway
-        $options = $this->getOptions();
-        $options->spellcheckEnabled(false);
+        $this->getOptions()->spellcheckEnabled(false);
 
         // Prepare the search
         $safeId = addcslashes($this->collectionID, '"');
-        $options->addHiddenFilter($this->collectionField . ':"' . $safeId . '"');
-        $options->addHiddenFilter('!id:"' . $safeId . '"');
+        $this->addHiddenFilter($this->collectionField . ':"' . $safeId . '"');
+        $this->addHiddenFilter('!id:"' . $safeId . '"');
+
+        // Because the [HiddenFilters] and [RawHiddenFilters] settings for the
+        // Solr search backend come from searches.ini and are set up in the
+        // AbstractSolrBackendFactory, we need to account for additional ones
+        // from Collection.ini here.
+        $collectionConfig = $this->configManager->getConfigArray('Collection');
+        foreach ($collectionConfig['HiddenFilters'] ?? [] as $field => $value) {
+            $this->addHiddenFilter(sprintf('%s:"%s"', $field, $value));
+        }
+
+        foreach ($collectionConfig['RawHiddenFilters'] ?? [] as $current) {
+            $this->addHiddenFilter($current);
+        }
     }
 
     /**
@@ -101,5 +111,15 @@ class Params extends \VuFind\Search\Solr\Params
     public function getCollectionField()
     {
         return $this->collectionField;
+    }
+
+    /**
+     * Get collection id
+     *
+     * @return string
+     */
+    public function getCollectionId()
+    {
+        return $this->collectionID;
     }
 }

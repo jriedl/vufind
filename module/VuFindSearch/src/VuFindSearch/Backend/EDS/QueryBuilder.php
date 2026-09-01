@@ -3,7 +3,7 @@
 /**
  * EDS API Querybuilder
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) EBSCO Industries 2013
  *
@@ -17,33 +17,46 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\EDS;
 
-use VuFindSearch\Query\AbstractQuery;
-use VuFindSearch\Query\QueryGroup;
-use VuFindSearch\Query\Query;
 use VuFindSearch\ParamBag;
+use VuFindSearch\Query\AbstractQuery;
+use VuFindSearch\Query\Query;
+use VuFindSearch\Query\QueryGroup;
 
 /**
  * EDS API Querybuilder
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class QueryBuilder
 {
+    /**
+     * Default query (used when query string is empty). This should retrieve all
+     * records in the index, facilitating high-level facet-based browsing.
+     *
+     * Note that as of May 13, 2025, this functionality is no longer supported by
+     * the API and was disabled in https://github.com/vufind-org/vufind/pull/4364
+     * but the code is retained in case it will be useful again in future.
+     *
+     * @var string
+     */
+    protected $defaultQuery = '(FT yes) OR (FT no)';
+
     /**
      * Constructor
      */
@@ -54,18 +67,20 @@ class QueryBuilder
     /**
      * Construct EdsApi search parameters based on a user query and params.
      *
-     * @param AbstractQuery $query User query
+     * @param AbstractQuery $query  User query
+     * @param ?ParamBag     $params Search backend parameters
      *
      * @return ParamBag
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function build(AbstractQuery $query)
+    public function build(AbstractQuery $query, ?ParamBag $params = null)
     {
         // Build base query
         $queries = $this->abstractQueryToArray($query);
 
         // Send back results
-        $params = new ParamBag(['query' => $queries]);
-        return $params;
+        return new ParamBag(['query' => $queries]);
     }
 
     /**
@@ -74,21 +89,20 @@ class QueryBuilder
      * @param Query  $query    Query to convert
      * @param string $operator Operator to apply
      *
-     * @return string
+     * @return array
      */
     protected function queryToEdsQuery(Query $query, $operator = 'AND')
     {
-        $expression = str_replace('"', '', $query->getString());
-        $expression = SearchRequestModel::escapeSpecialCharacters($expression);
+        $expression = $query->getString();
         $fieldCode = ($query->getHandler() == 'AllFields')
             ? '' : $query->getHandler();  //fieldcode
-        if (!empty($fieldCode)) {
-            $expression = $fieldCode . ':' . $expression;
+        // Special case: default search
+        if (empty($fieldCode) && empty($expression)) {
+            $expression = $this->defaultQuery;
         }
-        if (!empty($operator)) {
-            $expression = $operator . ',' . $expression;
-        }
-        return $expression;
+        return json_encode(
+            ['term' => $expression, 'field' => $fieldCode, 'bool' => $operator]
+        );
     }
 
     /// Internal API
@@ -118,7 +132,7 @@ class QueryBuilder
      */
     protected function queryGroupToArray(QueryGroup $query)
     {
-        $groups =  [];
+        $groups = [];
         foreach ($query->getQueries() as $params) {
             // Advanced Search
             if ($params instanceof QueryGroup) {
@@ -138,6 +152,5 @@ class QueryBuilder
             }
         }
         return $groups;
-
     }
 }

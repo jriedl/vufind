@@ -1,8 +1,9 @@
 <?php
+
 /**
  * LDAP authentication test class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,113 +17,94 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTest\Auth;
-use VuFind\Auth\LDAP, Zend\Config\Config;
+
+use Laminas\Http\Request;
+use VuFind\Auth\LDAP;
+use VuFind\Config\Config;
 
 /**
  * LDAP authentication test class.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class LDAPTest extends \VuFindTest\Unit\DbTestCase
+class LDAPTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\ReflectionTrait;
+
     /**
      * Get an authentication object.
      *
-     * @param Config $config Configuration to use (null for default)
+     * @param ?array $config Configuration to use (null for default)
      *
      * @return LDAP
      */
-    public function getAuthObject($config = null)
+    public function getAuthObject(?array $config = null): LDAP
     {
-        if (null === $config) {
-            $config = $this->getAuthConfig();
-        }
-        $obj = clone($this->getAuthManager()->get('LDAP'));
-        $obj->setConfig($config);
+        $obj = new LDAP($this->createMock(\VuFind\Auth\ILSAuthenticator::class));
+        $obj->setConfig(new Config($config ?? $this->getAuthConfig()));
         return $obj;
     }
 
     /**
      * Get a working configuration for the LDAP object
      *
-     * @return Config
+     * @return array
      */
-    public function getAuthConfig()
+    public function getAuthConfig(): array
     {
-        $ldapConfig = new Config(
-            [
-                'host' => 'localhost',
-                'port' => 1234,
-                'basedn' => 'basedn',
-                'username' => 'username'
-            ], true
-        );
-        return new Config(['LDAP' => $ldapConfig], true);
+        $ldapConfig = [
+            'host' => 'localhost',
+            'port' => 1234,
+            'basedn' => 'basedn',
+            'username' => 'username',
+        ];
+        return ['LDAP' => $ldapConfig];
     }
 
     /**
-     * Verify that missing host causes failure.
+     * Data provider for testWithMissingConfiguration.
      *
      * @return void
      */
-    public function testWithMissingHost()
+    public static function configKeyProvider(): array
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
-        $config = $this->getAuthConfig();
-        unset($config->LDAP->host);
-        $this->getAuthObject($config)->getConfig();
+        return [
+            'missing host' => ['host'],
+            'missing port' => ['port'],
+            'missing basedn' => ['basedn'],
+            'missing username' => ['username'],
+        ];
     }
 
     /**
-     * Verify that missing port causes failure.
+     * Verify that missing configuration causes failure.
+     *
+     * @param string $key Configuration key to exclude
      *
      * @return void
      */
-    public function testWithMissingPort()
+    #[\PHPUnit\Framework\Attributes\DataProvider('configKeyProvider')]
+    public function testWithMissingConfiguration(string $key): void
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
-        $config = $this->getAuthConfig();
-        unset($config->LDAP->port);
-        $this->getAuthObject($config)->getConfig();
-    }
+        $this->expectException(\VuFind\Exception\Auth::class);
 
-    /**
-     * Verify that missing baseDN causes failure.
-     *
-     * @return void
-     */
-    public function testWithMissingBaseDN()
-    {
-        $this->setExpectedException('VuFind\Exception\Auth');
         $config = $this->getAuthConfig();
-        unset($config->LDAP->basedn);
-        $this->getAuthObject($config)->getConfig();
-    }
-
-    /**
-     * Verify that missing UID causes failure.
-     *
-     * @return void
-     */
-    public function testWithMissingUid()
-    {
-        $this->setExpectedException('VuFind\Exception\Auth');
-        $config = $this->getAuthConfig();
-        unset($config->LDAP->username);
+        unset($config['LDAP'][$key]);
         $this->getAuthObject($config)->getConfig();
     }
 
@@ -131,11 +113,11 @@ class LDAPTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function testCaseNormalization()
+    public function testCaseNormalization(): void
     {
         $config = $this->getAuthConfig();
-        $config->LDAP->username = 'UPPER';
-        $config->LDAP->basedn = 'MixedCase';
+        $config['LDAP']['username'] = 'UPPER';
+        $config['LDAP']['basedn'] = 'MixedCase';
         $auth = $this->getAuthObject($config);
         // username should be lowercased:
         $this->assertEquals(
@@ -154,7 +136,7 @@ class LDAPTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function testCreateIsDisallowed()
+    public function testCreateIsDisallowed(): void
     {
         $this->assertFalse($this->getAuthObject()->supportsCreation());
     }
@@ -165,15 +147,15 @@ class LDAPTest extends \VuFindTest\Unit\DbTestCase
      *
      * @param array $overrides Associative array of parameters to override.
      *
-     * @return \Zend\Http\Request
+     * @return Request
      */
-    protected function getLoginRequest($overrides = [])
+    protected function getLoginRequest(array $overrides = []): Request
     {
         $post = $overrides + [
-            'username' => 'testuser', 'password' => 'testpass'
+            'username' => 'testuser', 'password' => 'testpass',
         ];
-        $request = new \Zend\Http\Request();
-        $request->setPost(new \Zend\Stdlib\Parameters($post));
+        $request = new Request();
+        $request->setPost(new \Laminas\Stdlib\Parameters($post));
         return $request;
     }
 
@@ -182,9 +164,10 @@ class LDAPTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function testLoginWithBlankUsername()
+    public function testLoginWithBlankUsername(): void
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['username' => '']);
         $this->getAuthObject()->authenticate($request);
     }
@@ -194,9 +177,10 @@ class LDAPTest extends \VuFindTest\Unit\DbTestCase
      *
      * @return void
      */
-    public function testLoginWithBlankPassword()
+    public function testLoginWithBlankPassword(): void
     {
-        $this->setExpectedException('VuFind\Exception\Auth');
+        $this->expectException(\VuFind\Exception\Auth::class);
+
         $request = $this->getLoginRequest(['password' => '']);
         $this->getAuthObject()->authenticate($request);
     }

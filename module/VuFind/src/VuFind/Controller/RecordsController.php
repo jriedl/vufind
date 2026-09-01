@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Records Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,35 +17,42 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
+
+use function count;
 
 /**
  * Records Controller
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class RecordsController extends AbstractSearch
 {
     /**
      * Constructor
+     *
+     * @param ServiceLocatorInterface $sm Service locator
      */
-    public function __construct()
+    public function __construct(ServiceLocatorInterface $sm)
     {
         $this->searchClassId = 'MixedList';
-        parent::__construct();
+        parent::__construct($sm);
     }
 
     /**
@@ -56,17 +64,20 @@ class RecordsController extends AbstractSearch
     {
         // If there is exactly one record, send the user directly there:
         $ids = $this->params()->fromQuery('id', []);
+        $print = $this->params()->fromQuery('print');
         if (count($ids) == 1) {
             $details = $this->getRecordRouter()->getTabRouteDetails($ids[0]);
             $target = $this->url()->fromRoute($details['route'], $details['params']);
             // forward print param, if necessary:
-            $print = $this->params()->fromQuery('print');
             $params = empty($print) ? '' : '?print=' . urlencode($print);
             return $this->redirect()->toUrl($target . $params);
+        }
+        // Ignore Print for Search History:
+        if (!empty($print)) {
+            $this->saveToHistory = false;
         }
 
         // Not exactly one record -- show search results:
         return $this->resultsAction();
     }
 }
-

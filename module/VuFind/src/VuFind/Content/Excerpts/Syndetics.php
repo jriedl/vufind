@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Syndetics excerpt content loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content\Excerpts;
 
 /**
  * Syndetics excerpt content loader.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Syndetics extends \VuFind\Content\AbstractSyndetics
 {
@@ -47,8 +49,8 @@ class Syndetics extends \VuFind\Content\AbstractSyndetics
         'DBCHAPTER' => [
             'title' => 'First Chapter or Excerpt',
             'file' => 'DBCHAPTER.XML',
-            'div' => '<div id="syn_dbchapter"></div>'
-        ]
+            'div' => '<div id="syn_dbchapter"></div>',
+        ],
     ];
 
     /**
@@ -105,38 +107,29 @@ class Syndetics extends \VuFind\Content\AbstractSyndetics
                     throw new \Exception('Invalid XML');
                 }
 
-                // If we have syndetics plus, we don't actually want the content
-                // we'll just stick in the relevant div
-                if ($this->usePlus) {
-                    $excerpt[$i]['Content'] = $sourceInfo['div'];
-                } else {
-                    // Get the marc field for excerpts (520)
-                    $nodes = $xmldoc2->GetElementsbyTagName("Fld520");
-                    if (!$nodes->length) {
-                        // Skip excerpts with missing text
-                        continue;
-                    }
-                    $excerpt[$i]['Content']
-                        = html_entity_decode($xmldoc2->saveXML($nodes->item(0)));
+                // Get the marc field for excerpts (520)
+                $nodes = $xmldoc2->GetElementsbyTagName('Fld520');
+                if (!$nodes->length) {
+                    // Skip excerpts with missing text
+                    continue;
+                }
+                $excerpt[$i]['Content']
+                    = html_entity_decode($xmldoc2->saveXML($nodes->item(0)));
 
-                    // Get the marc field for copyright (997)
-                    $nodes = $xmldoc->GetElementsbyTagName("Fld997");
-                    if ($nodes->length) {
-                        $excerpt[$i]['Copyright'] = html_entity_decode(
-                            $xmldoc2->saveXML($nodes->item(0))
-                        );
-                    } else {
-                        $excerpt[$i]['Copyright'] = null;
-                    }
+                // Get the marc field for copyright (997)
+                $nodes = $xmldoc->GetElementsbyTagName('Fld997');
+                $excerpt[$i]['Copyright'] = $nodes->length
+                    ? html_entity_decode($xmldoc2->saveXML($nodes->item(0)))
+                    : null;
 
-                    if ($excerpt[$i]['Copyright']) {  //stop duplicate copyrights
-                        $location = strripos(
-                            $excerpt[0]['Content'], $excerpt[0]['Copyright']
-                        );
-                        if ($location > 0) {
-                            $excerpt[$i]['Content']
-                                = substr($excerpt[0]['Content'], 0, $location);
-                        }
+                if ($excerpt[$i]['Copyright']) {  //stop duplicate copyrights
+                    $location = strripos(
+                        $excerpt[0]['Content'],
+                        (string)$excerpt[0]['Copyright']
+                    );
+                    if ($location > 0) {
+                        $excerpt[$i]['Content']
+                            = substr($excerpt[0]['Content'], 0, $location);
                     }
                 }
 

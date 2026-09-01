@@ -1,11 +1,12 @@
 <?php
+
 /**
  * MemCache session handler
  *
  * Note: This relies on PHP's Memcache extension
  * (see http://us.php.net/manual/en/book.memcache.php)
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -19,25 +20,31 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Session_Handlers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:session_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:session_handlers Wiki
  */
+
 namespace VuFind\Session;
+
+use VuFind\Config\Config;
+
+use function get_class;
+use function in_array;
 
 /**
  * Memcache session handler
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Session_Handlers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:session_handlers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:session_handlers Wiki
  */
 class Memcache extends AbstractBase
 {
@@ -46,78 +53,128 @@ class Memcache extends AbstractBase
      *
      * @var \Memcache
      */
-    protected $connection = false;
+    protected $connection;
 
     /**
-     * Get connection to Memcache
+     * Constructor
      *
-     * @throws \Exception
-     * @return \Memcache
+     * @param ?Config                   $config Session configuration ([Session] section of config.ini)
+     * @param \Memcache|\Memcached|null $client Optional Memcache client object
      */
-    public function getConnection()
+    public function __construct(?Config $config = null, ?object $client = null)
     {
-        if (!$this->connection) {
-            // Set defaults if nothing set in config file.
-            $host = isset($this->config->memcache_host)
-                ? $this->config->memcache_host : 'localhost';
-            $port = isset($this->config->memcache_port)
-                ? $this->config->memcache_port : 11211;
-            $timeout = isset($this->config->memcache_connection_timeout)
-                ? $this->config->memcache_connection_timeout : 1;
+        parent::__construct($config);
+        $this->connect($config, $client);
+    }
 
-            // Connect to Memcache:
-            $this->connection = new \Memcache();
+    /**
+     * Set up the connection to Memcache.
+     *
+     * @param ?Config                   $config Session configuration ([Session] section of config.ini)
+     * @param \Memcache|\Memcached|null $client Optional Memcache client object
+     *
+     * @return void
+     */
+    protected function connect(?Config $config, ?object $client): void
+    {
+        // Set defaults if nothing set in config file.
+        $host = $config->memcache_host ?? 'localhost';
+        $port = $config->memcache_port ?? 11211;
+        $timeout = $config->memcache_connection_timeout ?? 1;
+        $clientClass = $config->memcache_client ?? \Memcache::class;
+
+        // Create/validate client object:
+        if (!in_array($clientClass, [\Memcache::class, \Memcached::class])) {
+            throw new \Exception("Unsupported Memcache client: $clientClass");
+        }
+        $this->connection = $client ?? new $clientClass();
+        if (!($this->connection instanceof $clientClass)) {
+            throw new \Exception(
+                'Unexpected Memcache client class: ' . get_class($this->connection)
+            );
+        }
+
+        // Prepare a connection exception, just in case we need it:
+        $connectionException = new \Exception(
+            "Could not connect to $clientClass (host = {$host}, port = {$port})."
+        );
+
+        // Establish connection:
+        if ($clientClass === \Memcache::class) {
+            trigger_error('Memcache support is deprecated; use Memcached instead', E_USER_DEPRECATED);
             if (!$this->connection->connect($host, $port, $timeout)) {
-                throw new \Exception(
-                    "Could not connect to Memcache (host = {$host}, port = {$port})."
-                );
+                throw $connectionException;
+            }
+        } else {
+            $this->connection->setOption(\Memcached::OPT_CONNECT_TIMEOUT, $timeout);
+            if (!$this->connection->addServer($host, $port)) {
+                throw $connectionException;
             }
         }
-        return $this->connection;
     }
 
     /**
      * Read function must return string value always to make save handler work as
      * expected. Return empty string if there is no data to read.
      *
-     * @param string $sess_id The session ID to read
+     * @param string $sessId The session ID to read
      *
      * @return string
      */
-    public function read($sess_id)
+    public function read($sessId): string
     {
-        return $this->getConnection()->get("vufind_sessions/{$sess_id}");
-    }
-
-    /**
-     * Write function that is called when session data is to be saved.
-     *
-     * @param string $sess_id The current session ID
-     * @param string $data    The session data to write
-     *
-     * @return void
-     */
-    public function write($sess_id, $data)
-    {
-        return $this->getConnection()->set(
-            "vufind_sessions/{$sess_id}", $data, 0, $this->lifetime
-        );
+        // For some reason, Memcache tests fail if we do not pass exactly three
+        // parameters to the get method, even though this seems inconsistent with
+        // the documentation. This mechanism makes the tests pass, but may be worth
+        // revisiting in the future.
+        $extraParams = $this->connection instanceof \Memcache ? [null, null] : [];
+        $value = $this->connection
+            ->get("vufind_sessions/{$sessId}", ...$extraParams);
+        return empty($value) ? '' : $value;
     }
 
     /**
      * The destroy handler, this is executed when a session is destroyed with
      * session_destroy() and takes the session id as its only parameter.
      *
-     * @param string $sess_id The session ID to destroy
+     * @param string $sessId The session ID to destroy
      *
-     * @return void
+     * @return bool
      */
-    public function destroy($sess_id)
+    public function destroy($sessId): bool
     {
         // Perform standard actions required by all session methods:
-        parent::destroy($sess_id);
+        parent::destroy($sessId);
 
         // Perform Memcache-specific cleanup:
-        return $this->getConnection()->delete("vufind_sessions/{$sess_id}");
+        return $this->connection->delete("vufind_sessions/{$sessId}");
+    }
+
+    /**
+     * A function that is called internally when session data is to be saved.
+     *
+     * @param string $sessId The current session ID
+     * @param string $data   The session data to write
+     *
+     * @return bool
+     */
+    protected function saveSession($sessId, $data): bool
+    {
+        // Memcached and Memcache have different set() signatures, so we need to
+        // behave differently depending on the class of the connection.
+        if ($this->connection instanceof \Memcached) {
+            return $this->connection->set(
+                "vufind_sessions/{$sessId}",
+                $data,
+                $this->lifetime
+            );
+        }
+        // The third parameter (0) here is $flags, which we do not use.
+        return $this->connection->set(
+            "vufind_sessions/{$sessId}",
+            $data,
+            0,
+            $this->lifetime
+        );
     }
 }

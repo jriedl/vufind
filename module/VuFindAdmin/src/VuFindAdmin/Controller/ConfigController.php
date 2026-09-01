@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Admin Configuration Controller
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,41 +17,42 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFindAdmin\Controller;
 
 /**
  * Class controls VuFind administration.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class ConfigController extends AbstractAdmin
 {
     /**
      * Configuration management
      *
-     * @return \Zend\View\Model\ViewModel
+     * @return \Laminas\View\Model\ViewModel
      */
     public function homeAction()
     {
         $view = $this->createViewModel();
         $view->setTemplate('admin/config/home');
-        $view->baseConfigPath = \VuFind\Config\Locator::getBaseConfigPath('');
-        $conf = $this->getConfig();
-        $view->showInstallLink
-            = isset($conf->System->autoConfigure) && $conf->System->autoConfigure;
+        $resolver = $this->getService(\VuFind\Config\PathResolver::class);
+        $view->baseConfigPath = $resolver->getBaseConfigPath('');
+        $conf = $this->getConfigArray();
+        $view->showInstallLink = $conf['System']['autoConfigure'] ?? false;
         return $view;
     }
 
@@ -61,25 +63,35 @@ class ConfigController extends AbstractAdmin
      */
     public function enableautoconfigAction()
     {
-        $configFile = \VuFind\Config\Locator::getConfigPath('config.ini');
+        $resolver = $this->getService(\VuFind\Config\PathResolver::class);
+        if (!($configFile = $resolver->getLocalConfigPath('config.ini'))) {
+            $this->flashMessenger()->addErrorMessage(
+                'Could not enable auto-configuration; local '
+                . $configFile . ' not found.'
+            );
+            return $this->forwardTo('AdminConfig', 'Home');
+        }
         $writer = new \VuFind\Config\Writer($configFile);
         $writer->set('System', 'autoConfigure', 1);
-        if ($writer->save()) {
-            $this->flashMessenger()->setNamespace('info')
-                ->addMessage('Auto-configuration enabled.');
+        $success = false;
+        try {
+            $success = $writer->save();
+        } catch (\Exception $e) {
+            // Failure -- leave $success set to false.
+        }
+        if ($success) {
+            $this->flashMessenger()->addSuccessMessage('Auto-configuration enabled.');
 
             // Reload config now that it has been edited (otherwise, old setting
             // will persist in cache):
-            $this->getServiceLocator()->get('VuFind\Config')->reload('config');
+            $this->getService(\VuFind\Config\ConfigManagerInterface::class)
+                ->getConfig('config', forceReload: true);
         } else {
-            $this->flashMessenger()->setNamespace('error')
-                ->addMessage(
-                    'Could not enable auto-configuration; check permissions on '
-                    . $configFile . '.'
-                );
+            $this->flashMessenger()->addErrorMessage(
+                'Could not enable auto-configuration; check permissions on '
+                . $configFile . '.'
+            );
         }
         return $this->forwardTo('AdminConfig', 'Home');
     }
-
 }
-

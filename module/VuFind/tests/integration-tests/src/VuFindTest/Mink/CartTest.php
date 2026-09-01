@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Mink cart test class.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,79 +17,918 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFindTest\Mink;
+
+use Behat\Mink\Element\DocumentElement;
+use Behat\Mink\Element\Element;
+
+use function count;
+use function is_object;
 
 /**
  * Mink cart test class.
  *
- * @category VuFind2
+ * Class must be final due to use of "new static()" by LiveDatabaseTrait.
+ *
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-class CartTest extends \VuFindTest\Unit\MinkTestCase
+final class CartTest extends \VuFindTest\Integration\MinkTestCase
 {
+    use \VuFindTest\Feature\LiveDatabaseTrait;
+    use \VuFindTest\Feature\UserCreationTrait;
+
     /**
-     * Test that the home page is available.
+     * Standard setup method.
      *
      * @return void
      */
-    public function testAddToCart()
+    public static function setUpBeforeClass(): void
     {
-        // Activate the cart:
-        $this->changeConfigs(
-            ['config' =>
-                ['Site' => ['showBookBag' => true, 'theme' => 'bootprint3']]
-            ]
-        );
+        static::failIfDataExists();
+    }
 
+    /**
+     * Get a reference to a standard search results page.
+     *
+     * @return DocumentElement
+     */
+    protected function getSearchResultsPage(): DocumentElement
+    {
         $session = $this->getMinkSession();
-        $session->start();
         $path = '/Search/Results?lookfor=id%3A(testsample1+OR+testsample2)';
         $session->visit($this->getVuFindUrl() . $path);
         $page = $session->getPage();
+        $this->waitForPageLoad($page);
+        return $page;
+    }
 
-        // Click "add" without selecting anything:
-        $updateCart = $page->find('css', '#updateCart');
-        $this->assertTrue(is_object($updateCart));
-        $updateCart->click();
-        $content = $page->find('css', '.popover-content');
-        $this->assertTrue(is_object($content));
+    /**
+     * Get a reference to a standard search results page.
+     *
+     * @param string $id Record ID to load.
+     *
+     * @return DocumentElement
+     */
+    protected function getRecordPage(string $id): DocumentElement
+    {
+        $session = $this->getMinkSession();
+        $path = '/Record/' . urlencode($id);
+        $session->visit($this->getVuFindUrl() . $path);
+        $page = $session->getPage();
+        $this->waitForPageLoad($page);
+        return $page;
+    }
+
+    /**
+     * Click the "add to cart" button with nothing selected; fail if this does
+     * not display an appropriate message.
+     *
+     * @param Element $page         Page element
+     * @param string  $updateCartId ID of Add to cart button
+     *
+     * @return void
+     */
+    protected function tryAddingNothingToCart(
+        Element $page,
+        string $updateCartId
+    ): void {
+        // This test is a bit timing-sensitive, so introduce a retry loop before
+        // completely failing.
+        for ($clickRetry = 0; $clickRetry <= 4; $clickRetry++) {
+            $this->clickCss($page, $updateCartId);
+            $content = $page->find('css', $this->popoverContentSelector);
+            if (is_object($content)) {
+                $this->assertEquals(
+                    'No items were selected. '
+                    . 'Please click on a checkbox next to an item and try again.',
+                    $content->getText()
+                );
+                return;
+            }
+        }
+        $this->fail('Too many retries on check for error message.');
+    }
+
+    /**
+     * Click the "add to cart" button with duplicate IDs selected; fail if this does
+     * not display an appropriate message.
+     *
+     * @param Element $page         Page element
+     * @param string  $updateCartId ID of Add to cart button
+     *
+     * @return void
+     */
+    protected function tryAddingDuplicatesToCart(
+        Element $page,
+        string $updateCartId
+    ): void {
+        // This test is a bit timing-sensitive, so introduce a retry loop before
+        // completely failing.
+        for ($clickRetry = 0; $clickRetry <= 4; $clickRetry++) {
+            $this->clickCss($page, $updateCartId);
+            $content = $page->find('css', $this->popoverContentSelector);
+            if (is_object($content)) {
+                $this->assertEquals(
+                    '0 item(s) added to your Book Bag 2 item(s) are either '
+                    . 'already in your Book Bag or could not be added',
+                    $content->getText()
+                );
+                return;
+            }
+        }
+        $this->fail('Too many retries on check for error message.');
+    }
+
+    /**
+     * Add the current page of results to the cart (using the select all bulk
+     * controls).
+     *
+     * @param Element $page         Page element
+     * @param string  $updateCartId ID of Add to cart button
+     * @param string  $selectAllId  ID of select all checkbox
+     *
+     * @return void
+     */
+    protected function addCurrentPageToCart(
+        Element $page,
+        string $updateCartId,
+        string $selectAllId = '#addFormCheckboxSelectAll'
+    ): void {
+        $selectAll = $this->findCss($page, $selectAllId);
+        $selectAll->check();
+        // Make sure all items are checked:
+        $checkboxCount = count($page->findAll('css', '.checkbox-select-item'));
+        $this->waitStatement(
+            '$(".checkbox-select-item:checked").length === ' . $checkboxCount
+        );
+        $this->clickCss($page, $updateCartId);
+    }
+
+    /**
+     * Add the current page of results to the cart (using the individual add
+     * buttons).
+     *
+     * @param Element $page Page element
+     *
+     * @return void
+     */
+    protected function addCurrentPageToCartUsingButtons(Element $page): void
+    {
+        foreach ($page->findAll('css', '.cart-add') as $button) {
+            $button->click();
+        }
+    }
+
+    /**
+     * Open the cart lightbox.
+     *
+     * @param Element $page Page element
+     *
+     * @return void
+     */
+    protected function openCartLightbox(Element $page): void
+    {
+        $this->clickCss($page, '#cartItems');
+    }
+
+    /**
+     * Set up a generic cart test by running a search and putting its results
+     * into the cart, then opening the lightbox so that additional actions may
+     * be attempted.
+     *
+     * @param array $extraConfigs Extra config settings
+     * @param bool  $inLightbox   Should we open the cart in a lightbox, or as a separate page?
+     *
+     * @return DocumentElement
+     */
+    protected function setUpGenericCartTest($extraConfigs = [], $inLightbox = true): DocumentElement
+    {
+        // Activate the cart:
+        $extraConfigs['config']['Site'] = ['showBookBag' => true];
+        $this->changeConfigs($extraConfigs);
+
+        $page = $this->getSearchResultsPage();
+        $this->waitStatement('$(".cart-add:not(:hidden)").length === 2');
+        $this->addCurrentPageToCartUsingButtons($page);
+        $this->assertEquals('2', $this->findCssAndGetText($page, '#cartItems strong'));
+
+        // Open the cart and empty it:
+        if ($inLightbox) {
+            $this->openCartLightbox($page);
+        } else {
+            $this->getMinkSession()->visit($this->getVuFindUrl() . '/Cart/Home');
+        }
+        $this->waitForPageLoad($page);
+
+        return $page;
+    }
+
+    /**
+     * Assert that the open cart lightbox is empty.
+     *
+     * @param Element $page       Page element
+     * @param bool    $inLightbox Should we assume the cart is in a lightbox?
+     *
+     * @return void
+     */
+    protected function checkEmptyCart(Element $page, bool $inLightbox = true): void
+    {
+        $info = $this->findCss($page, ($inLightbox ? '.modal-body ' : '') . '.form-inline .alert-info');
+        $this->assertEquals('Your Book Bag is empty.', $info->getText());
+    }
+
+    /**
+     * Assert that the "no items were selected" message is visible in the cart
+     * lightbox.
+     *
+     * @param Element $page       Page element
+     * @param bool    $inLightbox Should we assume the cart is in a lightbox when checking for messages?
+     *
+     * @return void
+     */
+    protected function checkForNonSelectedMessage(Element $page, bool $inLightbox = true): void
+    {
+        $warning = $this->findCss($page, $inLightbox ? '.modal-body .alert' : '.alert');
         $this->assertEquals(
             'No items were selected. '
             . 'Please click on a checkbox next to an item and try again.',
-            $content->getText()
+            $warning->getText()
+        );
+    }
+
+    /**
+     * Assert that the "login required" message is visible in the cart lightbox.
+     *
+     * @param Element $page Page element
+     *
+     * @return void
+     */
+    protected function checkForLoginMessage(Element $page): void
+    {
+        $warning = $page->find('css', '.modal-body .alert-danger');
+        $this->assertIsObject($warning);
+        $this->assertEquals(
+            'You must be logged in first',
+            $warning->getText()
+        );
+    }
+
+    /**
+     * Select all of the items currently in the cart lightbox.
+     *
+     * @param Element $page       Page element
+     * @param bool    $inLightbox Should we assume the cart is in a lightbox?
+     *
+     * @return void
+     */
+    protected function selectAllItemsInCart(Element $page, bool $inLightbox = true): void
+    {
+        $cartSelectAll = $this->findCss(
+            $page,
+            $inLightbox ? '.modal-dialog .checkbox-select-all' : '.checkbox-select-all'
+        );
+        $cartSelectAll->check();
+        // Confirm that all the boxes are checked:
+        $items = $page->findAll('css', '.checkbox-select-item');
+        $this->assertGreaterThan(0, count($items));
+        foreach ($items as $item) {
+            $this->assertTrue($item->isChecked(), 'Select all did not check every checkbox');
+        }
+    }
+
+    /**
+     * Test that adding nothing to the cart triggers an appropriate message.
+     *
+     * @return void
+     */
+    public function testAddingNothing(): void
+    {
+        // Activate the cart:
+        $this->changeConfigs(
+            [
+                'config' => [
+                    'Site' => [
+                        'showBookBag' => true,
+                        'bookbagTogglesInSearch' => false,
+                    ],
+                ],
+            ]
         );
 
-        // Now actually select something:
-        $selectAll = $page->find('css', '#addFormCheckboxSelectAll');
-        $selectAll->check();
-        $updateCart->click();
-        $this->assertEquals('2', $page->find('css', '#cartItems strong')->getText());
+        $page = $this->getSearchResultsPage();
 
-        // Open the cart and empty it:
-        $viewCart = $page->find('css', '#cartItems');
-        $this->assertTrue(is_object($viewCart));
-        $viewCart->click();
-        $cartSelectAll = $page->find('css', '.modal-dialog .checkbox-select-all');
-        $cartSelectAll->check();
-        $delete = $page->find('css', '#cart-delete-label');
+        // Click "add" without selecting anything.
+        $this->tryAddingNothingToCart($page, '#updateCart');
+    }
+
+    /**
+     * Test that adding the same records to the cart multiple times triggers an
+     * appropriate message.
+     *
+     * @return void
+     */
+    public function testAddingDuplicates(): void
+    {
+        // Activate the cart:
+        $this->changeConfigs(
+            [
+                'config' => [
+                    'Site' => [
+                        'showBookBag' => true,
+                        'bookbagTogglesInSearch' => false,
+                    ],
+                ],
+            ]
+        );
+
+        $page = $this->getSearchResultsPage();
+
+        // Now select the same things twice:
+        $this->addCurrentPageToCart($page, '#updateCart');
+        $this->assertEquals('2', $this->findCssAndGetText($page, '#cartItems strong'));
+        $this->tryAddingDuplicatesToCart($page, '#updateCart');
+        $this->assertEquals('2', $this->findCssAndGetText($page, '#cartItems strong'));
+    }
+
+    /**
+     * Test that the cart limit is enforced from search results.
+     *
+     * @return void
+     */
+    public function testOverfillingCart(): void
+    {
+        // Activate the cart:
+        $this->changeConfigs(
+            [
+                'config' => [
+                    'Site' => [
+                        'showBookBag' => true,
+                        'bookBagMaxSize' => 1,
+                        'bookbagTogglesInSearch' => false,
+                    ],
+                ],
+            ]
+        );
+
+        $page = $this->getSearchResultsPage();
+
+        // Now select the same things twice:
+        $this->addCurrentPageToCart($page, '#updateCart');
+        $this->assertEquals('1', $this->findCssAndGetText($page, '#cartItems strong'));
+    }
+
+    /**
+     * Test that the cart limit is enforced from record pages.
+     *
+     * @return void
+     */
+    public function testOverfillingCartFromRecordPage(): void
+    {
+        // Activate the cart:
+        $this->changeConfigs(
+            ['config' => ['Site' => ['showBookBag' => true, 'bookBagMaxSize' => 1]]]
+        );
+
+        $page = $this->getRecordPage('testsample1');
+
+        // Test that we can toggle the cart item back and forth:
+        $cartItems = $this->findCss($page, '#cartItems');
+        $add = $this->findCss($page, '.cart-add');
+        $remove = $this->findCss($page, '.cart-remove');
+        $add->click();
+        $this->assertEquals('Book Bag: 1 items (Full)', $cartItems->getText());
+        $remove->click();
+        $this->assertEquals('Book Bag: 0 items', $cartItems->getText());
+        $add->click();
+        $this->assertEquals('Book Bag: 1 items (Full)', $cartItems->getText());
+
+        // Now move to another page and try to add a second item -- it should
+        // not be added due to cart limit:
+        $page = $this->getRecordPage('testsample2');
+        $cartItems = $this->findCss($page, '#cartItems');
+        $add = $this->findCss($page, '.cart-add');
+        $add->click();
+        $this->assertEquals('Book Bag: 1 items (Full)', $cartItems->getText());
+    }
+
+    /**
+     * Test that the record "add to cart" button functions.
+     *
+     * @return void
+     */
+    public function testAddingMultipleRecordsFromRecordPage(): void
+    {
+        // Activate the cart:
+        $this->changeConfigs(
+            ['config' => ['Site' => ['showBookBag' => true]]]
+        );
+
+        // Test that we can add multiple records:
+        for ($x = 1; $x <= 3; $x++) {
+            $page = $this->getRecordPage('testsample' . $x);
+            $this->clickCss($page, '.cart-add');
+            $this->assertEquals(
+                'Book Bag: ' . $x . ' items',
+                $this->findCssAndGetText($page, '#cartItems')
+            );
+        }
+    }
+
+    /**
+     * Data provider to return in lightbox / not in lightbox states.
+     *
+     * @return array[]
+     */
+    public static function inLightboxProvider(): array
+    {
+        return ['in lightbox' => [true], 'not in lightbox' => [false]];
+    }
+
+    /**
+     * Test that we can put items in the cart and then remove them with the
+     * delete control.
+     *
+     * @param bool $inLightbox Should we test in the lightbox or on a stand-alone cart page?
+     *
+     * @return void
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('inLightboxProvider')]
+    public function testFillAndDeleteFromCart(bool $inLightbox): void
+    {
+        $page = $this->setUpGenericCartTest(inLightbox: $inLightbox);
+        $delete = $this->findCss($page, '#cart-delete-label');
+
+        // First try deleting without selecting anything:
         $delete->click();
-        $deleteConfirm = $page->find('css', '#cart-confirm-delete');
-        $this->assertTrue(is_object($deleteConfirm));
+        $this->clickCss($page, '#cart-confirm-delete');
+        $this->checkForNonSelectedMessage($page, $inLightbox);
+
+        // Now actually select the records to delete:
+        $this->selectAllItemsInCart($page, $inLightbox);
+        $delete->click();
+        $deleteConfirm = $this->findCss($page, '#cart-confirm-delete');
         $deleteConfirm->click();
-        $close = $page->find('css', 'button.close');
-        $close->click();
-        $this->assertEquals('0', $page->find('css', '#cartItems strong')->getText());
+        $this->checkEmptyCart($page, $inLightbox);
+
+        // Close the lightbox if necessary:
+        if ($inLightbox) {
+            $this->closeLightbox($page);
+        }
+
+        // Confirm that the cart has truly been emptied:
+        $this->waitStatement('$("#cartItems strong").text() === "0"');
+    }
+
+    /**
+     * Test that we can put items in the cart and then remove them with the
+     * empty button.
+     *
+     * @return void
+     */
+    public function testFillAndEmptyCart(): void
+    {
+        $page = $this->setUpGenericCartTest();
+
+        // Activate the "empty" control:
+        $empty = $this->findCss($page, '#cart-empty-label');
+        $empty->click();
+        $emptyConfirm = $this->findCss($page, '#cart-confirm-empty');
+        $emptyConfirm->click();
+        $this->checkEmptyCart($page);
+
+        // Close the lightbox:
+        $this->closeLightbox($page);
+
+        // Confirm that the cart has truly been emptied:
+        $this->waitStatement('$("#cartItems strong").text() === "0"');
+    }
+
+    /**
+     * Test that we can put items in the cart using the bottom checkbox/button.
+     *
+     * @return void
+     */
+    public function testFillCartUsingBottomControls(): void
+    {
+        // Activate the cart:
+        $this->changeConfigs(
+            [
+                'config' => [
+                    'Site' => [
+                        'showBookBag' => true,
+                        'bookbagTogglesInSearch' => false,
+                    ],
+                ],
+            ]
+        );
+        $page = $this->getSearchResultsPage();
+        $this->addCurrentPageToCart(
+            $page,
+            '#bottom_updateCart',
+            '#bottom_addFormCheckboxSelectAll'
+        );
+        $this->assertEqualsWithTimeout(
+            '2',
+            function () use ($page) {
+                return $this->findCssAndGetText($page, '#cartItems strong');
+            }
+        );
+    }
+
+    /**
+     * Test that we can put items in the cart and then remove them outside of
+     * the lightbox.
+     *
+     * @return void
+     */
+    public function testFillAndEmptyCartWithoutLightbox(): void
+    {
+        // Turn on limit by path setting; there used to be a bug where cookie
+        // paths were set inconsistently between JS and server-side code. This
+        // test should catch any regressions in that area.
+        $page = $this->setUpGenericCartTest(
+            ['config' => ['Cookies' => ['limit_by_path' => 1]]]
+        );
+
+        // Go to the cart page and activate the "empty" control:
+        $session = $this->getMinkSession();
+        $session->visit($this->getVuFindUrl() . '/Cart');
+        $empty = $this->findCss($page, '#cart-empty-label');
+        $empty->click();
+        $emptyConfirm = $this->findCss($page, '#cart-confirm-empty');
+        $emptyConfirm->click();
+
+        // Confirm that the cart has truly been emptied:
+        $this->waitStatement('$("#cartItems strong").text() === "0"');
+    }
+
+    /**
+     * Test that the email control works.
+     *
+     * @return void
+     */
+    public function testCartEmail(): void
+    {
+        $page = $this->setUpGenericCartTest(
+            ['config' => ['Mail' => ['testOnly' => 1]]]
+        );
+        $button = $this->findCss($page, '.cart-controls button[name=email]');
+
+        // First try clicking without selecting anything:
+        $button->click();
+        $this->checkForNonSelectedMessage($page);
+
+        // Now do it for real -- we should get a login prompt.
+        $this->selectAllItemsInCart($page);
+        $button->click();
+        $this->waitForPageLoad($page);
+        $this->checkForLoginMessage($page);
+
+        // Create an account.
+        $this->clickCss($page, '.modal-body .createAccountLink');
+        $this->fillInAccountForm($page);
+        $this->clickCss($page, '.modal-body .btn.btn-primary');
+
+        $this->findCssAndSetValue($page, '.modal #email_from', 'asdf@asdf.com');
+        $this->findCssAndSetValue($page, '.modal #email_message', 'message');
+        $this->findCssAndSetValue(
+            $page,
+            '.modal #email_to',
+            'demian.katz@villanova.edu'
+        );
+        $this->clickCss($page, '.modal-body .btn.btn-primary');
+        // Check for confirmation message
+        $this->assertEquals(
+            'Your item(s) were emailed',
+            $this->findCssAndGetText($page, '.modal .alert-success')
+        );
+    }
+
+    /**
+     * Test that the save control works.
+     *
+     * @return void
+     */
+    #[\PHPUnit\Framework\Attributes\Depends('testCartEmail')]
+    public function testCartSave(): void
+    {
+        $page = $this->setUpGenericCartTest();
+        $button = $this->findCss($page, '.cart-controls button[name=saveCart]');
+
+        // First try clicking without selecting anything:
+        $button->click();
+        $this->checkForNonSelectedMessage($page);
+
+        // Now do it for real -- we should get a login prompt.
+        $this->selectAllItemsInCart($page);
+        $button->click();
+        $this->waitForPageLoad($page);
+        $this->checkForLoginMessage($page);
+
+        // Log in to account created in previous test.
+        $this->fillInLoginForm($page, 'username1', 'test');
+        $this->submitLoginForm($page);
+
+        // Save the favorites.
+        $this->clickCss($page, '.modal-body input[name=submitButton]');
+        $this->assertEquals(
+            'Your item(s) were saved successfully. Go to List.',
+            $this->findCssAndGetText($page, '.modal-body .alert-success')
+        );
+        // Make sure the link in the success message contains a valid list ID:
+        $result = $this->findCss($page, '.modal-body .alert-success a');
+        $this->assertMatchesRegularExpression(
+            '|href="[^"]*/MyResearch/MyList/[0-9]+"|',
+            $result->getOuterHtml()
+        );
+
+        // Click the close button.
+        $this->closeLightbox($page, true);
+    }
+
+    /**
+     * Test that the export control works.
+     *
+     * @return void
+     */
+    public function testCartExport(): void
+    {
+        $page = $this->setUpGenericCartTest();
+        $button = $this->findCss($page, '.cart-controls button[name=export]');
+
+        // First try clicking without selecting anything:
+        $button->click();
+        $this->checkForNonSelectedMessage($page);
+
+        // Now do it for real -- we should get an export option list:
+        $this->selectAllItemsInCart($page);
+        $button->click();
+
+        // Select EndNote option
+        $select = $this->findCss($page, '#format');
+        $select->selectOption('EndNote');
+
+        // Do the export:
+        $submit = $this->findCss($page, '.modal-body input[name=submitButton]');
+        $submit->click();
+        $result = $this->findCss($page, '.modal-body .alert .text-center .btn');
+        $this->assertEquals('Download File', $result->getText());
+    }
+
+    /**
+     * Test that the export control works when redirecting to a third-party site.
+     *
+     * @return void
+     */
+    public function testCartExportToThirdParty(): void
+    {
+        // Use a local fake URL as the export URL (we only check that the redirect
+        // goes to the correct address so it doesn't matter that the target page
+        // returns a 404 error):
+        $exportUrl = $this->getVuFindUrl('/Content/export_test');
+        $page = $this->setUpGenericCartTest(
+            [
+                'config' => [
+                    'Export' => [
+                        'VuFind' => 'record,bulk',
+                    ],
+                ],
+                'export' => [
+                    'VuFind' => [
+                        'requiredMethods[]' => 'getTitle',
+                        'redirectUrl' => $exportUrl,
+                        'headers[]' => 'Content-type: text/plain; charset=utf-8',
+                    ],
+                ],
+            ]
+        );
+        $button = $this->findCss($page, '.cart-controls button[name=export]');
+
+        // Go to export option list:
+        $this->selectAllItemsInCart($page);
+        $button->click();
+
+        // Select EndNote option
+        $select = $this->findCss($page, '#format');
+        $select->selectOption('VuFind');
+
+        // Do the export:
+        $session = $this->getMinkSession();
+        $windowNames = $session->getWindowNames();
+        $windowCount = count($session->getWindowNames());
+        $submit = $this->findCss($page, '.modal-body input[name=submitButton]');
+        $submit->click();
+        $this->assertEqualsWithTimeout(
+            $windowCount + 1,
+            function () use ($session) {
+                return count($session->getWindowNames());
+            }
+        );
+        $newWindows = array_diff($session->getWindowNames(), $windowNames);
+        $this->assertCount(1, $newWindows);
+        $session->switchToWindow(reset($newWindows));
+        $this->assertEqualsWithTimeout(
+            $exportUrl,
+            [$session, 'getCurrentUrl']
+        );
+    }
+
+    /**
+     * Get the search history data.
+     *
+     * @return array
+     */
+    protected function getSearchHistory(): array
+    {
+        $session = $this->getMinkSession();
+        $session->visit($this->getVuFindUrl() . '/Search/History');
+        $page = $session->getPage();
+        $this->waitForPageLoad($page);
+        $matches = $page->findAll('css', '#recent-searches td:nth-child(2) a');
+        $callback = function ($match) {
+            return $match->getText();
+        };
+        return array_map($callback, $matches);
+    }
+
+    /**
+     * Test that the print control works.
+     *
+     * @return void
+     */
+    public function testCartPrint(): void
+    {
+        $page = $this->setUpGenericCartTest();
+
+        // First try clicking without selecting anything:
+        $this->clickCss($page, '.cart-controls button[name=print]');
+        $this->checkForNonSelectedMessage($page);
+
+        // Now do it for real -- we should get redirected.
+        $this->selectAllItemsInCart($page);
+        $this->clickCss($page, '.cart-controls button[name=print]');
+        $this->assertEqualsWithTimeout(
+            'print=true&id[]=Solr|testsample1&id[]=Solr|testsample2',
+            [$this, 'getCurrentQueryString']
+        );
+
+        // Printing should not have added anything to the search history beyond
+        // the initial search that set everything up.
+        $this->assertEquals(
+            ['id:(testsample1 OR testsample2)'],
+            $this->getSearchHistory()
+        );
+    }
+
+    /**
+     * Assert visibility
+     *
+     * @param array  $combo    Current Site configuration
+     * @param bool[] $elements Array of element visibility states indexed by name
+     * @param string $name     Name of element to check
+     * @param string $exp      Expected visibility
+     *
+     * @return void
+     */
+    protected function assertVisible(array $combo, array $elements, string $name, string $exp): void
+    {
+        $message = $elements[$name]
+            ? $name . " should be hidden.\n" . print_r($combo, true)
+            : $name . " should be visible.\n" . print_r($combo, true);
+        $this->assertEquals($exp, $elements[$name], $message);
+    }
+
+    /**
+     * Run tests on a specified configuration
+     *
+     * @param Element $page  Page element
+     * @param array   $combo Site configuration to test
+     *
+     * @return array
+     */
+    protected function runConfigCombo(Element $page, array $combo): array
+    {
+        $this->changeConfigs(['config' => ['Site' => $combo]]);
+        $this->getMinkSession()->reload();
+        $this->waitForPageLoad($page);
+        $elements = [
+            'headerBtn'  => $page->find('css', '#cartItems') !== null,
+            'bulkEmail'  => $page->find('css', '#ribbon-email') !== null,
+            'bulkUpdateCart' => $page->find('css', '#updateCart') !== null,
+            'resultCartBtns'   => $page->find('css', '.result .btn-bookbag-toggle') !== null,
+            'resultCheckbox'   => $page->find('css', '.result .checkbox-select-item') !== null,
+        ];
+        // Expected
+        $this->assertVisible($combo, $elements, 'headerBtn', $combo['showBookBag']);
+        $this->assertVisible($combo, $elements, 'bulkEmail', $combo['showBulkOptions']);
+        $this->assertVisible(
+            $combo,
+            $elements,
+            'bulkUpdateCart',
+            $combo['showBookBag'] && ($combo['showBulkOptions'] || !$combo['bookbagTogglesInSearch'])
+        );
+        $this->assertVisible(
+            $combo,
+            $elements,
+            'resultCartBtns',
+            $combo['showBookBag'] && $combo['bookbagTogglesInSearch']
+        );
+        $this->assertVisible(
+            $combo,
+            $elements,
+            'resultCheckbox',
+            $elements['bulkEmail'] || $elements['bulkUpdateCart']
+        );
+        return $elements;
+    }
+
+    /**
+     * Test toolbar visibility configuration combinations
+     *
+     * @return void
+     */
+    public function testToolbarVisibilityConfigCombinations(): void
+    {
+        $page = $this->getSearchResultsPage();
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => true,
+                'showBulkOptions' => false,
+                'bookbagTogglesInSearch' => false,
+            ]
+        );
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => false,
+                'showBulkOptions' => false,
+                'bookbagTogglesInSearch' => true,
+            ]
+        );
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => false,
+                'showBulkOptions' => true,
+                'bookbagTogglesInSearch' => false,
+            ]
+        );
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => true,
+                'showBulkOptions' => false,
+                'bookbagTogglesInSearch' => true,
+            ]
+        );
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => true,
+                'showBulkOptions' => true,
+                'bookbagTogglesInSearch' => false,
+            ]
+        );
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => false,
+                'showBulkOptions' => true,
+                'bookbagTogglesInSearch' => true,
+            ]
+        );
+        $this->runConfigCombo(
+            $page,
+            [
+                'showBookBag' => true,
+                'showBulkOptions' => true,
+                'bookbagTogglesInSearch' => true,
+            ]
+        );
+    }
+
+    /**
+     * Standard teardown method.
+     *
+     * @return void
+     */
+    public static function tearDownAfterClass(): void
+    {
+        static::removeUsers('username1');
     }
 }

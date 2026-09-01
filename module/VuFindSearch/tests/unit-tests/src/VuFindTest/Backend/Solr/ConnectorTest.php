@@ -3,7 +3,7 @@
 /**
  * Unit tests for SOLR connector.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,37 +17,41 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\Solr;
 
+use InvalidArgumentException;
+use Laminas\Http\Client\Adapter\Test as TestAdapter;
+use Laminas\Http\Client as HttpClient;
+use PHPUnit\Framework\TestCase;
 use VuFindSearch\Backend\Solr\Connector;
 use VuFindSearch\Backend\Solr\HandlerMap;
-
-use Zend\Http\Client\Adapter\Test as TestAdapter;
-use Zend\Http\Client as HttpClient;
-
-use PHPUnit_Framework_TestCase;
-use InvalidArgumentException;
 
 /**
  * Unit tests for SOLR connector.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   David Maus <maus@hab.de>
+ * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class ConnectorTest extends PHPUnit_Framework_TestCase
+class ConnectorTest extends TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+    use \VuFindTest\Feature\WithConsecutiveTrait;
+
     /**
      * Current response.
      *
@@ -64,7 +68,7 @@ class ConnectorTest extends PHPUnit_Framework_TestCase
     {
         $conn = $this->createConnector('single-record');
         $resp = $conn->retrieve('id');
-        $this->assertInternalType('string', $resp);
+        $this->assertIsString($resp);
         json_decode($resp, true);
         $this->assertEquals(\JSON_ERROR_NONE, json_last_error());
     }
@@ -78,64 +82,128 @@ class ConnectorTest extends PHPUnit_Framework_TestCase
     {
         $conn = $this->createConnector('no-match');
         $resp = $conn->retrieve('id');
-        $this->assertInternalType('string', $resp);
+        $this->assertIsString($resp);
     }
 
     /**
      * Test RemoteErrorException is thrown on a remote 5xx error.
      *
      * @return void
-     *
-     * @expectedException     VuFindSearch\Backend\Exception\RemoteErrorException
-     * @expectedExceptionCode 500
      */
     public function testInternalServerError()
     {
+        $this->expectException(\VuFindSearch\Backend\Exception\RemoteErrorException::class);
+        $this->expectExceptionCode(500);
+
         $conn = $this->createConnector('internal-server-error');
-        $resp = $conn->retrieve('id');
+        $conn->retrieve('id');
     }
 
     /**
      * Test RequestErrorException is thrown on a remote 4xx error.
      *
      * @return void
-     *
-     * @expectedException     VuFindSearch\Backend\Exception\RequestErrorException
-     * @expectedExceptionCode 400
      */
     public function testBadRequestError()
     {
+        $this->expectException(\VuFindSearch\Backend\Exception\RequestErrorException::class);
+        $this->expectExceptionCode(400);
+
         $conn = $this->createConnector('bad-request');
-        $resp = $conn->retrieve('id');
+        $conn->retrieve('id');
     }
 
     /**
-     * Test InvalidArgumentException invalid adapter object.
+     * Test writing a CSV document.
      *
      * @return void
-     *
-     * @expectedException        InvalidArgumentException
-     * @expectedExceptionMessage AdapterInterface
      */
-    public function testSetAdapterThrowsInvalidObject()
+    public function testWriteCSV()
+    {
+        $csvData = 'a,b,c';
+        $client = $this->getMockBuilder(HttpClient::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['setEncType', 'setRawBody'])
+            ->getMock();
+        // The client will be reset before it is given the expected mime type:
+        $this->expectConsecutiveCalls($client, 'setEncType', [['application/x-www-form-urlencoded'], ['text/csv']]);
+        $client->expects($this->once())->method('setRawBody')
+            ->with($this->equalTo($csvData));
+        $conn = $this->getConnectorMock(['send'], $client);
+        $conn->expects($this->once())->method('send')
+            ->with($this->equalTo($client));
+        $csv = new \VuFindSearch\Backend\Solr\Document\RawCSVDocument($csvData);
+        $conn->write($csv, 'csv');
+    }
+
+    /**
+     * Test writing a JSON document.
+     *
+     * @return void
+     */
+    public function testWriteJSON()
+    {
+        $jsonData = '[1,2,3]';
+        $client = $this->getMockBuilder(HttpClient::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['setEncType', 'setRawBody'])
+            ->getMock();
+        // The client will be reset before it is given the expected mime type:
+        $this->expectConsecutiveCalls(
+            $client,
+            'setEncType',
+            [
+                ['application/x-www-form-urlencoded'],
+                ['application/json'],
+            ]
+        );
+        $client->expects($this->once())->method('setRawBody')
+            ->with($this->equalTo($jsonData));
+        $conn = $this->getConnectorMock(['send'], $client);
+        $conn->expects($this->once())->method('send')
+            ->with($this->equalTo($client));
+        $json = new \VuFindSearch\Backend\Solr\Document\RawJSONDocument($jsonData);
+        $conn->write($json, 'json');
+    }
+
+    /**
+     * Test caching.
+     *
+     * @return void
+     */
+    public function testCaching()
     {
         $conn = $this->createConnector('single-record');
-        $conn->setAdapter($this);
-    }
 
-    /**
-     * Test InvalidArgumentException unknown serialization format.
-     *
-     * @return void
-     *
-     * @expectedException        InvalidArgumentException
-     * @expectedExceptionMessage Unable to serialize
-     */
-    public function testSaveThrowsUnknownFormat()
-    {
-        $conn = $this->createConnector();
-        $document = $this->getMock('VuFindSearch\Backend\Solr\Document\UpdateDocument');
-        $conn->write($document, 'unknown', 'update');
+        [, $expectedBody] = explode("\n\n", $this->response);
+        $keyConstraint = new \PHPUnit\Framework\Constraint\IsType('string');
+
+        $cache = $this->createMock(\Laminas\Cache\Storage\StorageInterface::class);
+        $cache->expects($this->exactly(3))
+            ->method('getItem')
+            ->with($keyConstraint)
+            ->willReturnOnConsecutiveCalls(null, $expectedBody, 'foo');
+        $cache->expects($this->exactly(1))
+            ->method('setItem')
+            ->with($keyConstraint, $expectedBody)
+            ->willReturn(true);
+
+        $conn->setCache($cache);
+
+        $resp = $conn->retrieve('id');
+        $this->assertEquals($expectedBody, $resp);
+        $resp = $conn->retrieve('id');
+        $this->assertEquals($expectedBody, $resp);
+        $resp = $conn->retrieve('id');
+        $this->assertEquals('foo', $resp);
+
+        // Make sure that write() doesn't access the cache.
+        $cache = $this->createMock(\Laminas\Cache\Storage\StorageInterface::class);
+        $cache->expects($this->never())->method('getItem');
+        $cache->expects($this->never())->method('setItem');
+        $conn->setCache($cache);
+        $doc = new \VuFindSearch\Backend\Solr\Document\UpdateDocument();
+        $conn->write($doc);
     }
 
     /**
@@ -148,58 +216,150 @@ class ConnectorTest extends PHPUnit_Framework_TestCase
         $url = 'http://example.tld/';
         $map  = new HandlerMap(['select' => ['fallback' => true]]);
         $key = 'foo';
-        $conn = new Connector($url, $map, $key);
+        $conn = new Connector(
+            $url,
+            $map,
+            function () {
+                return new \Laminas\Http\Client();
+            },
+            $key
+        );
         $this->assertEquals($url, $conn->getUrl());
         $this->assertEquals($map, $conn->getMap());
         $this->assertEquals($key, $conn->getUniqueKey());
     }
 
     /**
-     * Test default timeout value
+     * Test callWithHttpOptions.
      *
      * @return void
      */
-    public function testDefaultTimeout()
+    public function testCallWithHttpOptions()
     {
-        $this->assertEquals(30, $this->createConnector()->getTimeout());
+        $this->response
+            = $this->getFixture('solr/response/single-record', 'VuFindSearch');
+
+        $client = $this->getMockBuilder(HttpClient::class)
+            ->onlyMethods(['setOptions'])
+            ->getMock();
+        $client->expects($this->exactly(1))->method('setOptions')
+            ->with(['timeout' => 60]);
+        $adapter = new TestAdapter();
+        $adapter->setResponse($this->response);
+        $client->setAdapter($adapter);
+        $conn = $this->createConnector('single-record', $client);
+
+        // Normal request:
+        $resp = $conn->callWithHttpOptions([], 'retrieve', 'id');
+        $this->assertIsString($resp);
+        json_decode($resp, true);
+        $this->assertEquals(\JSON_ERROR_NONE, json_last_error());
+
+        // Normal request with options:
+        $resp = $conn->callWithHttpOptions(['timeout' => 60], 'retrieve', 'id');
+        $this->assertIsString($resp);
+        json_decode($resp, true);
+        $this->assertEquals(\JSON_ERROR_NONE, json_last_error());
+
+        // Try to call a protected method:
+        $this->expectException(
+            \VuFindSearch\Exception\InvalidArgumentException::class
+        );
+        $conn->callWithHttpOptions([], 'trySolrUrls', []);
+    }
+
+    /**
+     * Test that making a request calls the HTTP client factory
+     *
+     * @return void
+     */
+    public function testClientCreation()
+    {
+        $this->response
+            = $this->getFixture('solr/response/single-record', 'VuFindSearch');
+
+        $httpService = $this->getMockBuilder(\VuFindHttp\HttpService::class)
+            ->getMock();
+        $httpService->expects($this->once())
+            ->method('createClient')
+            ->with('http://localhost/select?q=id%3A%221%22')
+            ->willReturn($this->createClient());
+        $connector = new Connector(
+            'http://localhost',
+            new HandlerMap(['select' => ['fallback' => true]]),
+            function (string $url) use ($httpService) {
+                return $httpService->createClient($url);
+            }
+        );
+        $connector->retrieve('1');
     }
 
     /**
      * Create connector with fixture file.
      *
-     * @param string $fixture Fixture file
+     * @param string     $fixture Fixture file
+     * @param HttpClient $client  HTTP client
      *
      * @return Connector
      *
      * @throws InvalidArgumentException Fixture file does not exist
      */
-    protected function createConnector($fixture = null)
+    protected function createConnector($fixture = null, $client = null)
     {
         if ($fixture) {
-            $file = realpath(sprintf('%s/solr/response/%s', PHPUNIT_SEARCH_FIXTURES, $fixture));
-            if (!is_string($file) || !file_exists($file) || !is_readable($file)) {
-                throw new InvalidArgumentException(sprintf('Unable to load fixture file: %s', $file));
-            }
-            $this->response = file_get_contents($file);
+            $this->response
+                = $this->getFixture("solr/response/$fixture", 'VuFindSearch');
         }
 
         $map  = new HandlerMap(['select' => ['fallback' => true]]);
-        $conn = new Connector('http://example.tld/', $map);
-        $conn->setProxy($this);
-        return $conn;
+        return new Connector(
+            'http://localhost/',
+            $map,
+            function () use ($client) {
+                return $client ?: $this->createClient();
+            },
+            'id'
+        );
     }
 
     /**
-     * Set test adapter with prepared response.
+     * Return connector mock.
      *
-     * @param HttpClient $client HTTP client to mock
+     * @param array      $mock   Functions to mock
+     * @param HttpClient $client HTTP Client (optional)
      *
-     * @return void
+     * @return Connector
      */
-    public function proxify(HttpClient $client)
+    protected function getConnectorMock(array $mock = [], $client = null)
     {
+        $map = new HandlerMap(['select' => ['fallback' => true]]);
+        return $this->getMockBuilder(\VuFindSearch\Backend\Solr\Connector::class)
+            ->onlyMethods($mock)
+            ->setConstructorArgs(
+                [
+                    'http://localhost/',
+                    $map,
+                    function () use ($client) {
+                        // If client is provided, return it since it may have test
+                        // expectations:
+                        return $client ?? new \Laminas\Http\Client();
+                    },
+                ]
+            )
+            ->getMock();
+    }
+
+    /**
+     * Set up HTTP client using test adapter with prepared response.
+     *
+     * @return HttpClient
+     */
+    protected function createClient()
+    {
+        $client = new HttpClient();
         $adapter = new TestAdapter();
         $adapter->setResponse($this->response);
         $client->setAdapter($adapter);
+        return $client;
     }
 }

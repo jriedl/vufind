@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Abstract results search model.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,38 +17,45 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Base
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Search\Base;
-use VuFind\Search\UrlQueryHelper, Zend\Paginator\Paginator,
-    Zend\ServiceManager\ServiceLocatorAwareInterface,
-    Zend\ServiceManager\ServiceLocatorInterface;
+
+use Laminas\Paginator\Paginator;
+use VuFind\Record\Loader;
+use VuFind\Search\Factory\UrlQueryHelperFactory;
 use VuFindSearch\Service as SearchService;
+
+use function array_slice;
+use function call_user_func_array;
+use function count;
+use function func_get_args;
+use function get_class;
+use function in_array;
+use function is_callable;
+use function is_object;
 
 /**
  * Abstract results search model.
  *
  * This abstract class defines the results methods for modeling a search in VuFind.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search_Base
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
-abstract class Results implements ServiceLocatorAwareInterface
+abstract class Results
 {
-    use \Zend\ServiceManager\ServiceLocatorAwareTrait {
-        setServiceLocator as setServiceLocatorThroughTrait;
-    }
-
     /**
      * Search parameters
      *
@@ -63,9 +71,16 @@ abstract class Results implements ServiceLocatorAwareInterface
     protected $resultTotal = null;
 
     /**
+     * Search backend identifier.
+     *
+     * @var string
+     */
+    protected $backendId;
+
+    /**
      * Override (only for use in very rare cases)
      *
-     * @var int
+     * @var ?int
      */
     protected $startRecordOverride = null;
 
@@ -76,6 +91,13 @@ abstract class Results implements ServiceLocatorAwareInterface
      * @var array
      */
     protected $results = null;
+
+    /**
+     * Any errors reported by the search backend
+     *
+     * @var array
+     */
+    protected $errors = null;
 
     /**
      * An ID number for saving/retrieving search
@@ -90,6 +112,13 @@ abstract class Results implements ServiceLocatorAwareInterface
      * @var bool
      */
     protected $savedSearch = null;
+
+    /**
+     * How frequently will a user be notified about this search (0 = never)?
+     *
+     * @var int
+     */
+    protected $notificationFrequency = null;
 
     /**
      * Query start time
@@ -141,15 +170,56 @@ abstract class Results implements ServiceLocatorAwareInterface
     protected $searchService;
 
     /**
+     * Record loader
+     *
+     * @var Loader
+     */
+    protected $recordLoader;
+
+    /**
+     * URL query helper factory
+     *
+     * @var UrlQueryHelperFactory
+     */
+    protected $urlQueryHelperFactory = null;
+
+    /**
+     * Hierarchical facet helper
+     *
+     * @var HierarchicalFacetHelperInterface
+     */
+    protected $hierarchicalFacetHelper = null;
+
+    /**
+     * If the results provide only a restricted view.
+     *
+     * @var bool
+     */
+    protected bool $restrictedView = false;
+
+    /**
+     * Extra search details.
+     *
+     * @var ?array
+     */
+    protected $extraSearchBackendDetails = null;
+
+    /**
      * Constructor
      *
-     * @param \VuFind\Search\Base\Params $params Object representing user search
-     * parameters.
+     * @param \VuFind\Search\Base\Params $params        Object representing user
+     * search parameters.
+     * @param SearchService              $searchService Search service
+     * @param Loader                     $recordLoader  Record loader
      */
-    public function __construct(Params $params)
-    {
-        // Save the parameters, then perform the search:
+    public function __construct(
+        Params $params,
+        SearchService $searchService,
+        Loader $recordLoader
+    ) {
         $this->setParams($params);
+        $this->searchService = $searchService;
+        $this->recordLoader = $recordLoader;
     }
 
     /**
@@ -160,8 +230,9 @@ abstract class Results implements ServiceLocatorAwareInterface
     public function __clone()
     {
         if (is_object($this->params)) {
-            $this->params = clone($this->params);
+            $this->params = clone $this->params;
         }
+        $this->helpers = [];
     }
 
     /**
@@ -197,15 +268,29 @@ abstract class Results implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Options for UrlQueryHelper
+     *
+     * @return array
+     */
+    protected function getUrlQueryHelperOptions()
+    {
+        return [];
+    }
+
+    /**
      * Get the URL helper for this object.
      *
-     * @return UrlHelper
+     * @return \VuFind\Search\UrlQueryHelper
      */
     public function getUrlQuery()
     {
         // Set up URL helper:
         if (!isset($this->helpers['urlQuery'])) {
-            $this->helpers['urlQuery'] = new UrlQueryHelper($this->getParams());
+            $factory = $this->getUrlQueryHelperFactory();
+            $this->helpers['urlQuery'] = $factory->fromParams(
+                $this->getParams(),
+                $this->getUrlQueryHelperOptions()
+            );
         }
         return $this->helpers['urlQuery'];
     }
@@ -224,6 +309,20 @@ abstract class Results implements ServiceLocatorAwareInterface
     }
 
     /**
+     * Store an empty response with an error message instead of performing a search.
+     *
+     * @param string|array $error Error message(s) to display to user.
+     *
+     * @return void
+     */
+    protected function storeErrorResponse(string|array $error): void
+    {
+        $this->resultTotal = 0;
+        $this->results = [];
+        $this->errors = (array)$error;
+    }
+
+    /**
      * Actually execute the search.
      *
      * @return void
@@ -232,9 +331,11 @@ abstract class Results implements ServiceLocatorAwareInterface
     {
         // Initialize variables to defaults (to ensure they don't stay null
         // and cause unnecessary repeat processing):
-        $this->resultTotal = 0;
+        // The value of -1 indicates that resultTotal is not available.
+        $this->resultTotal = -1;
         $this->results = [];
         $this->suggestions = [];
+        $this->errors = [];
 
         // Run the search:
         $this->startQueryTimer();
@@ -254,7 +355,7 @@ abstract class Results implements ServiceLocatorAwareInterface
 
     /**
      * Abstract support method for performAndProcessSearch -- perform a search based
-     * on the parameters passed to the object.  This method is responsible for
+     * on the parameters passed to the object. This method is responsible for
      * filling in all of the key class properties: results, resultTotal, etc.
      *
      * @return void
@@ -279,7 +380,7 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function getResultTotal()
     {
-        if (is_null($this->resultTotal)) {
+        if (null === $this->resultTotal) {
             $this->performAndProcessSearch();
         }
         return $this->resultTotal;
@@ -288,7 +389,7 @@ abstract class Results implements ServiceLocatorAwareInterface
     /**
      * Manually override the start record number.
      *
-     * @param int $rec Record number to use.
+     * @param ?int $rec Record number to use.
      *
      * @return void
      */
@@ -304,11 +405,17 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function getStartRecord()
     {
-        if (!is_null($this->startRecordOverride)) {
+        if (null !== $this->startRecordOverride) {
             return $this->startRecordOverride;
         }
         $params = $this->getParams();
-        return (($params->getPage() - 1) * $params->getLimit()) + 1;
+        $page = $params->getPage();
+        $pageLimit = $params->getLimit();
+        $resultLimit = $this->getOptions()->getVisibleSearchResultLimit();
+        if ($resultLimit > -1 && $resultLimit < $page * $pageLimit) {
+            $page = ceil($resultLimit / $pageLimit);
+        }
+        return (($page - 1) * $pageLimit) + 1;
     }
 
     /**
@@ -319,16 +426,17 @@ abstract class Results implements ServiceLocatorAwareInterface
     public function getEndRecord()
     {
         $total = $this->getResultTotal();
-        $limit = $this->getParams()->getLimit();
-        $page = $this->getParams()->getPage();
-        if ($page * $limit > $total) {
-            // The end of the current page runs past the last record, use total
-            // results
-            return $total;
-        } else {
-            // Otherwise use the last record on this page
-            return $page * $limit;
-        }
+        $params = $this->getParams();
+        $page = $params->getPage();
+        $pageLimit = $params->getLimit();
+        $resultLimit = $this->getOptions()->getVisibleSearchResultLimit();
+
+        $record = $resultLimit > -1 && $resultLimit < $page * $pageLimit
+            ? $resultLimit
+            : $page * $pageLimit;
+        // If the end of the current page runs past the last record, use total
+        // results; otherwise use the last record on this page:
+        return ($record > $total) ? $total : $record;
     }
 
     /**
@@ -338,10 +446,33 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function getResults()
     {
-        if (is_null($this->results)) {
+        if (null === $this->results) {
             $this->performAndProcessSearch();
         }
         return $this->results;
+    }
+
+    /**
+     * Basic 'getter' for errors.
+     *
+     * @return array
+     */
+    public function getErrors()
+    {
+        if (null === $this->errors) {
+            $this->performAndProcessSearch();
+        }
+        return $this->errors;
+    }
+
+    /**
+     * Basic 'getter' of search backend identifier.
+     *
+     * @return string
+     */
+    public function getBackendId()
+    {
+        return $this->backendId;
     }
 
     /**
@@ -361,10 +492,9 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function isSavedSearch()
     {
-        // This data is not available until \VuFind\Db\Table\Search::saveSearch()
-        // is called...  blow up if somebody tries to get data that is not yet
-        // available.
-        if (is_null($this->savedSearch)) {
+        // This data is not available until the search has been saved; blow up if somebody
+        // tries to get data that is not yet available.
+        if (null === $this->savedSearch) {
             throw new \Exception(
                 'Cannot retrieve save status before updateSaveStatus is called.'
             );
@@ -373,21 +503,44 @@ abstract class Results implements ServiceLocatorAwareInterface
     }
 
     /**
+     * How frequently (in days) will the current user be notified about updates to
+     * these search results (0 = never)?
+     *
+     * @return int
+     * @throws \Exception
+     */
+    public function getNotificationFrequency(): int
+    {
+        // This data is not available until the search has been saved; blow up if somebody
+        // tries to get data that is not yet available.
+        if (null === $this->notificationFrequency) {
+            throw new \Exception(
+                'Cannot retrieve notification frequency before updateSaveStatus is called.'
+            );
+        }
+        return $this->notificationFrequency;
+    }
+
+    /**
      * Given a database row corresponding to the current search object,
      * mark whether this search is saved and what its database ID is.
      *
-     * @param \VuFind\Db\Row\Search $row Relevant database row.
+     * @param SearchEntityInterface $row Relevant database row.
      *
      * @return void
      */
     public function updateSaveStatus($row)
     {
-        $this->searchId = $row->id;
-        $this->savedSearch = ($row->saved == true);
+        $this->searchId = $row->getId();
+        foreach ($this->results as $driver) {
+            $driver->setExtraDetail('searchId', $this->searchId);
+        }
+        $this->savedSearch = $row->getSaved();
+        $this->notificationFrequency = $this->savedSearch ? $row->getNotificationFrequency() : 0;
     }
 
     /**
-     * Start the timer to figure out how long a query takes.  Complements
+     * Start the timer to figure out how long a query takes. Complements
      * stopQueryTimer().
      *
      * @return void
@@ -395,19 +548,19 @@ abstract class Results implements ServiceLocatorAwareInterface
     protected function startQueryTimer()
     {
         // Get time before the query
-        $time = explode(" ", microtime());
+        $time = explode(' ', microtime());
         $this->queryStartTime = $time[1] + $time[0];
     }
 
     /**
-     * End the timer to figure out how long a query takes.  Complements
+     * End the timer to figure out how long a query takes. Complements
      * startQueryTimer().
      *
      * @return void
      */
     protected function stopQueryTimer()
     {
-        $time = explode(" ", microtime());
+        $time = explode(' ', microtime());
         $this->queryEndTime = $time[1] + $time[0];
         $this->queryTime = $this->queryEndTime - $this->queryStartTime;
     }
@@ -419,7 +572,7 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function getQuerySpeed()
     {
-        if (is_null($this->queryTime)) {
+        if (null === $this->queryTime) {
             $this->performAndProcessSearch();
         }
         return $this->queryTime;
@@ -432,7 +585,7 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function getStartTime()
     {
-        if (is_null($this->queryStartTime)) {
+        if (null === $this->queryStartTime) {
             $this->performAndProcessSearch();
         }
         return $this->queryStartTime;
@@ -454,7 +607,7 @@ abstract class Results implements ServiceLocatorAwareInterface
         }
 
         // Build the standard paginator control:
-        $nullAdapter = "Zend\Paginator\Adapter\Null";
+        $nullAdapter = "Laminas\Paginator\Adapter\NullFill";
         $paginator = new Paginator(new $nullAdapter($total));
         $paginator->setCurrentPageNumber($this->getParams()->getPage())
             ->setItemCountPerPage($this->getParams()->getLimit())
@@ -469,10 +622,80 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     public function getRawSuggestions()
     {
-        if (is_null($this->suggestions)) {
+        if (null === $this->suggestions) {
             $this->performAndProcessSearch();
         }
         return $this->suggestions;
+    }
+
+    /**
+     * Get the scores of the results
+     *
+     * @return array
+     */
+    public function getScores()
+    {
+        // Not implemented in the base class
+        return [];
+    }
+
+    /**
+     * Getting the highest relevance of all the results
+     *
+     * @return ?float
+     */
+    public function getMaxScore()
+    {
+        // Not implemented in the base class
+        return null;
+    }
+
+    /**
+     * Get extra data for the search.
+     *
+     * Extra data can be used to store local implementation-specific information.
+     * Contents must be serializable. It is recommended to make the array as small
+     * as possible.
+     *
+     * @return array
+     */
+    public function getExtraData(): array
+    {
+        // Not implemented in the base class
+        return [];
+    }
+
+    /**
+     * Set extra data for the search.
+     *
+     * @param array $data Extra data
+     *
+     * @return void
+     */
+    public function setExtraData(array $data): void
+    {
+        // Not implemented in the base class
+        if (!empty($data)) {
+            error_log(get_class($this) . ': Extra data passed but not handled');
+        }
+    }
+
+    /**
+     * Add settings to a minified object.
+     *
+     * @param \VuFind\Search\Minified $minified Minified Search Object
+     *
+     * @return void
+     */
+    public function minify(&$minified): void
+    {
+        $minified->id = $this->getSearchId();
+        $minified->i  = $this->getStartTime();
+        $minified->s  = $this->getQuerySpeed();
+        $minified->r  = $this->getResultTotal();
+        $minified->ex = $this->getExtraData();
+
+        $this->getParams()->minify($minified);
     }
 
     /**
@@ -488,6 +711,9 @@ abstract class Results implements ServiceLocatorAwareInterface
         $this->queryStartTime = $minified->i;
         $this->queryTime = $minified->s;
         $this->resultTotal = $minified->r;
+        $this->setExtraData($minified->ex);
+
+        $this->getParams()->deminify($minified);
     }
 
     /**
@@ -503,7 +729,7 @@ abstract class Results implements ServiceLocatorAwareInterface
         if (null === $location) {
             return $this->recommend;
         }
-        return isset($this->recommend[$location]) ? $this->recommend[$location] : [];
+        return $this->recommend[$location] ?? [];
     }
 
     /**
@@ -519,60 +745,6 @@ abstract class Results implements ServiceLocatorAwareInterface
     }
 
     /**
-     * Set the service locator.
-     *
-     * @param ServiceLocatorInterface $serviceLocator Locator to register
-     *
-     * @return Results
-     */
-    public function setServiceLocator(ServiceLocatorInterface $serviceLocator)
-    {
-        // If this isn't the top-level manager, get its parent:
-        if ($serviceLocator instanceof ServiceLocatorAwareInterface) {
-            $serviceLocator = $serviceLocator->getServiceLocator();
-        }
-        return $this->setServiceLocatorThroughTrait($serviceLocator);
-    }
-
-    /**
-     * Restore the service locator (a cascading version of setServiceLocator()).
-     *
-     * @param ServiceLocatorInterface $serviceLocator Locator to register
-     *
-     * @return Results
-     */
-    public function restoreServiceLocator(ServiceLocatorInterface $serviceLocator)
-    {
-        $this->setServiceLocator($serviceLocator);
-        $params = $this->getParams();
-        if (method_exists($params, 'setServiceLocator')) {
-            $params->setServiceLocator($serviceLocator);
-        }
-        // Restore translator:
-        $this->getOptions()
-            ->setTranslator($serviceLocator->get('VuFind\Translator'));
-        $this->getOptions()
-            ->setConfigLoader($serviceLocator->get('VuFind\Config'));
-        return $this;
-    }
-
-    /**
-     * Sleep magic method -- the service locator can't be serialized, so we need to
-     * exclude it from serialization.  Since we can't obtain a new locator in the
-     * __wakeup() method, it needs to be re-injected from outside.
-     *
-     * @return array
-     */
-    public function __sleep()
-    {
-        $vars = get_object_vars($this);
-        unset($vars['serviceLocator']);
-        unset($vars['searchService']);
-        $vars = array_keys($vars);
-        return $vars;
-    }
-
-    /**
      * Return search service.
      *
      * @return SearchService
@@ -582,34 +754,345 @@ abstract class Results implements ServiceLocatorAwareInterface
      */
     protected function getSearchService()
     {
-        if (!$this->searchService) {
-            $this->searchService = $this->getServiceLocator()->get('VuFind\Search');
-        }
         return $this->searchService;
     }
 
     /**
-     * Get a database table object.
-     *
-     * @param string $table Name of table to retrieve
-     *
-     * @return \VuFind\Db\Table\Gateway
-     */
-    public function getTable($table)
-    {
-        return $this->getServiceLocator()->get('VuFind\DbTablePluginManager')
-            ->get($table);
-    }
-
-    /**
-     * Translate a string if a translator is available.
-     *
-     * @param string $msg Message to translate
+     * Translate a string if a translator is available (proxies method in Options).
      *
      * @return string
      */
-    public function translate($msg)
+    public function translate()
     {
-        return $this->getOptions()->translate($msg);
+        return call_user_func_array(
+            [$this->getOptions(), 'translate'],
+            func_get_args()
+        );
+    }
+
+    /**
+     * Get URL query helper factory
+     *
+     * @return UrlQueryHelperFactory
+     */
+    protected function getUrlQueryHelperFactory()
+    {
+        if (null === $this->urlQueryHelperFactory) {
+            $this->urlQueryHelperFactory = new UrlQueryHelperFactory();
+        }
+        return $this->urlQueryHelperFactory;
+    }
+
+    /**
+     * Set URL query helper factory
+     *
+     * @param UrlQueryHelperFactory $factory UrlQueryHelperFactory object
+     *
+     * @return void
+     */
+    public function setUrlQueryHelperFactory(UrlQueryHelperFactory $factory)
+    {
+        $this->urlQueryHelperFactory = $factory;
+    }
+
+    /**
+     * Set hierarchical facet helper
+     *
+     * @param HierarchicalFacetHelperInterface $helper Hierarchical facet helper
+     *
+     * @return void
+     */
+    public function setHierarchicalFacetHelper(
+        HierarchicalFacetHelperInterface $helper
+    ) {
+        $this->hierarchicalFacetHelper = $helper;
+    }
+
+    /**
+     * Get complete facet counts for several index fields
+     *
+     * @param array  $facetfields  name of the Solr fields to return facets for
+     * @param bool   $removeFilter Clear existing filters from selected fields (true)
+     * or retain them (false)?
+     * @param int    $limit        A limit for the number of facets returned, this
+     * may be useful for very large amounts of facets that can break the JSON parse
+     * method because of PHP out of memory exceptions (default = -1, no limit).
+     * @param string $facetSort    A facet sort value to use (null to retain current)
+     *
+     * @return array an array with the facet values for each index field
+     */
+    public function getFullFieldFacets(
+        $facetfields,
+        $removeFilter = true,
+        $limit = -1,
+        $facetSort = null
+    ) {
+        if (!method_exists($this, 'getPartialFieldFacets')) {
+            throw new \Exception('getPartialFieldFacets not implemented');
+        }
+        $page = 1;
+        $facets = [];
+        do {
+            $facetpage = $this->getPartialFieldFacets(
+                $facetfields,
+                $removeFilter,
+                $limit,
+                $facetSort,
+                $page
+            );
+            $nextfields = [];
+            foreach ($facetfields as $field) {
+                if (!empty($facetpage[$field]['data']['list'])) {
+                    if (!isset($facets[$field])) {
+                        $facets[$field] = $facetpage[$field];
+                        $facets[$field]['more'] = false;
+                    } else {
+                        $facets[$field]['data']['list'] = array_merge(
+                            $facets[$field]['data']['list'],
+                            $facetpage[$field]['data']['list']
+                        );
+                    }
+                    if ($facetpage[$field]['more'] !== false) {
+                        $nextfields[] = $field;
+                    }
+                }
+            }
+            $facetfields = $nextfields;
+            $page++;
+        } while ($limit == -1 && !empty($facetfields));
+        return $facets;
+    }
+
+    /**
+     * Check if the results provide only a restricted view.
+     *
+     * @return bool
+     */
+    public function isRestrictedView()
+    {
+        return $this->restrictedView;
+    }
+
+    /**
+     * Get the extra search details
+     *
+     * @return ?array
+     */
+    public function getExtraSearchBackendDetails()
+    {
+        return $this->extraSearchBackendDetails;
+    }
+
+    /**
+     * A helper method that converts the list of facets for the last search from
+     * RecordCollection's facet list.
+     *
+     * @param array  $facetList Facet list
+     * @param ?array $filter    Array of field => on-screen description listing
+     * all of the desired facet fields; set to null to get all configured values.
+     *
+     * @return array Facets data arrays
+     */
+    protected function buildFacetList(array $facetList, ?array $filter = null): array
+    {
+        // If there is no filter, we'll use all facets as the filter:
+        if (null === $filter) {
+            $filter = $this->getParams()->getFacetConfig();
+        }
+
+        $options = $this->getOptions();
+        $hierarchicalFacets
+            = is_callable([$options, 'getHierarchicalFacets'])
+            ? $options->getHierarchicalFacets()
+            : [];
+
+        $result = $this->initializeFacetResults($facetList, $filter, $options);
+        $this->addExcludeFilters($result, $filter, $hierarchicalFacets);
+        $this->setDisplayTextForFacetValues($result, $hierarchicalFacets, $options);
+        $this->buildHierarchicalFacets($result, $hierarchicalFacets, $options);
+
+        return $result;
+    }
+
+    /**
+     * Helper for buildFacetList. Initializes the facet list.
+     *
+     * @param array                       $facetList Facet list
+     * @param array                       $filter    Array of field => on-screen description listing
+     * all of the desired facet fields
+     * @param \VuFind\Search\Base\Options $options   Search options object
+     *
+     * @return array Facets data arrays
+     */
+    protected function initializeFacetResults(array $facetList, array $filter, object $options): array
+    {
+        $result = [];
+        $dateRangeFields = $options instanceof DateRangeOptionsInterface
+            ? $options->getDateRangeFacets() + $options->getFullDateRangeFacets()
+            : [];
+        // Loop through every field returned by the result set
+        foreach (array_keys($filter) as $field) {
+            $data = $facetList[$field] ?? [];
+            // Skip empty arrays unless this is a date range field, where we want the range selector to be always
+            // displayed:
+            if (!$data && !in_array($field, $dateRangeFields)) {
+                continue;
+            }
+            // Initialize the settings for the current field
+            $result[$field] = [
+                'label' => $filter[$field],
+                'list' => [],
+            ];
+            // Should we translate values for the current facet?
+            $operator = $this->getParams()->getFacetOperator($field);
+            $resultList = [];
+
+            foreach ($data as $value => $count) {
+                $isApplied = $this->getParams()->hasFilter("$field:" . $value)
+                    || $this->getParams()->hasFilter("~$field:" . $value);
+                $isExcluded = false;
+                $resultList[] = compact(
+                    'value',
+                    'count',
+                    'operator',
+                    'isApplied',
+                    'isExcluded'
+                );
+            }
+            $result[$field]['list'] = $resultList;
+        }
+        return $result;
+    }
+
+    /**
+     * Helper for buildFacetList. Adds exclude filters (they are not included in the search result facet values).
+     *
+     * @param array $result             Facet data arrays (passed by reference)
+     * @param array $filter             Array of field => on-screen description listing
+     * all of the desired facet fields
+     * @param array $hierarchicalFacets List of hierarchical facets
+     *
+     * @return void
+     */
+    protected function addExcludeFilters(array &$result, array $filter, array $hierarchicalFacets): void
+    {
+        foreach ($this->getParams()->getExcludeFilters() as $field => $values) {
+            if (!isset($filter[$field])) {
+                continue;
+            }
+            if (isset($result[$field])) {
+                $resultList = $result[$field]['list'];
+            } else {
+                $result[$field] = [
+                    'label' => $filter[$field],
+                    'list' => [],
+                ];
+                $resultList = [];
+            }
+            foreach ($values as $value) {
+                array_unshift($resultList, [
+                    'value' => $value,
+                    'count' => 0,
+                    'operator' => 'NOT',
+                    'isApplied' => false,
+                    'isExcluded' => true,
+                ]);
+            }
+            if (in_array($field, $hierarchicalFacets)) {
+                // Add the ancestors of excluded filters if needed
+                foreach ($values as $value) {
+                    $parts = explode('/', $value);
+                    if (count($parts) < 4) {
+                        continue;
+                    }
+                    $parts = array_slice($parts, 1, count($parts) - 3);
+                    for ($level = count($parts) - 1; $level >= 0; $level--) {
+                        $ancestor = $level . '/' . implode('/', $parts) . '/';
+                        $resultListValues = array_map(fn ($item) => $item['value'], $resultList);
+                        if (in_array($ancestor, $resultListValues)) {
+                            continue;
+                        }
+                        array_unshift($resultList, [
+                            'value' => $ancestor,
+                            'count' => 0,
+                            'operator' => $this->getParams()->getFacetOperator($field),
+                            'isApplied' => $this->getParams()->hasFilter("$field:" . $ancestor)
+                                || $this->getParams()->hasFilter("~$field:" . $ancestor),
+                            'isExcluded' => false,
+                        ]);
+                        array_pop($parts);
+                    }
+                }
+            }
+            $result[$field]['list'] = $resultList;
+        }
+    }
+
+    /**
+     * Helper for buildFacetList. Sets displayText for facet values.
+     *
+     * @param array                       $result             Facet data arrays (passed by reference)
+     * @param array                       $hierarchicalFacets List of hierarchical facets
+     * @param \VuFind\Search\Base\Options $options            Search options object
+     *
+     * @return void
+     */
+    protected function setDisplayTextForFacetValues(array &$result, array $hierarchicalFacets, object $options): void
+    {
+        $translatedFacets = $options->getTranslatedFacets();
+        foreach ($result as $field => $fieldResult) {
+            $resultList = $fieldResult['list'];
+            $hierarchical = in_array($field, $hierarchicalFacets);
+            $translate = in_array($field, $translatedFacets);
+            foreach ($resultList as $index => $valueResult) {
+                $value = $valueResult['value'];
+                $displayText = $this->getParams()
+                    ->getFacetValueRawDisplayText($field, $value);
+                if ($hierarchical) {
+                    if (!$this->hierarchicalFacetHelper) {
+                        throw new \Exception(
+                            get_class($this)
+                            . ': hierarchical facet helper unavailable'
+                        );
+                    }
+                    $displayText = $this->hierarchicalFacetHelper
+                        ->formatDisplayText($displayText);
+                }
+                $displayText = $translate
+                    ? $this->getParams()->translateFacetValue($field, $displayText)
+                    : $displayText;
+                $valueResult['displayText'] = $displayText;
+                $resultList[$index] = $valueResult;
+            }
+            $result[$field]['list'] = $resultList;
+        }
+    }
+
+    /**
+     * Helper for buildFacetList. Builds hierarchical facets.
+     *
+     * @param array                       $result             Facet data arrays (passed by reference)
+     * @param array                       $hierarchicalFacets List of hierarchical facets
+     * @param \VuFind\Search\Base\Options $options            Search options object
+     *
+     * @return void
+     */
+    protected function buildHierarchicalFacets(array &$result, array $hierarchicalFacets, object $options): void
+    {
+        $hierarchicalFacetSortSettings
+            = is_callable([$options, 'getHierarchicalFacetSortSettings'])
+            ? $options->getHierarchicalFacetSortSettings()
+            : [];
+        foreach ($result as $field => $fieldResult) {
+            if (!in_array($field, $hierarchicalFacets)) {
+                continue;
+            }
+            $resultList = $fieldResult['list'];
+            $sort = $hierarchicalFacetSortSettings[$field]
+                ?? $hierarchicalFacetSortSettings['*'] ?? 'count';
+            $this->hierarchicalFacetHelper->sortFacetList($resultList, $sort);
+            $resultList = $this->hierarchicalFacetHelper->buildFacetArray($field, $resultList);
+            $result[$field]['list'] = $resultList;
+        }
     }
 }

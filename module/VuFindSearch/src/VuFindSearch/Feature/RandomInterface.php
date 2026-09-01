@@ -3,7 +3,7 @@
 /**
  * Random record retrieval feature interface definition.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,15 +17,16 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Feature;
 
 use VuFindSearch\ParamBag;
@@ -34,11 +35,11 @@ use VuFindSearch\Query\AbstractQuery;
 /**
  * Random record retrieval feature interface definition.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 interface RandomInterface
 {
@@ -46,12 +47,14 @@ interface RandomInterface
      * Return random records.
      *
      * @param AbstractQuery $query  Search query
-     * @param integer       $limit  Search limit
-     * @param ParamBag      $params Search backend parameters
+     * @param int           $limit  Search limit
+     * @param ?ParamBag     $params Search backend parameters
      *
      * @return \VuFindSearch\Response\RecordCollectionInterface
      */
     public function random(
-        AbstractQuery $query, $limit, ParamBag $params = null
+        AbstractQuery $query,
+        $limit,
+        ?ParamBag $params = null
     );
 }

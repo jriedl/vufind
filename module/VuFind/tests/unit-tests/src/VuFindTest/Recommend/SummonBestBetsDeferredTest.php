@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SummonBestBetsDeferred recommendation module Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Recommend;
 
 /**
  * SummonBestBetsDeferred recommendation module Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
 class SummonBestBetsDeferredTest extends \VuFindTest\Unit\RecommendDeferredTestCase
 {
@@ -47,7 +49,8 @@ class SummonBestBetsDeferredTest extends \VuFindTest\Unit\RecommendDeferredTestC
     {
         $this->assertEquals(
             'mod=SummonBestBets&params=lookfor&lookfor=foo',
-            $this->getRecommend('VuFind\Recommend\SummonBestBetsDeferred')->getUrlParams()
+            $this->getRecommend(\VuFind\Recommend\SummonBestBetsDeferred::class)
+                ->getUrlParams()
         );
     }
 }

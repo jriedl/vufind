@@ -1,8 +1,9 @@
 <?php
+
 /**
  * ExpandFacets recommendation module Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,35 +17,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Recommend;
+
+use PHPUnit\Framework\MockObject\MockObject;
 use VuFind\Recommend\ExpandFacets;
 
 /**
  * ExpandFacets recommendation module Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class ExpandFacetsTest extends \VuFindTest\Unit\TestCase
+class ExpandFacetsTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\ConfigRelatedServicesTrait;
+
     /**
      * Test getEmptyResults()
      *
      * @return void
      */
-    public function testGetEmptyResults()
+    public function testGetEmptyResults(): void
     {
         $results = $this->getMockResults();
         $ef = $this->getExpandFacets(null, null, $results);
@@ -56,107 +62,101 @@ class ExpandFacetsTest extends \VuFindTest\Unit\TestCase
      *
      * @return void
      */
-    public function testFacetInit()
+    public function testFacetInit(): void
     {
-        $configLoader = $this->getMockConfigLoader(
-            [
+        $config = [
+            'facets' => [
                 'Results' => [
                     'format' => 'Format',
                 ],
-            ]
-        );
+            ],
+        ];
         $results = $this->getMockResults();
         $params = $results->getParams();
-        $params->expects($this->once())->method('addFacet')->with($this->equalTo('format'), $this->equalTo('Format'));
-        $results->expects($this->once())->method('getFacetList')->with($this->equalTo(['format' => 'Format']))->will($this->returnValue(['foo']));
-        $ef = $this->getExpandFacets($configLoader, $results);
+        $params->expects($this->once())
+            ->method('addFacet')
+            ->with($this->equalTo('format'), $this->equalTo('Format'));
+        $results->expects($this->once())
+            ->method('getFacetList')
+            ->with($this->equalTo(['format' => 'Format']))
+            ->willReturn(['foo']);
+        $ef = $this->getExpandFacets(
+            $this->getMockConfigManager($config, [], $this->once()),
+            $results
+        );
         $this->assertEquals(['foo'], $ef->getExpandedSet());
     }
 
     /**
      * Get a fully configured module
      *
-     * @param \VuFind\Config\PluginManager $configLoader config loader
-     * @param \VuFind\Search\Solr\Results  $results      populated results object
-     * @param \VuFind\Search\Solr\Results  $emptyResults empty results object
-     * @param string                       $settings     settings
-     * @param \Zend\StdLib\Parameters      $request      request
+     * @param ?\VuFind\Config\ConfigManagerInterface $configManager config manager
+     * @param ?\VuFind\Search\Solr\Results           $results       populated results object
+     * @param ?\VuFind\Search\Solr\Results           $emptyResults  empty results object
+     * @param string                                 $settings      settings
+     * @param ?\Laminas\Stdlib\Parameters            $request       request
      *
      * @return ExpandFacets
      */
-    protected function getExpandFacets($configLoader = null, $results = null, $emptyResults = null, $settings = '', $request = null)
-    {
-        if (null === $configLoader) {
-            $configLoader = $this->getMockConfigLoader();
-        }
+    protected function getExpandFacets(
+        ?\VuFind\Config\ConfigManagerInterface $configManager = null,
+        ?\VuFind\Search\Solr\Results $results = null,
+        ?\VuFind\Search\Solr\Results $emptyResults = null,
+        string $settings = '',
+        ?\Laminas\Stdlib\Parameters $request = null
+    ): ExpandFacets {
         if (null === $results) {
             $results = $this->getMockResults();
         }
-        if (null === $emptyResults) {
-            $emptyResults = $this->getMockResults();
-        }
-        if (null === $request) {
-            $request = new \Zend\StdLib\Parameters([]);
-        }
-        $sf = new ExpandFacets($configLoader, $emptyResults);
+        $sf = new ExpandFacets(
+            $configManager ?? $this->getMockConfigManager(),
+            $emptyResults ?? $this->getMockResults()
+        );
         $sf->setConfig($settings);
-        $sf->init($results->getParams(), $request);
+        $sf->init(
+            $results->getParams(),
+            $request ?? new \Laminas\Stdlib\Parameters([])
+        );
         $sf->process($results);
         return $sf;
     }
 
     /**
-     * Get a mock config loader.
-     *
-     * @param array  $config Configuration to return
-     * @param string $key    Key to store configuration under
-     *
-     * @return \VuFind\Config\PluginManager
-     */
-    protected function getMockConfigLoader($config = [], $key = 'facets')
-    {
-        $loader = $this->getMockBuilder('VuFind\Config\PluginManager')
-            ->disableOriginalConstructor()->getMock();
-        $loader->expects($this->once())->method('get')->with($this->equalTo($key))
-            ->will($this->returnValue(new \Zend\Config\Config($config)));
-        return $loader;
-    }
-
-    /**
      * Get a mock results object.
      *
-     * @param \VuFind\Search\Solr\Params $params Params to include in container.
+     * @param ?\VuFind\Search\Solr\Params $params Params to include in container.
      *
-     * @return \VuFind\Search\Solr\Results
+     * @return \VuFind\Search\Solr\Results&MockObject
      */
-    protected function getMockResults($params = null)
-    {
+    protected function getMockResults(
+        ?\VuFind\Search\Solr\Params $params = null
+    ): \VuFind\Search\Solr\Results&MockObject {
         if (null === $params) {
             $params = $this->getMockParams();
         }
-        $results = $this->getMockBuilder('VuFind\Search\Solr\Results')
+        $results = $this->getMockBuilder(\VuFind\Search\Solr\Results::class)
             ->disableOriginalConstructor()->getMock();
         $results->expects($this->any())->method('getParams')
-            ->will($this->returnValue($params));
+            ->willReturn($params);
         return $results;
     }
 
     /**
      * Get a mock params object.
      *
-     * @param \VuFindSearch\Query\Query $query Query to include in container.
+     * @param ?\VuFindSearch\Query\Query $query Query to include in container.
      *
-     * @return \VuFind\Search\Solr\Params
+     * @return \VuFind\Search\Solr\Params&MockObject
      */
-    protected function getMockParams($query = null)
+    protected function getMockParams(?\VuFindSearch\Query\Query $query = null): \VuFind\Search\Solr\Params&MockObject
     {
         if (null === $query) {
             $query = new \VuFindSearch\Query\Query('foo', 'bar');
         }
-        $params = $this->getMockBuilder('VuFind\Search\Solr\Params')
+        $params = $this->getMockBuilder(\VuFind\Search\Solr\Params::class)
             ->disableOriginalConstructor()->getMock();
         $params->expects($this->any())->method('getQuery')
-            ->will($this->returnValue($query));
+            ->willReturn($query);
         return $params;
     }
 }

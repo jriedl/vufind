@@ -3,7 +3,7 @@
 /**
  * Unit tests for Summon cover loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,42 +17,47 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
- * @package  Search
+ * @category VuFind
+ * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Content\Covers;
-use VuFindCode\ISBN, VuFind\Content\Covers\Summon;
+
+use VuFind\Content\Covers\Summon;
+use VuFindCode\ISBN;
 
 /**
  * Unit tests for Summon cover loader.
  *
- * @category VuFind2
- * @package  Search
+ * @category VuFind
+ * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class SummonTest extends \PHPUnit_Framework_TestCase
+class SummonTest extends \PHPUnit\Framework\TestCase
 {
     /**
      * Test cover loading
      *
      * @return void
      */
-    public function testValidCoverLoading()
+    public function testValidCoverLoading(): void
     {
         $summon = new Summon();
         $this->assertEquals(
             'http://api.summon.serialssolutions.com/2.0.0/image/isbn/'
             . 'mykey/9780739313121/small',
             $summon->getUrl(
-                'mykey', 'small', ['isbn' => new ISBN('0739313126')]
+                'mykey',
+                'small',
+                ['isbn' => new ISBN('0739313126')]
             )
         );
     }
@@ -62,9 +67,9 @@ class SummonTest extends \PHPUnit_Framework_TestCase
      *
      * @return void
      */
-    public function testMissingIsbn()
+    public function testMissingIsbn(): void
     {
         $summon = new Summon();
-        $this->assertEquals(false, $summon->getUrl('mykey', 'small', []));
+        $this->assertFalse($summon->getUrl('mykey', 'small', []));
     }
 }

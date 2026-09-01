@@ -1,0 +1,154 @@
+<?php
+
+// Note: OpenStreetMap requires a special Referrer policy. See TueFind Module Bootstrapper / Issue #3611
+
+$this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/awesome.css');
+$this->assetManager()->appendStyleLink('vendor/fontawesome-free-6/solid.css');
+?>
+
+<section class="cw-p-2">
+<div id="map" class="map" title="<?=$this->transEscAttr('symbolic_image_table');?>."></div>
+
+<?php $jsSnippet = <<<'EOD'
+
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // first load with all data
+        IxTheo2.loadMap('all');
+
+        document.querySelectorAll('.high-light-marker-group')
+            .forEach(el => {
+                el.addEventListener('click', function () {
+
+                    const group = this.dataset.group;
+
+                    document.querySelectorAll('.map-navigation button')
+                        .forEach(btn => btn.classList.remove('btn-primary'));
+
+                    const btn = this.querySelector('button');
+                    btn.classList.add('btn-primary');
+                    btn.blur();
+
+                    IxTheo2.loadMap(group);
+                });
+            });
+    });
+
+EOD;
+
+?>
+<?=$this->assetManager()->outputInlineScriptString($jsSnippet)?>
+    <div class="cw-py-1 cw-row map-navigation">
+        <div class="map-all high-light-marker-group" data-group="all"><button class="btn btn-primary">All</button></div>
+        <div class="map-comm high-light-marker-group" data-group="comm"><button class="btn"><i class="fa fa-solid fa-people-group"></i> Theologische Community</button></div>
+        <div class="map-bibliographien high-light-marker-group" data-group="bibliographien"><button class="btn"><i class="fa fa-solid fa-bookmark"></i> Bibliographien</button></div>
+        <div class="map-bibliotheken high-light-marker-group" data-group="bibliotheken"><button class="btn"><i class="fa fa-solid fa-book-open"></i> Bibliotheken</button></div>
+        <div class="map-ver high-light-marker-group" data-group="ver"><button class="btn"><i class="fa fa-solid fa-people-roof"></i> Bibliothekarische Verbände</button></div>
+        <div class="map-fachin high-light-marker-group" data-group="fachin"><button class="btn"><i class="fa fa-solid fa-circle-nodes"></i> Fachinformationsdienste</button></div>
+    </div>
+</section>
+
+<div class="row">
+    <div class="cw-col-lg-12 cw-ml-lg-4">
+        <div class="cw-text-block"><br>
+            <h1 class="cw-h1">Netzwerke und Kooperationen</h1>
+            <section class="cw-py-5">
+                <div class="cw-container panel-group">
+                    <div class="row">
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-4 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'TheologicalCommunity']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-1" title="<?=$this->transEscAttr('symbolic_image_table1');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Theologische Community</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-4 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'LibrarianAssociations']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-2" title="<?=$this->transEscAttr('symbolic_image_table2');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Bibliothekarische Verbände</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-4 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'Speakers']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-3" title="<?=$this->transEscAttr('symbolic_image_table3');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Fachreferent*innen und theologische Bibliothekar*innen</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-3 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'Bibliographies']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-4" title="<?=$this->transEscAttr('symbolic_image_table4');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Bibliographien</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-3 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'Libraries']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-5" title="<?=$this->transEscAttr('symbolic_image_table5');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Bibliotheken</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-3 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'SpecialistInformationServices']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-6" title="<?=$this->transEscAttr('symbolic_image_table6');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Fachinformationsdienste (FID)</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                        <!-- item-->
+                        <div class="col-xs-12 col-sm-6 col-md-6 col-lg-3 cw-mb-5 hover-animate tf-cursor-pointer">
+                            <a href="<?=$this->url('content-page', ['page' => 'Publishers']) ?>">
+                                <div>
+                                    <div class="cw-card h-100 border-0 shadow">
+                                        <div class="cw-card-img-top cw-overflow-hidden cw-dark-overlay cw-bg-cover networking-image-7" title="<?=$this->transEscAttr('symbolic_image_table7');?>."></div>
+                                    </div>
+                                </div>
+                                <div class="ix2-sub-item-title">Verlage</div>
+                            </a>
+                        </div>
+                        <!-- end item-->
+
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>

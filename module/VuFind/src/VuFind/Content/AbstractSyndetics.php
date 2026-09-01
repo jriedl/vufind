@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Abstract base for Syndetics content loader plug-ins.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,62 +17,38 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content;
+
 use DOMDocument;
 
 /**
  * Abstract base for Syndetics content loader plug-ins.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 abstract class AbstractSyndetics extends AbstractBase
 {
     /**
-     * Use SSL URLs?
-     *
-     * @var bool
-     */
-    protected $useSSL;
-
-    /**
-     * Use Syndetics plus?
-     *
-     * @var bool
-     */
-    protected $usePlus;
-
-    /**
-     * HTTP timeout for API calls (in seconds)
-     *
-     * @var int
-     */
-    protected $timeout;
-
-    /**
      * Constructor
      *
-     * @param bool $useSSL  Use SSL URLs?
-     * @param bool $usePlus Use Syndetics Plus?
-     * @param int  $timeout HTTP timeout for API calls (in seconds)
+     * @param int $timeout HTTP timeout for API calls (in seconds)
      */
-    public function __construct($useSSL = false, $usePlus = false, $timeout = 10)
+    public function __construct(protected int $timeout = 10)
     {
-        $this->useSSL = $useSSL;
-        $this->usePlus = $usePlus;
-        $this->timeout = $timeout;
     }
 
     /**
@@ -79,10 +56,10 @@ abstract class AbstractSyndetics extends AbstractBase
      *
      * @param string $url URL for client to use
      *
-     * @return \Zend\Http\Client
+     * @return \Laminas\Http\Client
      * @throws \Exception
      */
-    protected function getHttpClient($url)
+    protected function getHttpClient($url = null)
     {
         $client = parent::getHttpClient($url);
         $client->setOptions(['timeout' => $this->timeout]);
@@ -101,9 +78,7 @@ abstract class AbstractSyndetics extends AbstractBase
      */
     protected function getIsbnUrl($isbn, $id, $file = 'index.xml', $type = 'rw12,h7')
     {
-        $baseUrl = $this->useSSL
-            ? 'https://secure.syndetics.com' : 'http://syndetics.com';
-        $url = $baseUrl . '/index.aspx?isbn=' . $isbn
+        $url = 'https://secure.syndetics.com/index.aspx?isbn=' . $isbn
             . '/' . $file . '&client=' . $id . '&type=' . $type;
         $this->debug('Syndetics request: ' . $url);
         return $url;

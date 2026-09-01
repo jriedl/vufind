@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Config Writer Test Class
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,30 +17,34 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
+
 namespace VuFindTest\Config;
+
 use VuFind\Config\Writer;
 
 /**
  * Config Writer Test Class
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Tests
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @author   Chris Hallberg <challber@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:unit_tests Wiki
+ * @link     https://vufind.org/wiki/development:testing:unit_tests Wiki
  */
-class WriterTest extends \VuFindTest\Unit\TestCase
+class WriterTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+
     /**
      * Test reading from a file.
      *
@@ -47,9 +52,12 @@ class WriterTest extends \VuFindTest\Unit\TestCase
      */
     public function testReadFile()
     {
-        $file = realpath(__DIR__ . '/../../../../fixtures/configs/1.1/sms.ini');
-        $test = new Writer($file);
-        $this->assertEquals(file_get_contents($file), $test->getContent());
+        $fixture = 'configs/defaultgenerator/config.ini';
+        $test = new Writer($this->getFixtureDir() . $fixture);
+        $this->assertEquals(
+            $this->getFixture($fixture),
+            $test->getContent()
+        );
     }
 
     /**
@@ -68,12 +76,12 @@ class WriterTest extends \VuFindTest\Unit\TestCase
                     'settings' => [
                         'key1' => [
                             'before' => "; key head\n",
-                            'inline' => '; key inline'
-                        ]
-                    ]
-                ]
+                            'inline' => '; key inline',
+                        ],
+                    ],
+                ],
             ],
-            'after' => "; the end\n"
+            'after' => "; the end\n",
         ];
         $target = "; section head\n[Test]\t; inline\n; key head\n"
             . "key1             = \"val1\"\t; key inline\n"
@@ -131,7 +139,7 @@ class WriterTest extends \VuFindTest\Unit\TestCase
     public function testAssocArray()
     {
         $cfg = [
-            'Test' => ['test' => ['key1' => 'val1', 'key2' => 'val2']]
+            'Test' => ['test' => ['key1' => 'val1', 'key2' => 'val2']],
         ];
         $test = new Writer('fake.ini', $cfg);
         $expected = "[Test]\ntest['key1']     = \"val1\"\n"
@@ -150,10 +158,16 @@ class WriterTest extends \VuFindTest\Unit\TestCase
         $test = new Writer('fake.ini', $cfg);
         $test->set('test', 'key2', 'val2');
         $test->set('test', 'key1', 'val1b');
+        $test->set('test', 'key4', [1, 2, 3]);
+        $test->set('test', 'key5', ['a' => 'b']);
+        $test->set('test', 'keyQuote', 'I "quoted" it');
         $ini = parse_ini_string($test->getContent(), true);
         $this->assertEquals('val1b', $ini['test']['key1']);
         $this->assertEquals('val2', $ini['test']['key2']);
         $this->assertEquals('val3', $ini['test']['key3']);
+        $this->assertEquals([1, 2, 3], $ini['test']['key4']);
+        $this->assertEquals(['a' => 'b'], $ini['test']['key5']);
+        $this->assertEquals('I "quoted" it', $ini['test']['keyQuote']);
     }
 
     /**
@@ -195,7 +209,8 @@ class WriterTest extends \VuFindTest\Unit\TestCase
         $test = new Writer('fake.ini', $cfg);
         $test->set('test', 'key1', 'val2');
         $this->assertEquals(
-            "[test]\nkey1 = \"val2\" ; comment", trim($test->getContent())
+            "[test]\nkey1 = \"val2\" ; comment",
+            trim($test->getContent())
         );
     }
 
@@ -211,5 +226,69 @@ class WriterTest extends \VuFindTest\Unit\TestCase
         $test->set('a', 'two', '');
         $ini = parse_ini_string($test->getContent(), true);
         $this->assertEquals('', $ini['a']['two']);
+    }
+
+    /**
+     * Test alignment of values.
+     *
+     * @return void
+     */
+    public function testTabAlignment()
+    {
+        $test = new Writer('fake.ini', ['general' => ['foo' => 'bar', 'foofoofoofoofoofo' => 'baz']]);
+        $expected = "[general]\nfoo              = \"bar\"\nfoofoofoofoofoofo = \"baz\"\n";
+        $this->assertEquals($expected, $test->getContent());
+    }
+
+    /**
+     * Test clearing values.
+     *
+     * @return void
+     */
+    public function testClear()
+    {
+        $cfg = "[a]\nb[]=1\nb[]=2\n[b]\nc=3\n";
+        $test = new Writer('fake.ini', $cfg);
+        $test->clear('a', 'b[]');   // clear array
+        $test->clear('b', 'c');     // clear single value
+        $test->clear('z', 'z');     // clear value that does not exist
+        $this->assertEquals("[a]\n[b]", trim($test->getContent()));
+    }
+
+    /**
+     * Test comment extraction.
+     *
+     * @return void
+     */
+    public function testCommentExtraction(): void
+    {
+        $comments = Writer::extractComments($this->getFixtureDir() . 'configs/comments/config.ini');
+        $this->assertEquals(
+            [
+                'sections' => [
+                    'Section' => [
+                        'before' => "; This is a top comment\n",
+                        'inline' => '',
+                        'settings' => [
+                            'foo' => [
+                                'before' => "; This is a setting comment\n",
+                                'inline' => '',
+                            ],
+                            'bar' => [
+                                'before' => "\n",
+                                'inline' => '; this is an inline comment',
+                            ],
+                        ],
+                    ],
+                    'NextSection' => [
+                        'before' => "\n",
+                        'inline' => '; this is an inline section comment',
+                        'settings' => [],
+                    ],
+                ],
+                'after' => "\n; This is a trailing comment",
+            ],
+            $comments
+        );
     }
 }

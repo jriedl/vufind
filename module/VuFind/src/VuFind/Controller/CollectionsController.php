@@ -1,10 +1,11 @@
 <?php
+
 /**
  * Collections Controller
  *
- * PHP version 5
+ * PHP version 8
  *
- * Copyright (C) Villanova University 2010.
+ * Copyright (C) Villanova University 2010, 2022.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2,
@@ -16,44 +17,59 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Controller;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
+use VuFind\Config\Config;
+use VuFindSearch\Command\SearchCommand;
 use VuFindSearch\Query\Query;
+
+use function array_slice;
+use function count;
 
 /**
  * Collections Controller
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Controller
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
-class CollectionsController extends AbstractBase
+class CollectionsController extends AbstractBase implements
+    \VuFind\I18n\HasSorterInterface
 {
+    use Feature\AlphaBrowseTrait;
+    use \VuFind\I18n\HasSorterTrait;
+
     /**
      * VuFind configuration
      *
-     * @param \Zend\Config\Config
+     * @var Config
      */
     protected $config;
 
     /**
      * Constructor
      *
-     * @param \Zend\Config\Config $config VuFind configuration
+     * @param ServiceLocatorInterface $sm     Service manager
+     * @param Config                  $config VuFind configuration
      */
-    public function __construct(\Zend\Config\Config $config)
+    public function __construct(ServiceLocatorInterface $sm, Config $config)
     {
         $this->config = $config;
+        $this->setSorter($sm->get(\VuFind\I18n\Sorter::class));
+        parent::__construct($sm);
     }
 
     /**
@@ -80,8 +96,7 @@ class CollectionsController extends AbstractBase
      */
     public function homeAction()
     {
-        $browseType = (isset($this->config->Collections->browseType))
-            ? $this->config->Collections->browseType : 'Index';
+        $browseType = $this->config->Collections->browseType ?? 'Index';
         return ($browseType == 'Alphabetic')
             ? $this->showBrowseAlphabetic() : $this->showBrowseIndex();
     }
@@ -93,8 +108,7 @@ class CollectionsController extends AbstractBase
      */
     protected function getBrowseDelimiter()
     {
-        return isset($this->config->Collections->browseDelimiter)
-            ? $this->config->Collections->browseDelimiter : '{{{_ID_}}}';
+        return $this->config->Collections->browseDelimiter ?? '{{{_ID_}}}';
     }
 
     /**
@@ -105,21 +119,19 @@ class CollectionsController extends AbstractBase
     protected function showBrowseAlphabetic()
     {
         // Process incoming parameters:
-        $source = "hierarchy";
+        $source = 'hierarchy';
         $from = $this->params()->fromQuery('from', '');
         $page = $this->params()->fromQuery('page', 0);
         $limit = $this->getBrowseLimit();
 
         // Load Solr data or die trying:
-        $db = $this->getServiceLocator()->get('VuFind\Search\BackendManager')
-            ->get('Solr');
-        $result = $db->alphabeticBrowse($source, $from, $page, $limit);
+        $result = $this->alphabeticBrowse($source, $from, $page, $limit);
 
         // No results?  Try the previous page just in case we've gone past the
         // end of the list....
         if ($result['Browse']['totalCount'] == 0) {
             $page--;
-            $result = $db->alphabeticBrowse($source, $from, $page, $limit);
+            $result = $this->alphabeticBrowse($source, $from, $page, $limit);
         }
 
         // Begin building view model:
@@ -142,9 +154,9 @@ class CollectionsController extends AbstractBase
         $delimiter = $this->getBrowseDelimiter();
         foreach ($result['Browse']['items'] as $rkey => $collection) {
             $collectionIdNamePair
-                = explode($delimiter, $collection["heading"]);
+                = explode($delimiter, $collection['heading']);
             $finalresult[$rkey]['displayText'] = $collectionIdNamePair[0];
-            $finalresult[$rkey]['count'] = $collection["count"];
+            $finalresult[$rkey]['count'] = $collection['count'];
             $finalresult[$rkey]['value'] = $collectionIdNamePair[1];
         }
         $view->result = $finalresult;
@@ -166,25 +178,27 @@ class CollectionsController extends AbstractBase
         $appliedFilters = $this->params()->fromQuery('filter', []);
         $limit = $this->getBrowseLimit();
 
-        $browseField = "hierarchy_browse";
+        $browseField = 'hierarchy_browse';
 
-        $searchObject = $this->getServiceLocator()
-            ->get('VuFind\SearchResultsPluginManager')->get('Solr');
+        $searchObject = $this->getService(\VuFind\Search\Results\PluginManager::class)->get('Solr');
         foreach ($appliedFilters as $filter) {
             $searchObject->getParams()->addFilter($filter);
         }
 
         // Only grab 150,000 facet values to avoid out-of-memory errors:
         $result = $searchObject->getFullFieldFacets(
-            [$browseField], false, 150000, 'index'
+            [$browseField],
+            false,
+            150000,
+            'index'
         );
-        $result = $result[$browseField]['data']['list'];
+        $result = $result[$browseField]['data']['list'] ?? [];
 
         $delimiter = $this->getBrowseDelimiter();
         foreach ($result as $rkey => $collection) {
-            list($name, $id) = explode($delimiter, $collection['value'], 2);
+            [$name, $id] = explode($delimiter, $collection['value'], 2);
             $result[$rkey]['displayText'] = $name;
-            $result[$rkey]['value'] =  $id;
+            $result[$rkey]['value'] = $id;
         }
 
         // Sort the $results and get the position of the from string once sorted
@@ -214,7 +228,9 @@ class CollectionsController extends AbstractBase
 
         // Select just the records to display
         $result = array_slice(
-            $result, $key, count($result) > $key + $limit ? $limit : null
+            $result,
+            $key,
+            count($result) > $key + $limit ? $limit : null
         );
 
         // Send other relevant values to the template:
@@ -260,7 +276,7 @@ class CollectionsController extends AbstractBase
         }
         $result = $sorted;
 
-        return isset($key) ? $key : 0;
+        return $key ?? 0;
     }
 
     /**
@@ -278,7 +294,7 @@ class CollectionsController extends AbstractBase
             $valuesSorted[$resKey]
                 = $this->normalizeForBrowse($resVal['displayText']);
         }
-        asort($valuesSorted);
+        $this->getSorter()->asort($valuesSorted);
 
         // Now the $valuesSorted is in the right order
         return $valuesSorted;
@@ -295,7 +311,7 @@ class CollectionsController extends AbstractBase
     {
         $valNormalized = iconv('UTF-8', 'US-ASCII//TRANSLIT//IGNORE', $val);
         $valNormalized = strtolower($valNormalized);
-        $valNormalized = preg_replace("/[^a-zA-Z0-9\s]/", "", $valNormalized);
+        $valNormalized = preg_replace("/[^a-zA-Z0-9\s]/", '', $valNormalized);
         $valNormalized = trim($valNormalized);
         return $valNormalized;
     }
@@ -317,8 +333,7 @@ class CollectionsController extends AbstractBase
      */
     protected function getBrowseLimit()
     {
-        return isset($this->config->Collections->browseLimit)
-            ? $this->config->Collections->browseLimit : 20;
+        return $this->config->Collections->browseLimit ?? 20;
     }
 
     /**
@@ -332,8 +347,14 @@ class CollectionsController extends AbstractBase
     {
         $title = addcslashes($title, '"');
         $query = new Query("is_hierarchy_title:\"$title\"", 'AllFields');
-        $searchService = $this->getServiceLocator()->get('VuFind\Search');
-        $result = $searchService->search('Solr', $query, 0, $this->getBrowseLimit());
+        $searchService = $this->getService(\VuFindSearch\Service::class);
+        $command = new SearchCommand(
+            'Solr',
+            $query,
+            0,
+            $this->getBrowseLimit()
+        );
+        $result = $searchService->invoke($command)->getResult();
         return $result->getRecords();
     }
 }

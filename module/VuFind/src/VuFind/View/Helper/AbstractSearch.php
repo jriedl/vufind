@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Helper class for displaying search-related HTML chunks.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2011.
  *
@@ -16,26 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\View\Helper;
-use Zend\View\Helper\AbstractHelper;
+
+use Laminas\View\Helper\AbstractHelper;
 
 /**
  * Helper class for displaying search-related HTML chunks.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  View_Helpers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 abstract class AbstractSearch extends AbstractHelper
 {
@@ -49,8 +52,8 @@ abstract class AbstractSearch extends AbstractHelper
     /**
      * Render an expand link.
      *
-     * @param string                          $url  Link href
-     * @param \Zend\View\Renderer\PhpRenderer $view View renderer object
+     * @param string                             $url  Link href
+     * @param \Laminas\View\Renderer\PhpRenderer $view View renderer object
      *
      * @return string
      */
@@ -59,10 +62,10 @@ abstract class AbstractSearch extends AbstractHelper
     /**
      * Support function to display spelling suggestions.
      *
-     * @param string                          $msg     HTML to display at the top of
-     * the spelling section.
-     * @param \VuFind\Search\Base\Results     $results Results object
-     * @param \Zend\View\Renderer\PhpRenderer $view    View renderer object
+     * @param string                             $msg     HTML to display at the top
+     * of the spelling section.
+     * @param \VuFind\Search\Base\Results        $results Results object
+     * @param \Laminas\View\Renderer\PhpRenderer $view    View renderer object
      *
      * @return string
      */
@@ -73,27 +76,34 @@ abstract class AbstractSearch extends AbstractHelper
             return '';
         }
 
-        $html = '<div class="' . $this->getContainerClass() . '">';
-        $html .= $msg;
+        $html = '<div class="spellingSuggestions ' . $this->getContainerClass() . '">';
+        $html .= '<h2>' . $msg . '</h2><ul class="terms">';
+        $normalizer = $results->getOptions()->getSpellingNormalizer();
         foreach ($spellingSuggestions as $term => $details) {
-            $html .= '<br/>' . $view->escapeHtml($term) . ' &raquo; ';
-            $i = 0;
+            $html .= '<li>' . $view->escapeHtml($term) . ' &raquo; <ul class="suggestions">';
             foreach ($details['suggestions'] as $word => $data) {
-                if ($i++ > 0) {
-                    $html .= ', ';
-                }
-                $html .= '<a href="'
-                    . $results->getUrlQuery()
-                        ->replaceTerm($term, $data['new_term'])
-                    . '">' . $view->escapeHtml($word) . '</a>';
+                $href = $results->getUrlQuery()
+                    ->replaceTerm(
+                        $term,
+                        $data['new_term'],
+                        $normalizer
+                    )->getParams();
+                $html .= '<li><a href="' . $href . '">' . $view->escapeHtml($word)
+                    . '</a>';
                 if (isset($data['expand_term']) && !empty($data['expand_term'])) {
                     $url = $results->getUrlQuery()
-                        ->replaceTerm($term, $data['expand_term']);
+                        ->replaceTerm(
+                            $term,
+                            $data['expand_term'],
+                            $normalizer
+                        )->getParams();
                     $html .= $this->renderExpandLink($url, $view);
                 }
+                $html .= '</li>';
             }
+            $html .= '</ul></li>';
         }
-        $html .= '</div>';
+        $html .= '</ul></div>';
         return $html;
     }
 }

@@ -1,8 +1,9 @@
 <?php
+
 /**
  * SideFacets Recommendations Module
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,29 +17,39 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Juha Luoma <juha.luoma@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
+
 namespace VuFind\Recommend;
-use VuFind\Solr\Utils as SolrUtils;
+
+use VuFind\Search\Base\DateRangeOptionsInterface;
 use VuFind\Search\Solr\HierarchicalFacetHelper;
+use VuFind\Solr\Utils as SolrUtils;
+
+use function get_class;
+use function in_array;
+use function intval;
+use function is_array;
 
 /**
  * SideFacets Recommendations Module
  *
  * This class provides recommendations displaying facets beside search results
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Recommendations
  * @author   Demian Katz <demian.katz@villanova.edu>
+ * @author   Juha Luoma <juha.luoma@helsinki.fi>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:recommendation_modules Wiki
+ * @link     https://vufind.org/wiki/development:plugins:recommendation_modules Wiki
  */
 class SideFacets extends AbstractFacets
 {
@@ -85,6 +96,35 @@ class SideFacets extends AbstractFacets
     protected $checkboxFacets = [];
 
     /**
+     * Should we display dynamically-generated checkbox facets that are not
+     * explicitly configured in $checkboxFacets?
+     *
+     * @var bool
+     */
+    protected $showDynamicCheckboxFacets = true;
+
+    /**
+     * Should we display checkbox facet counts in results?
+     *
+     * @var bool
+     */
+    protected $showCheckboxFacetCounts = false;
+
+    /**
+     * Settings controlling how lightbox is used for facet display.
+     *
+     * @var bool|string
+     */
+    protected $showInLightboxSettings = [];
+
+    /**
+     * Settings controlling how many values to display before "show more."
+     *
+     * @var array
+     */
+    protected $showMoreSettings = [];
+
+    /**
      * Collapsed facet setting
      *
      * @var bool|string
@@ -106,25 +146,17 @@ class SideFacets extends AbstractFacets
     protected $hierarchicalFacetSortOptions = [];
 
     /**
-     * Hierarchical facet helper
-     *
-     * @var HierarchicalFacetHelper
-     */
-    protected $hierarchicalFacetHelper;
-
-    /**
      * Constructor
      *
-     * @param \VuFind\Config\PluginManager $configLoader Configuration loader
-     * @param HierarchicalFacetHelper      $facetHelper  Helper for handling
+     * @param \VuFind\Config\ConfigManagerInterface $configManager           Configuration manager
+     * @param ?HierarchicalFacetHelper              $hierarchicalFacetHelper Helper for handling
      * hierarchical facets
      */
     public function __construct(
-        \VuFind\Config\PluginManager $configLoader,
-        HierarchicalFacetHelper $facetHelper = null
+        \VuFind\Config\ConfigManagerInterface $configManager,
+        protected ?HierarchicalFacetHelper $hierarchicalFacetHelper = null
     ) {
-        parent::__construct($configLoader);
-        $this->hierarchicalFacetHelper = $facetHelper;
+        parent::__construct($configManager);
     }
 
     /**
@@ -139,11 +171,12 @@ class SideFacets extends AbstractFacets
         // Parse the additional settings:
         $settings = explode(':', $settings);
         $mainSection = empty($settings[0]) ? 'Results' : $settings[0];
-        $checkboxSection = isset($settings[1]) ? $settings[1] : false;
-        $iniName = isset($settings[2]) ? $settings[2] : 'facets';
+        $checkboxSection = $settings[1] ?? false;
+        $iniName = $settings[2] ?? 'facets';
+        $showDynamicCheckboxFacets = $settings[3] ?? true;
 
         // Load the desired facet information...
-        $config = $this->configLoader->get($iniName);
+        $config = $this->configManager->getConfigObject($iniName);
 
         // All standard facets to display:
         $this->mainFacets = isset($config->$mainSection) ?
@@ -170,15 +203,33 @@ class SideFacets extends AbstractFacets
         }
 
         // Checkbox facets:
-        if (substr($checkboxSection, 0, 1) == '~') {
+        $flipCheckboxes = false;
+        if (str_starts_with($checkboxSection, '~')) {
             $checkboxSection = substr($checkboxSection, 1);
             $flipCheckboxes = true;
         }
         $this->checkboxFacets
             = ($checkboxSection && isset($config->$checkboxSection))
             ? $config->$checkboxSection->toArray() : [];
-        if (isset($flipCheckboxes) && $flipCheckboxes) {
+        if ($flipCheckboxes) {
             $this->checkboxFacets = array_flip($this->checkboxFacets);
+        }
+        if (
+            !$showDynamicCheckboxFacets
+            || strtolower(trim($showDynamicCheckboxFacets)) === 'false'
+        ) {
+            $this->showDynamicCheckboxFacets = false;
+        }
+        $this->showCheckboxFacetCounts = (bool)($config->Results_Settings->checkboxFacetCounts ?? false);
+
+        // Show more settings:
+        if (isset($config->Results_Settings->showMore)) {
+            $this->showMoreSettings
+                = $config->Results_Settings->showMore->toArray();
+        }
+        if (isset($config->Results_Settings->showMoreInLightbox)) {
+            $this->showInLightboxSettings
+                = $config->Results_Settings->showMoreInLightbox->toArray();
         }
 
         // Collapsed facets:
@@ -200,26 +251,60 @@ class SideFacets extends AbstractFacets
     }
 
     /**
-     * Called at the end of the Search Params objects' initFromRequest() method.
+     * Called before the Search Results object performs its main search
+     * (specifically, in response to \VuFind\Search\SearchRunner::EVENT_CONFIGURED).
      * This method is responsible for setting search parameters needed by the
      * recommendation module and for reading any existing search parameters that may
      * be needed.
      *
      * @param \VuFind\Search\Base\Params $params  Search parameter object
-     * @param \Zend\StdLib\Parameters    $request Parameter object representing user
+     * @param \Laminas\Stdlib\Parameters $request Parameter object representing user
      * request.
      *
      * @return void
      */
     public function init($params, $request)
     {
+        $mainFacets = $this->mainFacets;
+        $checkboxFacets = $this->checkboxFacets;
+        if ($request != null && ($enabledFacets = $request->get('enabledFacets', null)) !== null) {
+            $mainFacets = array_intersect_key($mainFacets, array_flip($enabledFacets));
+            $checkboxFacets = array_intersect_key($checkboxFacets, array_flip($enabledFacets));
+        }
+        // Skip dateRangeField fields in normal facet requests (visualizations request facet data separately):
+        $options = $params->getOptions();
+        if ($options instanceof DateRangeOptionsInterface) {
+            $dateRangeFacets = $options->getDateRangeFacets() + $options->getFullDateRangeFacets();
+            $mainFacets = array_diff_key($mainFacets, array_flip($dateRangeFacets));
+        }
+
         // Turn on side facets in the search results:
-        foreach ($this->mainFacets as $name => $desc) {
+        foreach ($mainFacets as $name => $desc) {
             $params->addFacet($name, $desc, in_array($name, $this->orFacets));
         }
-        foreach ($this->checkboxFacets as $name => $desc) {
+        foreach ($checkboxFacets as $name => $desc) {
             $params->addCheckboxFacet($name, $desc);
         }
+        $params->toggleCheckboxFacetCounts($this->showCheckboxFacetCounts);
+    }
+
+    /**
+     * Get checkbox facet information from the search results.
+     *
+     * @return array
+     */
+    public function getCheckboxFacetSet()
+    {
+        $result = $this->results->getParams()->getCheckboxFacets(
+            array_keys($this->checkboxFacets),
+            $this->showDynamicCheckboxFacets
+        );
+        // Add counts if available:
+        foreach ($result as &$facet) {
+            $facet['count'] = $this->getCheckboxFacetCount($facet['filter']);
+        }
+        unset($facet);
+        return $result;
     }
 
     /**
@@ -240,12 +325,11 @@ class SideFacets extends AbstractFacets
                     );
                 }
 
-                $facetArray = $this->hierarchicalFacetHelper->buildFacetArray(
-                    $hierarchicalFacet, $facetSet[$hierarchicalFacet]['list']
+                $facetSet[$hierarchicalFacet]['list'] = $this->hierarchicalFacetHelper->filterFacets(
+                    $hierarchicalFacet,
+                    $facetSet[$hierarchicalFacet]['list'],
+                    $this->results->getOptions()
                 );
-                $facetSet[$hierarchicalFacet]['list']
-                    = $this->hierarchicalFacetHelper
-                        ->flattenFacetHierarchy($facetArray);
             }
         }
 
@@ -307,7 +391,7 @@ class SideFacets extends AbstractFacets
             'date' => $this->getDateFacets(),
             'fulldate' => $this->getFullDateFacets(),
             'generic' => $this->getGenericRangeFacets(),
-            'numeric' => $this->getNumericRangeFacets()
+            'numeric' => $this->getNumericRangeFacets(),
         ];
         $processed = [];
         foreach ($raw as $type => $values) {
@@ -328,42 +412,54 @@ class SideFacets extends AbstractFacets
         if (empty($this->collapsedFacets)) {
             return [];
         } elseif ($this->collapsedFacets == '*') {
-            return array_keys($this->getFacetSet());
+            return array_keys($this->mainFacets);
         }
         return array_map('trim', explode(',', $this->collapsedFacets));
     }
 
     /**
-     * Get the list of filters to display
+     * Return the list of facets configured to be collapsed
+     * defaults to 6
      *
-     * @param array $extraFilters Extra filters to add to the list.
+     * @param string $facetName Name of the facet to get
+     * @param int    $default   Value to use if configuration is absent/invalid
      *
-     * @return array
+     * @return int
      */
-    public function getVisibleFilters($extraFilters = [])
+    public function getShowMoreSetting($facetName, $default = 6)
     {
-        // Merge extras into main list:
-        $filterList = array_merge(
-            $this->results->getParams()->getFilterList(true), $extraFilters
-        );
-
-        // Filter out suppressed values:
-        $final = [];
-        foreach ($filterList as $field => $filters) {
-            $current = [];
-            foreach ($filters as $filter) {
-                if (!isset($filter['suppressDisplay'])
-                    || !$filter['suppressDisplay']
-                ) {
-                    $current[] = $filter;
-                }
-            }
-            if (!empty($current)) {
-                $final[$field] = $current;
-            }
+        // Look for either facet-specific configuration or else a configured
+        // default. If neither is found, initialize return value to null.
+        $val = null;
+        if (isset($this->showMoreSettings[$facetName])) {
+            $val = intval($this->showMoreSettings[$facetName]);
+        } elseif (isset($this->showMoreSettings['*'])) {
+            $val = intval($this->showMoreSettings['*']);
         }
 
-        return $final;
+        // Validate the return value, using default if missing/invalid
+        return (isset($val) && $val > 0) ? $val : $default;
+    }
+
+    /**
+     * Return settings for showing more results in the lightbox
+     *
+     * @param string $facetName Name of the facet to get
+     *
+     * @return int
+     */
+    public function getShowInLightboxSetting($facetName)
+    {
+        // Look for either facet-specific configuration or else a configured
+        // default.
+        if (isset($this->showInLightboxSettings[$facetName])) {
+            return $this->showInLightboxSettings[$facetName];
+        } elseif (isset($this->showInLightboxSettings['*'])) {
+            return $this->showInLightboxSettings['*'];
+        }
+
+        // No config found; use default behavior:
+        return 'more';
     }
 
     /**
@@ -375,7 +471,7 @@ class SideFacets extends AbstractFacets
      */
     protected function getRangeFacets($property)
     {
-        $filters = $this->results->getParams()->getFilters();
+        $filters = $this->results->getParams()->getRawFilters();
         $result = [];
         if (isset($this->$property) && is_array($this->$property)) {
             foreach ($this->$property as $current) {
@@ -413,5 +509,53 @@ class SideFacets extends AbstractFacets
     public function getHierarchicalFacetSortOptions()
     {
         return $this->hierarchicalFacetSortOptions;
+    }
+
+    /**
+     * Get the result count for a checkbox facet
+     *
+     * @param string $facet Facet
+     *
+     * @return ?int
+     */
+    public function getCheckboxFacetCount(string $facet): ?int
+    {
+        if (!$this->showCheckboxFacetCounts) {
+            return null;
+        }
+        $checkboxFacets = $this->results->getParams()->getCheckboxFacets();
+        $delimitedFacets = $this->results->getParams()->getOptions()->getDelimitedFacets(true);
+        foreach ($checkboxFacets as $checkboxFacet) {
+            if ($facet !== $checkboxFacet['filter']) {
+                continue;
+            }
+            [$field, $value] = explode(':', $facet, 2);
+            $checkboxResults = $this->results->getFacetList([$field => $value]);
+            if (!isset($checkboxResults[$field]['list'])) {
+                return null;
+            }
+            $count = 0;
+            $truncate = substr($value, -1) === '*';
+            if ($truncate) {
+                $value = substr($value, 0, -1);
+            }
+            foreach ($checkboxResults[$field]['list'] as $item) {
+                $itemValue = $item['value'];
+                if ($delimiter = $delimitedFacets[$field] ?? '') {
+                    [$itemValue] = explode($delimiter, $itemValue);
+                }
+                if (
+                    $itemValue == $value
+                    || ($truncate
+                    && preg_match('/^' . preg_quote($value, '/') . '/', $item['value']))
+                    || ($item['value'] == 'true' && $value == '1')
+                    || ($item['value'] == 'false' && $value == '0')
+                ) {
+                    $count += $item['count'];
+                }
+            }
+            return $count;
+        }
+        return null;
     }
 }

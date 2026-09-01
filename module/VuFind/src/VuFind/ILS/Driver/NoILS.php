@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Driver for offline/missing ILS.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,29 +17,33 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  ILS_Drivers
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_an_ils_driver Wiki
+ * @link     https://vufind.org/wiki/development:plugins:ils_drivers Wiki
  */
+
 namespace VuFind\ILS\Driver;
-use VuFind\Exception\ILS as ILSException,
-    VuFind\I18n\Translator\TranslatorAwareInterface;
+
+use VuFind\Exception\ILS as ILSException;
+use VuFind\I18n\Translator\TranslatorAwareInterface;
+
+use function strlen;
 
 /**
  * Driver for offline/missing ILS.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  ILS_Drivers
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:building_an_ils_driver Wiki
+ * @link     https://vufind.org/wiki/development:plugins:ils_drivers Wiki
  */
 class NoILS extends AbstractBase implements TranslatorAwareInterface
 {
@@ -86,9 +91,19 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      *
      * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function getConfig($function, $params = null)
+    public function getConfig($function, $params = [])
     {
-        return isset($this->config[$function]) ? $this->config[$function] : false;
+        return $this->config[$function] ?? false;
+    }
+
+    /**
+     * Get the ID prefix from the configuration, if set.
+     *
+     * @return string
+     */
+    protected function getIdPrefix()
+    {
+        return $this->config['settings']['idPrefix'] ?? null;
     }
 
     /**
@@ -100,7 +115,13 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     protected function getSolrRecord($id)
     {
-        return $this->recordLoader->load($id);
+        // Add idPrefix condition
+        $idPrefix = $this->getIdPrefix();
+        return $this->recordLoader->load(
+            strlen($idPrefix) ? $idPrefix . $id : $id,
+            DEFAULT_SEARCH_BACKEND,
+            true    // tolerate missing records
+        );
     }
 
     /**
@@ -117,28 +138,22 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     public function getStatus($id)
     {
-        $useStatus = isset($this->config['settings']['useStatus'])
-            ? $this->config['settings']['useStatus'] : 'none';
-        if ($useStatus == "custom") {
-            $status = $this->translate($this->config['Status']['status']);
+        $useStatus = $this->config['settings']['useStatus'] ?? 'none';
+        if ($useStatus == 'custom') {
+            $status = $this->translate($this->config['Status']['status'] ?? '');
             return [
                 [
                     'id' => $id,
-                    'availability' => $this->config['Status']['availability'],
+                    'availability' => $this->config['Status']['availability'] ?? false,
                     'status' => $status,
-                    'use_unknown_message' =>
-                        $this->config['Status']['use_unknown_message'],
+                    'use_unknown_message' => (bool)($this->config['Status']['use_unknown_message'] ?? false),
                     'status_array' => [$status],
-                    'location' => $this->translate(
-                        $this->config['Status']['location']
-                    ),
-                    'reserve' => $this->config['Status']['reserve'],
-                    'callnumber' => $this->translate(
-                        $this->config['Status']['callnumber']
-                    )
-                ]
+                    'location' => $this->translate($this->config['Status']['location'] ?? ''),
+                    'reserve' => $this->config['Status']['reserve'] ?? 'N',
+                    'callnumber' => $this->translate($this->config['Status']['callnumber'] ?? ''),
+                ],
             ];
-        } else if ($useStatus == "marc") {
+        } elseif ($useStatus == 'marc') {
             // Retrieve record from index:
             $recordDriver = $this->getSolrRecord($id);
             return $this->getFormattedMarcDetails($recordDriver, 'MarcStatus');
@@ -159,9 +174,8 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     public function getStatuses($idList)
     {
-        $useStatus = isset($this->config['settings']['useStatus'])
-            ? $this->config['settings']['useStatus'] : 'none';
-        if ($useStatus == "custom" || $useStatus == "marc") {
+        $useStatus = $this->config['settings']['useStatus'] ?? 'none';
+        if ($useStatus == 'custom' || $useStatus == 'marc') {
             $status = [];
             foreach ($idList as $id) {
                 $status[] = $this->getStatus($id);
@@ -177,47 +191,37 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      * This is responsible for retrieving the holding information of a certain
      * record.
      *
-     * @param string $id     The record id to retrieve the holdings for
-     * @param array  $patron Patron data
+     * @param string $id      The record id to retrieve the holdings for
+     * @param ?array $patron  Patron data
+     * @param array  $options Extra options (not currently used)
      *
      * @throws ILSException
      * @return array         On success, an associative array with the following
      * keys: id, availability (boolean), status, location, reserve, callnumber,
      * duedate, number, barcode.
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
-    public function getHolding($id, array $patron = null)
+    public function getHolding($id, ?array $patron = null, array $options = [])
     {
-        $useHoldings = isset($this->config['settings']['useHoldings'])
-            ? $this->config['settings']['useHoldings'] : 'none';
-
-        if ($useHoldings == "custom") {
+        $useHoldings = $this->config['settings']['useHoldings'] ?? 'none';
+        if ($useHoldings == 'custom') {
             return [
                 [
                     'id' => $id,
-                    'number' => $this->translate(
-                        $this->config['Holdings']['number']
-                    ),
-                    'availability' => $this->config['Holdings']['availability'],
-                    'status' => $this->translate(
-                        $this->config['Holdings']['status']
-                    ),
-                    'use_unknown_message' =>
-                        $this->config['Holdings']['use_unknown_message'],
-                    'location' => $this->translate(
-                        $this->config['Holdings']['location']
-                    ),
-                    'reserve' => $this->config['Holdings']['reserve'],
-                    'callnumber' => $this->translate(
-                        $this->config['Holdings']['callnumber']
-                    ),
-                    'barcode' => $this->config['Holdings']['barcode'],
-                    'notes' => isset($this->config['Holdings']['notes'])
-                        ? $this->config['Holdings']['notes'] : [],
-                    'summary' => isset($this->config['Holdings']['summary'])
-                        ? $this->config['Holdings']['summary'] : []
-                ]
+                    'number' => $this->translate($this->config['Holdings']['number'] ?? ''),
+                    'availability' => $this->config['Holdings']['availability'] ?? false,
+                    'status' => $this->translate($this->config['Holdings']['status'] ?? ''),
+                    'use_unknown_message' => (bool)($this->config['Holdings']['use_unknown_message'] ?? false),
+                    'location' => $this->translate($this->config['Holdings']['location'] ?? ''),
+                    'reserve' => $this->config['Holdings']['reserve'] ?? 'N',
+                    'callnumber' => $this->translate($this->config['Holdings']['callnumber'] ?? ''),
+                    'barcode' => $this->config['Holdings']['barcode'] ?? '',
+                    'notes' => $this->config['Holdings']['notes'] ?? [],
+                    'summary' => $this->config['Holdings']['summary'] ?? [],
+                ],
             ];
-        } elseif ($useHoldings == "marc") {
+        } elseif ($useHoldings == 'marc') {
             // Retrieve record from index:
             $recordDriver = $this->getSolrRecord($id);
             return $this->getFormattedMarcDetails($recordDriver, 'MarcHoldings');
@@ -238,14 +242,24 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     protected function getFormattedMarcDetails($recordDriver, $configSection)
     {
-        $marcStatus = isset($this->config[$configSection])
-            ? $this->config[$configSection] : false;
+        $marcStatus = $this->config[$configSection] ?? false;
         if ($marcStatus) {
             $field = $marcStatus['marcField'];
             unset($marcStatus['marcField']);
             $result = $recordDriver->tryMethod(
-                'getFormattedMarcDetails', [$field, $marcStatus]
+                'getFormattedMarcDetails',
+                [$field, $marcStatus]
             );
+            // If the details coming back from the record driver include the
+            // ID prefix, strip it off!
+            $idPrefix = $this->getIdPrefix();
+            if (
+                isset($result[0]['id'])
+                && '' !== $idPrefix
+                && str_starts_with($result[0]['id'], $idPrefix)
+            ) {
+                $result[0]['id'] = substr($result[0]['id'], strlen($idPrefix));
+            }
             return empty($result) ? [] : $result;
         }
         return [];
@@ -265,12 +279,13 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     public function hasHoldings($id)
     {
-        $useHoldings = isset($this->config['settings']['useHoldings'])
-            ? $this->config['settings']['useHoldings'] : '';
+        // If the ILS is offline, we should if we can look up details:
+        $useHoldings = $this->config['settings']['useHoldings'] ?? '';
 
         // "none" will be processed differently in the config depending
         // on whether it's in or out of quotes; handle both cases.
-        return $useHoldings != 'none' && !empty($useHoldings);
+        return $useHoldings != 'none' && !empty($useHoldings)
+            && !empty($this->getHolding($id));
     }
 
     /**
@@ -288,15 +303,15 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
         return [];
     }
 
-        /**
+    /**
      * Get New Items
      *
      * Retrieve the IDs of items recently added to the catalog.
      *
-     * @param int $page    Page number of results to retrieve (counting starts at 1)
-     * @param int $limit   The size of each page of results to retrieve
-     * @param int $daysOld The maximum age of records to retrieve in days (max. 30)
-     * @param int $fundId  optional fund ID to use for limiting results (use a value
+     * @param int     $page    Page number of results to retrieve (counting starts at 1)
+     * @param int     $limit   The size of each page of results to retrieve
+     * @param int     $daysOld The maximum age of records to retrieve in days (max. 30)
+     * @param ?string $fundId  optional fund ID to use for limiting results (use a value
      * returned by getFunds, or exclude for no limit); note that "fund" may be a
      * misnomer - if funds are not an appropriate way to limit your new item
      * results, you can return a different set of values from getFunds. The
@@ -322,8 +337,7 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     public function getOfflineMode()
     {
-        return isset($this->config['settings']['mode'])
-            ? $this->config['settings']['mode'] : "ils-offline";
+        return $this->config['settings']['mode'] ?? 'ils-offline';
     }
 
     /**
@@ -335,8 +349,7 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
      */
     public function loginIsHidden()
     {
-        return isset($this->config['settings']['hideLogin'])
-            ? $this->config['settings']['hideLogin'] : false;
+        return $this->config['settings']['hideLogin'] ?? false;
     }
 
     /**
@@ -357,5 +370,85 @@ class NoILS extends AbstractBase implements TranslatorAwareInterface
     {
         // Block authentication:
         return null;
+    }
+
+    /**
+     * Get Funds
+     *
+     * Return a list of funds which may be used to limit the getNewItems list.
+     *
+     * @throws ILSException
+     * @return array An associative array with key = fund ID, value = fund name.
+     */
+    public function getFunds()
+    {
+        // Does not work while ILS offline:
+        return [];
+    }
+
+    /**
+     * Get Departments
+     *
+     * Obtain a list of departments for use in limiting the reserves list.
+     *
+     * @throws ILSException
+     * @return array An associative array with key = dept. ID, value = dept. name.
+     */
+    public function getDepartments()
+    {
+        // Does not work while ILS offline:
+        return [];
+    }
+
+    /**
+     * Get Instructors
+     *
+     * Obtain a list of instructors for use in limiting the reserves list.
+     *
+     * @throws ILSException
+     * @return array An associative array with key = ID, value = name.
+     */
+    public function getInstructors()
+    {
+        // Does not work while ILS offline:
+        return [];
+    }
+
+    /**
+     * Get Courses
+     *
+     * Obtain a list of courses for use in limiting the reserves list.
+     *
+     * @throws ILSException
+     * @return array An associative array with key = ID, value = name.
+     */
+    public function getCourses()
+    {
+        // Does not work while ILS offline:
+        return [];
+    }
+
+    /**
+     * Find Reserves
+     *
+     * Obtain information on course reserves.
+     *
+     * This version of findReserves was contributed by Matthew Hooper and includes
+     * support for electronic reserves (though eReserve support is still a work in
+     * progress).
+     *
+     * @param string $course ID from getCourses (empty string to match all)
+     * @param string $inst   ID from getInstructors (empty string to match all)
+     * @param string $dept   ID from getDepartments (empty string to match all)
+     *
+     * @throws ILSException
+     * @return array An array of associative arrays representing reserve items.
+     *
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
+    public function findReserves($course, $inst, $dept)
+    {
+        // Does not work while ILS offline:
+        return [];
     }
 }

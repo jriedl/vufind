@@ -3,7 +3,7 @@
 /**
  * Unit tests for EDS backend.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -17,54 +17,103 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindTest\Backend\EDS;
 
+use InvalidArgumentException;
 use VuFindSearch\Backend\EDS\Backend;
 use VuFindSearch\Query\Query;
-use InvalidArgumentException;
+
+use function count;
 
 /**
  * Unit tests for EDS backend.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
-class BackendTest extends \VuFindTest\Unit\TestCase
+class BackendTest extends \PHPUnit\Framework\TestCase
 {
+    use \VuFindTest\Feature\FixtureTrait;
+    use \VuFindTest\Feature\ReflectionTrait;
+
     /**
-     * Test retrieving a record.
+     * Test performing an autocomplete
      *
      * @return void
      */
-    public function testRetrieve()
+    public function testAutocomplete()
     {
-        $conn = $this->getConnectorMock(['retrieve']);
+        $conn = $this->getConnectorMock(['call']);
+        $expectedUri = 'http://foo?idx=rawdata&token=auth1234'
+            . '&filters=%5B%7B%22name%22%3A%22custid%22%2C%22values%22%3A%5B%22foo%22%5D%7D%5D&term=bla';
         $conn->expects($this->once())
-            ->method('retrieve')
-            ->will($this->returnValue($this->loadResponse('retrieve')));
+            ->method('call')
+            ->with($this->equalTo($expectedUri))
+            ->willReturn($this->loadResponse('autocomplete'));
 
         $back = $this->getBackend(
-            $conn, $this->getRCFactory(), null, null, [],
+            $conn,
+            $this->getEdsRCFactory(),
+            null,
+            null,
+            [],
+            ['getAutocompleteData']
+        );
+        $autocompleteData = [
+            'custid' => 'foo', 'url' => 'http://foo', 'token' => 'auth1234',
+        ];
+        $back->expects($this->any())
+            ->method('getAutocompleteData')
+            ->willReturn($autocompleteData);
+
+        $coll = $back->autocomplete('bla', 'rawdata');
+        // check count
+        $this->assertCount(10, $coll);
+        foreach ($coll as $value) {
+            $this->assertEquals('bla', substr($value, 0, 3));
+        }
+    }
+
+    /**
+     * Test retrieving an EDS record.
+     *
+     * @return void
+     */
+    public function testRetrieveEdsItem()
+    {
+        $conn = $this->getConnectorMock(['retrieveEdsItem']);
+        $conn->expects($this->once())
+            ->method('retrieveEdsItem')
+            ->willReturn($this->loadResponse('retrieveEdsItem'));
+
+        $back = $this->getBackend(
+            $conn,
+            $this->getEdsRCFactory(),
+            null,
+            null,
+            [],
             ['getAuthenticationToken', 'getSessionToken']
         );
+        $back->setBackendType('EDS');
         $back->expects($this->any())
             ->method('getAuthenticationToken')
-            ->will($this->returnValue('auth1234'));
+            ->willReturn('auth1234');
         $back->expects($this->any())
             ->method('getSessionToken')
-            ->will($this->returnValue('sess1234'));
+            ->willReturn('sess1234');
         $back->setIdentifier('test');
 
         $coll = $back->retrieve('bwh,201407212251PR.NEWS.USPR.MM73898');
@@ -73,6 +122,43 @@ class BackendTest extends \VuFindTest\Unit\TestCase
         $rec  = $coll->first();
         $this->assertEquals('test', $rec->getSourceIdentifier());
         $this->assertEquals('bwh,201407212251PR.NEWS.USPR.MM73898', $rec->getUniqueID());
+    }
+
+    /**
+     * Test retrieving an EPF record.
+     *
+     * @return void
+     */
+    public function testRetrieveEpfItem()
+    {
+        $conn = $this->getConnectorMock(['retrieveEpfItem']);
+        $conn->expects($this->once())
+            ->method('retrieveEpfItem')
+            ->willReturn($this->loadResponse('retrieveEpfItem'));
+
+        $back = $this->getBackend(
+            $conn,
+            $this->getEpfRCFactory(),
+            null,
+            null,
+            [],
+            ['getAuthenticationToken', 'getSessionToken']
+        );
+        $back->setBackendType('EPF');
+        $back->expects($this->any())
+            ->method('getAuthenticationToken')
+            ->willReturn('auth1234');
+        $back->expects($this->any())
+            ->method('getSessionToken')
+            ->willReturn('sess1234');
+        $back->setIdentifier('test');
+
+        $coll = $back->retrieve('edp297646');
+        $this->assertCount(1, $coll);
+        $this->assertEquals('test', $coll->getSourceIdentifier());
+        $rec  = $coll->first();
+        $this->assertEquals('test', $rec->getSourceIdentifier());
+        $this->assertEquals('edp297646', $rec->getUniqueID());
     }
 
     /**
@@ -85,18 +171,22 @@ class BackendTest extends \VuFindTest\Unit\TestCase
         $conn = $this->getConnectorMock(['search']);
         $conn->expects($this->once())
             ->method('search')
-            ->will($this->returnValue($this->loadResponse('search')));
+            ->willReturn($this->loadResponse('search'));
 
         $back = $this->getBackend(
-            $conn, $this->getRCFactory(), null, null, [],
+            $conn,
+            $this->getEdsRCFactory(),
+            null,
+            null,
+            [],
             ['getAuthenticationToken', 'getSessionToken']
         );
         $back->expects($this->any())
             ->method('getAuthenticationToken')
-            ->will($this->returnValue('auth1234'));
+            ->willReturn('auth1234');
         $back->expects($this->any())
             ->method('getSessionToken')
-            ->will($this->returnValue('sess1234'));
+            ->willReturn('sess1234');
         $back->setIdentifier('test');
 
         $coll = $back->search(new Query('foobar'), 0, 3);
@@ -111,17 +201,29 @@ class BackendTest extends \VuFindTest\Unit\TestCase
         $this->assertEquals('test', $recs[2]->getSourceIdentifier());
         $this->assertEquals('bwh,201305180751PR.NEWS.USPR.HS16615', $recs[2]->getUniqueID());
         $this->assertEquals(65924, $coll->getTotal());
+        $this->assertEquals(0, $coll->getOffset());
         $rawFacets = $coll->getRawFacets();
-        $this->assertEquals(7, count($rawFacets));
+        $this->assertCount(7, $rawFacets);
         $this->assertEquals('SourceType', $rawFacets[0]['Id']);
         $this->assertEquals('Source Type', $rawFacets[0]['Label']);
-        $this->assertEquals(8, count($rawFacets[0]['AvailableFacetValues']));
+        $this->assertCount(8, $rawFacets[0]['AvailableFacetValues']);
         $expected = ['Value' => 'News', 'Count' => '12055', 'AddAction' => 'addfacetfilter(SourceType:News)'];
         $this->assertEquals($expected, $rawFacets[0]['AvailableFacetValues'][0]);
         $facets = $coll->getFacets();
         $this->assertEquals(count($facets), count($rawFacets));
-        $this->assertEquals(8, count($facets['SourceType']['counts']));
-        $this->assertEquals(0, $coll->getOffset());
+        $this->assertEquals(
+            [
+                'News' => 12055,
+                'Academic Journals' => 2855,
+                'Magazines' => 783,
+                'Books' => 226,
+                'eBooks' => 208,
+                'Reports' => 47,
+                'Reviews' => 5,
+                'Conference Materials' => 2,
+            ],
+            $facets['SourceType']
+        );
     }
 
     /**
@@ -144,13 +246,13 @@ class BackendTest extends \VuFindTest\Unit\TestCase
      */
     public function testConstructorSetters()
     {
-        $fact = $this->getMock('VuFindSearch\Response\RecordCollectionFactoryInterface');
+        $fact = $this->createMock(\VuFindSearch\Response\RecordCollectionFactoryInterface::class);
         $conn = $this->getConnectorMock();
         $config = [
             'EBSCO_Account' => [
                 'user_name' => 'un', 'password' => 'pw', 'ip_auth' => true,
-                'profile' => 'pr', 'organization_id' => 'oi'
-            ]
+                'profile' => 'pr', 'organization_id' => 'oi',
+            ],
         ];
         $back = $this->getBackend($conn, $fact, null, null, $config);
         $this->assertEquals($fact, $back->getRecordCollectionFactory());
@@ -175,11 +277,9 @@ class BackendTest extends \VuFindTest\Unit\TestCase
      */
     protected function loadResponse($fixture)
     {
-        $file = realpath(sprintf('%s/eds/response/%s', PHPUNIT_SEARCH_FIXTURES, $fixture));
-        if (!is_string($file) || !file_exists($file) || !is_readable($file)) {
-            throw new InvalidArgumentException(sprintf('Unable to load fixture file: %s', $fixture));
-        }
-        return unserialize(file_get_contents($file));
+        return unserialize(
+            $this->getFixture('eds/response/' . $fixture, 'VuFindSearch')
+        );
     }
 
     /**
@@ -191,55 +291,91 @@ class BackendTest extends \VuFindTest\Unit\TestCase
      */
     protected function getConnectorMock(array $mock = [])
     {
-        $client = $this->getMock('Zend\Http\Client');
-        return $this->getMock(
-            'VuFindSearch\Backend\EDS\Zend2', $mock, [[], $client]
-        );
+        $client = $this->createMock(\Laminas\Http\Client::class);
+        return $this->getMockBuilder(\VuFindSearch\Backend\EDS\Connector::class)
+            ->onlyMethods($mock)
+            ->setConstructorArgs([[], $client])
+            ->getMock();
     }
 
     /**
      * Return backend
      *
-     * @param \VuFindSearch\Backend\EDS\Zend2                         $connector Connector
+     * @param \VuFindSearch\Backend\EDS\Connector                     $connector Connector
      * @param \VuFindSearch\Response\RecordCollectionFactoryInterface $factory   Record collection factory
-     * @param \Zend\Cache\Storage\Adapter\AbstractAdapter             $cache     Object cache adapter
-     * @param \Zend\Session\Container                                 $container Session container
+     * @param \Laminas\Cache\Storage\StorageInterface                 $cache     Object cache adapter
+     * @param \Laminas\Session\Container                              $container Session container
      * @param array                                                   $settings  Additional settings
-     * @param array                                                   $mock      Methods to mock (or null for a real object)
+     * @param array                                                   $mock      Methods to mock (or null for a
+     * real object)
+     *
+     * @return \VuFindSearch\Backend\EDS\Backend
      */
-    protected function getBackend($connector, $factory = null, $cache = null, $container = null, $settings = [], $mock = null)
-    {
+    protected function getBackend(
+        $connector,
+        $factory = null,
+        $cache = null,
+        $container = null,
+        $settings = [],
+        $mock = null
+    ) {
         if (null === $factory) {
-            $factory = $this->getMock('VuFindSearch\Response\RecordCollectionFactoryInterface');
+            $factory = $this->createMock(\VuFindSearch\Response\RecordCollectionFactoryInterface::class);
         }
         if (null === $cache) {
-            $cache = $this->getMock('Zend\Cache\Storage\Adapter\Filesystem');
+            $cache = $this->createMock(\Laminas\Cache\Storage\StorageInterface::class);
         }
         if (null === $container) {
-            // Using a mock here causes an error for some reason -- investigate later.
-            $container = new \Zend\Session\Container('EBSCO');
+            $container = $this->getMockBuilder(\Laminas\Session\Container::class)
+                ->disableOriginalConstructor()->getMock();
         }
         if (null === $mock) {
-            return new Backend($connector, $factory, $cache, $container, new \Zend\Config\Config($settings));
+            return new Backend($connector, $factory, $cache, $container, new \VuFind\Config\Config($settings));
         } else {
-            $params = [$connector, $factory, $cache, $container, new \Zend\Config\Config($settings)];
-            return $this->getMock('VuFindSearch\Backend\EDS\Backend', $mock, $params);
+            $params = [$connector, $factory, $cache, $container, new \VuFind\Config\Config($settings)];
+            return $this->getMockBuilder(\VuFindSearch\Backend\EDS\Backend::class)
+                ->onlyMethods($mock)
+                ->setConstructorArgs($params)
+                ->getMock();
         }
+    }
+
+    /**
+     * Build a real record collection factory for EDS records
+     *
+     * @return \VuFindSearch\Backend\EDS\Response\RecordCollectionFactory
+     */
+    protected function getEdsRCFactory()
+    {
+        $driverClass = \VuFind\RecordDriver\EDS::class;
+        return $this->getRCFactory($driverClass);
+    }
+
+    /**
+     * Build a real record collection factory for EPF records
+     *
+     * @return \VuFindSearch\Backend\EDS\Response\RecordCollectionFactory
+     */
+    protected function getEpfRCFactory()
+    {
+        $driverClass = \VuFind\RecordDriver\EPF::class;
+        return $this->getRCFactory($driverClass);
     }
 
     /**
      * Build a real record collection factory
      *
+     * @param string $driverClass class of the RecordDriver to create
+     *
      * @return \VuFindSearch\Backend\EDS\Response\RecordCollectionFactory
      */
-    protected function getRCFactory()
+    protected function getRCFactory($driverClass)
     {
-        $callback = function ($data) {
-            $driver = new \VuFind\RecordDriver\EDS();
+        $callback = function ($data) use ($driverClass) {
+            $driver = new $driverClass();
             $driver->setRawData($data);
             return $driver;
         };
         return new \VuFindSearch\Backend\EDS\Response\RecordCollectionFactory($callback);
     }
-
 }

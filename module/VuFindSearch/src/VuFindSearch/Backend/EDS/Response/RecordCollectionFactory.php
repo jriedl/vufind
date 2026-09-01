@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Factory for record collection.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) EBSCO Industries 2013
  *
@@ -16,35 +17,41 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
+
 namespace VuFindSearch\Backend\EDS\Response;
 
-use VuFindSearch\Response\RecordCollectionFactoryInterface;
 use VuFindSearch\Exception\InvalidArgumentException;
+use VuFindSearch\Response\RecordCollectionFactoryInterface;
+
+use function gettype;
+use function is_array;
+use function is_callable;
+use function sprintf;
 
 /**
  * Factory for record collection.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Michelle Milton <mmilton@epnet.com>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org
+ * @link     https://vufind.org
  */
 class RecordCollectionFactory implements RecordCollectionFactoryInterface
 {
     /**
      * Factory to turn data into a record object.
      *
-     * @var Callable
+     * @var callable
      */
     protected $recordFactory;
 
@@ -58,7 +65,7 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
     /**
      * Constructor.
      *
-     * @param Callable $recordFactory   Record factory callback
+     * @param callable $recordFactory   Record factory callback
      * @param string   $collectionClass Class of collection
      *
      * @return void
@@ -69,9 +76,7 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
             throw new InvalidArgumentException('Record factory must be callable.');
         }
         $this->recordFactory = $recordFactory;
-        $this->collectionClass = (null === $collectionClass)
-            ? 'VuFindSearch\Backend\EDS\Response\RecordCollection'
-            : $collectionClass;
+        $this->collectionClass = $collectionClass ?? RecordCollection::class;
     }
 
     /**
@@ -92,22 +97,14 @@ class RecordCollectionFactory implements RecordCollectionFactoryInterface
             );
         }
         $collection = new $this->collectionClass($response);
-        //obtain path to records
-        $records = [];
-        if (isset($response['SearchResult'])
-            && isset($response['SearchResult']['Data'])
-            && isset($response['SearchResult']['Data']['Records'])
-        ) {
-            // Format of the search response
-            $records = $response['SearchResult']['Data']['Records'];
-        } else if (isset($response['Records'])) { // Format of the retrieve response
-            $records = $response['Records'];
-        }
+        // Obtain path to records -- first try format of the search response,
+        // then try format of the retrieve response, then give up with empty array.
+        $records = $response['SearchResult']['Data']['Records']
+            ?? $response['Records'] ?? [];
 
         foreach ($records as $record) {
-            $collection->add(call_user_func($this->recordFactory, $record));
+            $collection->add(($this->recordFactory)($record), false);
         }
         return $collection;
     }
-
 }

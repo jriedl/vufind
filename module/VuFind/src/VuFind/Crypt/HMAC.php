@@ -1,8 +1,9 @@
 <?php
+
 /**
  * HMAC hash generator
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,25 +17,26 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Crypt
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Crypt;
 
 /**
  * HMAC hash generator wrapper
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Crypt
  * @author   Luke O'Sullivan <l.osullivan@swansea.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class HMAC
 {
@@ -67,7 +69,7 @@ class HMAC
     {
         $str = '';
         foreach ($keysToHash as $key) {
-            $value = isset($keyValueArray[$key]) ? $keyValueArray[$key] : '';
+            $value = $keyValueArray[$key] ?? '';
             $str .= $key . '=' . $value . '|';
         }
         return hash_hmac('md5', $str, $this->hashKey);

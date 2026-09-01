@@ -3,7 +3,7 @@
 /**
  * Solr spelling listener.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2013.
  *
@@ -17,37 +17,41 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
+
 namespace VuFind\Search\Solr;
 
-use VuFindSearch\Service;
+use Laminas\EventManager\EventInterface;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Psr\Log\LoggerInterface;
+use VuFind\Log\LoggerAwareTrait;
 use VuFindSearch\Backend\BackendInterface;
 use VuFindSearch\Backend\Solr\Response\Json\Spellcheck;
 use VuFindSearch\ParamBag;
 use VuFindSearch\Query\Query;
-
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\EventManager\EventInterface;
+use VuFindSearch\Service;
 
 /**
  * Solr spelling listener.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Search
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org   Main Site
+ * @link     https://vufind.org Main Site
  */
 class InjectSpellingListener
 {
+    use LoggerAwareTrait;
+
     /**
      * Backend.
      *
@@ -74,13 +78,18 @@ class InjectSpellingListener
      *
      * @param BackendInterface $backend      Backend
      * @param array            $dictionaries Spelling dictionaries to use.
+     * @param ?LoggerInterface $logger       Logger
      *
      * @return void
      */
-    public function __construct(BackendInterface $backend, array $dictionaries)
-    {
+    public function __construct(
+        BackendInterface $backend,
+        array $dictionaries,
+        ?LoggerInterface $logger = null
+    ) {
         $this->backend = $backend;
         $this->dictionaries = $dictionaries;
+        $this->setLogger($logger);
     }
 
     /**
@@ -93,10 +102,14 @@ class InjectSpellingListener
     public function attach(SharedEventManagerInterface $manager)
     {
         $manager->attach(
-            'VuFind\Search', Service::EVENT_PRE, [$this, 'onSearchPre']
+            Service::class,
+            Service::EVENT_PRE,
+            [$this, 'onSearchPre']
         );
         $manager->attach(
-            'VuFind\Search', Service::EVENT_POST, [$this, 'onSearchPost']
+            Service::class,
+            Service::EVENT_POST,
+            [$this, 'onSearchPost']
         );
     }
 
@@ -109,13 +122,12 @@ class InjectSpellingListener
      */
     public function onSearchPre(EventInterface $event)
     {
-        if ($event->getParam('context') != 'search') {
+        $command = $event->getParam('command');
+        if ($command->getContext() !== 'search') {
             return $event;
         }
-        $backend = $event->getTarget();
-        if ($backend === $this->backend) {
-            $params = $event->getParam('params');
-            if ($params) {
+        if ($command->getTargetIdentifier() === $this->backend->getIdentifier()) {
+            if ($params = $command->getSearchParameters()) {
                 // Set spelling parameters when enabled:
                 $sc = $params->get('spellcheck');
                 if (isset($sc[0]) && $sc[0] != 'false') {
@@ -130,12 +142,14 @@ class InjectSpellingListener
                     reset($this->dictionaries);
                     $params->set('spellcheck', 'true');
                     $params->set(
-                        'spellcheck.dictionary', current($this->dictionaries)
+                        'spellcheck.dictionary',
+                        current($this->dictionaries)
                     );
 
                     // Turn on spellcheck.q generation in query builder:
-                    $this->backend->getQueryBuilder()
-                        ->setCreateSpellingQuery(true);
+                    $this->backend->getQueryBuilder()->setCreateSpellingQuery(true);
+                } else {
+                    $this->backend->getQueryBuilder()->setCreateSpellingQuery(false);
                 }
             }
         }
@@ -152,22 +166,24 @@ class InjectSpellingListener
     public function onSearchPost(EventInterface $event)
     {
         // Do nothing if spelling is disabled or context is wrong
-        if (!$this->active || $event->getParam('context') != 'search') {
+        $command = $event->getParam('command');
+        if (!$this->active || $command->getContext() !== 'search') {
             return $event;
         }
 
         // Merge spelling details from extra dictionaries:
-        $backend = $event->getParam('backend');
-        if ($backend == $this->backend->getIdentifier()) {
-            $result = $event->getTarget();
-            $params = $event->getParam('params');
+        if ($command->getTargetIdentifier() === $this->backend->getIdentifier()) {
+            $result = $command->getResult();
+            $params = $command->getSearchParameters();
             $spellcheckQuery = $params->get('spellcheck.q');
             if (!empty($spellcheckQuery)) {
                 $this->aggregateSpellcheck(
-                    $result->getSpellcheck(), end($spellcheckQuery)
+                    $result->getSpellcheck(),
+                    end($spellcheckQuery)
                 );
             }
         }
+        return $event;
     }
 
     /**
@@ -185,8 +201,18 @@ class InjectSpellingListener
             $params->set('spellcheck', 'true');
             $params->set('spellcheck.dictionary', current($this->dictionaries));
             $queryObj = new Query($query, 'AllFields');
-            $collection = $this->backend->search($queryObj, 0, 0, $params);
-            $spellcheck->mergeWith($collection->getSpellcheck());
+            try {
+                $collection = $this->backend->search($queryObj, 0, 0, $params);
+                $spellcheck->mergeWith($collection->getSpellcheck());
+            } catch (\VuFindSearch\Backend\Exception\BackendException $e) {
+                // Don't let exceptions cause the whole search to fail
+                if ($this->logger instanceof \VuFind\Log\ExtendedLoggerInterface) {
+                    $this->logger->logException(
+                        $e,
+                        new \Laminas\Stdlib\Parameters()
+                    );
+                }
+            }
         }
     }
 }

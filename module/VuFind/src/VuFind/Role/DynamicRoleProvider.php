@@ -1,8 +1,9 @@
 <?php
+
 /**
  * VuFind dynamic role provider.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2007.
  *
@@ -16,27 +17,30 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authorization
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
+
 namespace VuFind\Role;
-use ZfcRbac\Role\RoleProviderInterface;
-use Rbac\Role\Role;
+
+use Laminas\Permissions\Rbac\Role;
+use Laminas\Permissions\Rbac\RoleInterface;
+use Lmc\Rbac\Role\RoleProviderInterface;
 
 /**
  * VuFind dynamic role provider.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Authorization
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://www.vufind.org  Main Page
+ * @link     https://vufind.org Main Page
  */
 class DynamicRoleProvider implements RoleProviderInterface
 {
@@ -48,31 +52,16 @@ class DynamicRoleProvider implements RoleProviderInterface
     protected $roles = false;
 
     /**
-     * Permission provider manager
-     *
-     * @var PermissionProviderPluginManager
-     */
-    protected $manager;
-
-    /**
-     * Configuration for determining permissions.
-     *
-     * @var array
-     */
-    protected $config;
-
-    /**
      * Constructor
      *
      * @param PermissionProvider\PluginManager $manager Permission provider manager
      * @param array                            $config  Configuration for determining
      * permissions
      */
-    public function __construct(PermissionProvider\PluginManager $manager,
-        array $config
+    public function __construct(
+        protected PermissionProvider\PluginManager $manager,
+        protected array $config
     ) {
-        $this->manager = $manager;
-        $this->config = $config;
     }
 
     /**
@@ -80,9 +69,9 @@ class DynamicRoleProvider implements RoleProviderInterface
      *
      * @param string[] $roleNames Role(s) to look up.
      *
-     * @return \Rbac\Role\RoleInterface[]
+     * @return RoleInterface[]
      */
-    public function getRoles(array $roleNames)
+    public function getRoles(iterable $roleNames): iterable
     {
         return array_map([$this, 'getRole'], $roleNames);
     }
@@ -140,12 +129,14 @@ class DynamicRoleProvider implements RoleProviderInterface
         $retVal = [];
         foreach ($this->config as $settings) {
             $current = $this->getRolesForSettings($settings);
-            foreach ($current['roles'] as $role) {
-                if (!isset($retVal[$role])) {
-                    $retVal[$role] = [];
-                }
-                foreach ($current['permissions'] as $permission) {
-                    $retVal[$role][] = $permission;
+            if (null !== $current['roles']) {
+                foreach ($current['roles'] as $role) {
+                    if (!isset($retVal[$role])) {
+                        $retVal[$role] = [];
+                    }
+                    foreach ($current['permissions'] as $permission) {
+                        $retVal[$role][] = $permission;
+                    }
                 }
             }
         }
@@ -169,10 +160,11 @@ class DynamicRoleProvider implements RoleProviderInterface
             $mode = 'ALL';
         }
 
-        // Extract permission setting:
+        // Extract permission setting and ignore assertion setting (it's processed in PermissionManagerFactory):
         $permissions = isset($settings['permission'])
             ? (array)$settings['permission'] : [];
         unset($settings['permission']);
+        unset($settings['assertion']);
 
         // Process everything:
         $roles = null;
@@ -181,7 +173,7 @@ class DynamicRoleProvider implements RoleProviderInterface
             $currentRoles = $providerObj->getPermissions($options);
             if ($roles === null) {
                 $roles = $currentRoles;
-            } else if ($mode == 'ANY') {
+            } elseif ($mode == 'ANY') {
                 $roles = array_merge($roles, $currentRoles);
             } else {
                 $roles = array_intersect($roles, $currentRoles);

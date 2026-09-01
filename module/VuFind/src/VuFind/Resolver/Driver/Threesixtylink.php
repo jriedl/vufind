@@ -1,8 +1,9 @@
 <?php
+
 /**
  * 360Link Link Resolver Driver
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Royal Holloway, University of London
  *
@@ -18,52 +19,48 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Resolver_Drivers
  * @author   Graham Seaman <Graham.Seaman@rhul.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:link_resolver_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:link_resolver_drivers Wiki
  */
+
 namespace VuFind\Resolver\Driver;
-use DOMDocument, DOMXpath;
+
+use DOMDocument;
+use DOMXpath;
 
 /**
  * 360Link Link Resolver Driver
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Resolver_Drivers
  * @author   Graham Seaman <Graham.Seaman@rhul.ac.uk>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:link_resolver_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:link_resolver_drivers Wiki
  */
-class Threesixtylink implements DriverInterface
+class Threesixtylink extends AbstractBase
 {
-    /**
-     * Base URL for link resolver
-     *
-     * @var string
-     */
-    protected $baseUrl;
-
     /**
      * HTTP client
      *
-     * @var \Zend\Http\Client
+     * @var \Laminas\Http\Client
      */
     protected $httpClient;
 
     /**
      * Constructor
      *
-     * @param string            $baseUrl    Base URL for link resolver
-     * @param \Zend\Http\Client $httpClient HTTP client
+     * @param string               $baseUrl    Base URL for link resolver
+     * @param \Laminas\Http\Client $httpClient HTTP client
      */
-    public function __construct($baseUrl, \Zend\Http\Client $httpClient)
+    public function __construct($baseUrl, \Laminas\Http\Client $httpClient)
     {
-        $this->baseUrl = $baseUrl;
+        parent::__construct($baseUrl);
         $this->httpClient = $httpClient;
     }
 
@@ -79,7 +76,7 @@ class Threesixtylink implements DriverInterface
     public function fetchLinks($openURL)
     {
         // Make the call to SerialsSolutions and load results
-        $url = $this->baseUrl . (substr($this->baseUrl, -1) == '/' ? '' : '/') .
+        $url = $this->baseUrl . (str_ends_with($this->baseUrl, '/') ? '' : '/') .
             'openurlxml?version=1.0&' . $openURL;
         $feed = $this->httpClient->setUri($url)->send()->getBody();
         return $feed;
@@ -106,24 +103,27 @@ class Threesixtylink implements DriverInterface
 
         $xpath = new DOMXpath($xml);
         $linkGroups = $xpath->query("//ssopenurl:linkGroup[@type='holding']");
-        if (!is_null($linkGroups)) {
+        if (null !== $linkGroups) {
             foreach ($linkGroups as $linkGroup) {
                 $record = [];
                 // select the deepest link returned
                 $elems = $xpath->query(
-                    ".//ssopenurl:url[@type='article']", $linkGroup
+                    ".//ssopenurl:url[@type='article']",
+                    $linkGroup
                 );
                 if ($elems->length > 0) {
                     $record['linktype'] = 'article';
                 } else {
                     $elems = $xpath->query(
-                        ".//ssopenurl:url[@type='journal']", $linkGroup
+                        ".//ssopenurl:url[@type='journal']",
+                        $linkGroup
                     );
                     if ($elems->length > 0) {
                         $record['linktype'] = 'journal';
                     } else {
                         $elems = $xpath->query(
-                            ".//ssopenurl:url[@type='source']", $linkGroup
+                            ".//ssopenurl:url[@type='source']",
+                            $linkGroup
                         );
                         if ($elems->length > 0) {
                             $record['linktype'] = 'source';
@@ -138,22 +138,26 @@ class Threesixtylink implements DriverInterface
                     $record['service_type'] = 'getHolding';
                 }
                 $elems = $xpath->query(
-                    ".//ssopenurl:holdingData/ssopenurl:providerName", $linkGroup
+                    './/ssopenurl:holdingData/ssopenurl:providerName',
+                    $linkGroup
                 );
                 $title = $elems->item(0)->textContent;
                 $elems = $xpath->query(
-                    ".//ssopenurl:holdingData/ssopenurl:databaseName", $linkGroup
+                    './/ssopenurl:holdingData/ssopenurl:databaseName',
+                    $linkGroup
                 );
                 $title .= ' - ' . $elems->item(0)->textContent;
                 $record['title'] = $title;
                 $elems = $xpath->query(
-                    ".//ssopenurl:holdingData/ssopenurl:startDate", $linkGroup
+                    './/ssopenurl:holdingData/ssopenurl:startDate',
+                    $linkGroup
                 );
                 if ($elems->length > 0) {
                     $record['coverage'] = $elems->item(0)->textContent . ' - ';
                 }
                 $elems = $xpath->query(
-                    ".//ssopenurl:holdingData/ssopenurl:endDate", $linkGroup
+                    './/ssopenurl:holdingData/ssopenurl:endDate',
+                    $linkGroup
                 );
                 if ($elems->length > 0) {
                     $record['coverage'] .= $elems->item(0)->textContent;

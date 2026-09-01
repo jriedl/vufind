@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Model for EDS records.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,32 +17,56 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_drivers Wiki
  */
+
 namespace VuFind\RecordDriver;
+
+use function count;
+use function floatval;
+use function in_array;
+use function is_array;
+use function is_callable;
+use function strlen;
 
 /**
  * Model for EDS records.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  RecordDrivers
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:record_drivers Wiki
+ * @link     https://vufind.org/wiki/development:plugins:record_drivers Wiki
  */
-class EDS extends SolrDefault
+class EDS extends DefaultRecord
 {
+    use Feature\IlsAwareTrait;
+
     /**
-     * Return the unique identifier of this record within the Solr index;
-     * useful for retrieving additional information (like tags and user
-     * comments) from the external MySQL database.
+     * Document types that are treated as ePub links.
+     *
+     * @var array
+     */
+    protected $epubTypes = ['ebook-epub'];
+
+    /**
+     * Document types that are treated as PDF links.
+     *
+     * @var array
+     */
+    protected $pdfTypes = ['ebook-pdf', 'pdflink'];
+
+    /**
+     * Return the unique identifier of this record within EDS API;
+     * As Accession Numbers (AN) could be repetitive, we use Database ID
+     * to ensure a unique ID exists
      *
      * @return string Unique identifier.
      */
@@ -50,6 +75,142 @@ class EDS extends SolrDefault
         $dbid = $this->fields['Header']['DbId'];
         $an = $this->fields['Header']['An'];
         return $dbid . ',' . $an;
+    }
+
+    /**
+     * Return the rtac identifier of this record from EDS API;
+     * RTAC ID is basically the AN without the catalog prefix
+     *
+     * @return string unique rtac identifier
+     */
+    public function getUniqueIDOverrideForRequest()
+    {
+        $dbid = $this->fields['Header']['DbId'];
+        $an = $this->fields['Header']['An'];
+        $catId = $this->recordConfig?->Catalog?->CatalogDatabaseId ?? '';
+
+        $regexArray = $this->recordConfig?->Catalog?->CatalogANRegex ?? [];
+        $replaceArray = $this->recordConfig?->Catalog?->CatalogANReplace ?? [];
+
+        if ($dbid === $catId && $this->pubTypeRtacEnabled()) {
+            $returnValue = $an;
+            for ($i = 0; $i < count($regexArray); $i++) {
+                $returnValue =  preg_replace($regexArray[$i], $replaceArray[$i], $returnValue);
+            }
+            return $returnValue;
+        }
+        return $dbid . ',' . $an;
+    }
+
+    /**
+     * Identify if config tells us to expect a catalog, if catalog id is set
+     * and if catalog id matches databaseid
+     *
+     * @return bool
+     */
+    public function hasCatalog()
+    {
+        $dbid = $this->fields['Header']['DbId'];
+        $hasCatalog = $this->recordConfig?->Catalog?->EDSHasCatalog ?? false;
+        $catId = $this->recordConfig?->Catalog?->CatalogDatabaseId ?? '';
+
+        // if config empty or false, return false
+        if (!$hasCatalog) {
+            return false;
+        }
+
+        // if config empty or catId doesn't match dbid
+        if ($hasCatalog && ($catId == '' || $catId != $dbid)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Based on publication type determine if RTAC should be available
+     *
+     * @return bool
+     */
+    public function pubTypeRtacEnabled()
+    {
+        $pubTypeId = $this->fields['Header']['PubTypeId'];
+        return $pubTypeId !== 'ebook';
+    }
+
+    /**
+     * Return the relevancy score for this record.
+     *
+     * @return ?float
+     */
+    public function getScore()
+    {
+        $score =
+            $this->fields['Header']['PreciseRelevancyScore']
+            ?? $this->fields['Header']['RelevancyScore']
+            ?? null;
+        if ($score) {
+            return floatval($score);
+        }
+        return $score;
+    }
+
+    /**
+     * Does this record support the holdings tab?
+     *
+     * @return bool
+     */
+    public function supportsHoldingsTab()
+    {
+        // For EDS records, only show holdings tab if it's a catalog record
+        // and the publication type is not excluded from RTAC
+        return $this->hasCatalog() && $this->pubTypeRtacEnabled();
+    }
+
+    /**
+     * Get an array of information about record holdings, obtained in real-time
+     * from the ILS. Instead of getUniqueID we use getUniqueIDOverrideForRequest
+     *
+     * @return array
+     */
+    public function getRealTimeHoldings()
+    {
+        if (
+            !$this->hasILS() ||
+            !$this->hasCatalog() ||
+            !$this->pubTypeRtacEnabled()
+        ) {
+            return [];
+        }
+
+        // Retrieve holdings -- note that we need to use overrides because the ID used
+        // for retrieving values from the ILS differs from the ID used for linking to
+        // the EDS record.
+        $bibId = $this->getUniqueIDOverrideForRequest();
+        $overrides = ['source' => 'EDS', 'id' => $this->getUniqueID()];
+        return $this->holdLogic->getHoldings($bibId, linkOverrides: $overrides);
+    }
+
+    /**
+     * Get a link for placing a title level hold.
+     *
+     * @return mixed A url if a hold is possible, boolean false if not
+     */
+    public function getRealTimeTitleHold()
+    {
+        if ($this->hasILS() && $this->hasCatalog() && $this->pubTypeRtacEnabled()) {
+            $supportedPubTypes = ['book'];
+            $pubType = $this->fields['Header']['PubTypeId'];
+            if (in_array($pubType, $supportedPubTypes)) {
+                if ($this->ils->getTitleHoldsMode() != 'disabled') {
+                    $bibId = $this->getUniqueIDOverrideForRequest();
+                    $overrides = ['source' => 'EDS', 'id' => $this->getUniqueID()];
+                    return $this->titleHoldLogic->getHold($bibId, $overrides);
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -63,42 +224,75 @@ class EDS extends SolrDefault
         if (null == $title) {
             return '';
         }
-        if (mb_strlen($title, 'UTF-8') > 20) {
-            $title = mb_substr($title, 0, 17, 'UTF-8') . '...';
-        }
-        return $title;
+        $parts = explode(':', $title);
+        return trim(current($parts));
     }
 
     /**
-     * Get the abstract (summary) of the record.
+     * Get the subtitle (if any) of the record.
      *
      * @return string
      */
-    public function getItemsAbstract()
+    public function getSubtitle()
     {
-        if (isset($this->fields['Items'])) {
-            foreach ($this->fields['Items'] as $item) {
-                if ('Ab' == $item['Group']) {
-                    return $this->toHTML($item['Data'], $item['Group']);
-                }
-            }
+        $title = $this->getTitle();
+        if (null == $title) {
+            return '';
         }
-        return '';
+        $parts = explode(':', $title, 2);
+        return count($parts) > 1 ? trim(array_pop($parts)) : '';
+    }
+
+    /**
+     * Get the abstract notes.
+     * For EDS, returns the abstract in an array or an empty array.
+     *
+     * @return array
+     */
+    public function getAbstractNotes()
+    {
+        $abstracts = $this->getItem('Group', 'Ab');
+        return array_filter(array_map(fn ($abstract) => ($abstract['Data'] ?? null), $abstracts));
     }
 
     /**
      * Get the access level of the record.
      *
-     * @return string
+     * @return string If not empty, will contain a numerical value corresponding to these levels of access:
+     *                0 - Not Available to search via Guest Access
+     *                1 - Metadata is searched, but only a placeholder record is displayed
+     *                2 - Display record in the results but no access to detailed record or full text
+     *                3 - Full access: search/display all content to guests
+     *                6 - Display full record but no access to full text
      */
     public function getAccessLevel()
     {
-        return isset($this->fields['Header']['AccessLevel'])
-            ? $this->fields['Header']['AccessLevel'] : '';
+        return $this->fields['Header']['AccessLevel'] ?? '';
     }
 
     /**
-     * Get the authors of the record
+     * Check whether access to the record is restricted.
+     *
+     * @return bool
+     */
+    public function isRestrictedView(): bool
+    {
+        $accessLevel = $this->getAccessLevel();
+        return !empty($accessLevel) && $accessLevel !== '3';
+    }
+
+    /**
+     * Check whether the record is a placeholder.
+     *
+     * @return bool
+     */
+    public function isPlaceholder(): bool
+    {
+        return $this->getAccessLevel() === '1';
+    }
+
+    /**
+     * Get the authors of the record.
      *
      * @return string
      */
@@ -115,15 +309,21 @@ class EDS extends SolrDefault
      */
     protected function getItemsAuthorsArray()
     {
-        $authors = [];
-        if (isset($this->fields['Items'])) {
-            foreach ($this->fields['Items'] as $item) {
-                if ('Au' == $item['Group']) {
-                    $authors[] = $this->toHTML($item['Data'], $item['Group']);
+        return array_map(
+            function ($data) {
+                $elements = array_map(
+                    fn ($element) => $element['SearchLink'] ?? $element['Data'],
+                    $data['Elements']
+                );
+
+                if (!empty($elements)) {
+                    return implode(', ', $elements);
+                } else {
+                    return $data['Data'];
                 }
-            }
-        }
-        return $authors;
+            },
+            $this->getItem('Group', 'Au')
+        );
     }
 
     /**
@@ -133,8 +333,17 @@ class EDS extends SolrDefault
      */
     public function getCustomLinks()
     {
-        return isset($this->fields['CustomLinks']) ?
-        $this->fields['CustomLinks'] : [];
+        return $this->fields['CustomLinks'] ?? [];
+    }
+
+    /**
+     * Get the full text custom links of the record.
+     *
+     * @return array
+     */
+    public function getFTCustomLinks()
+    {
+        return $this->fields['FullText']['CustomLinks'] ?? [];
     }
 
     /**
@@ -144,8 +353,7 @@ class EDS extends SolrDefault
      */
     public function getDbLabel()
     {
-        return isset($this->fields['Header']['DbLabel']) ?
-        $this->fields['Header']['DbLabel'] : '';
+        return $this->fields['Header']['DbLabel'] ?? '';
     }
 
     /**
@@ -155,10 +363,7 @@ class EDS extends SolrDefault
      */
     public function getHTMLFullText()
     {
-        return (isset($this->fields['FullText']) &&
-                isset($this->fields['FullText']['Text']) &&
-                isset($this->fields['FullText']['Text']['Value'])) ?
-        $this->toHTML($this->fields['FullText']['Text']['Value']) : '';
+        return $this->toHTML($this->fields['FullText']['Text']['Value'] ?? '');
     }
 
     /**
@@ -168,29 +373,103 @@ class EDS extends SolrDefault
      */
     public function hasHTMLFullTextAvailable()
     {
-        return (isset($this->fields['FullText']) &&
-                isset($this->fields['FullText']['Text']) &&
-                isset($this->fields['FullText']['Text']['Availability']) &&
-                '1' == $this->fields['FullText']['Text']['Availability']) ?
-                true : false;
+        return '1' == ($this->fields['FullText']['Text']['Availability'] ?? '0');
+    }
+
+    /**
+     * Support method for getItems, used to apply filters.
+     * Filters are multidimensional arrays. The first dimension
+     * defines if the values should be excluded or are the only ones
+     * to be included. The second dimension defines in which item
+     * key (e.g. Label or Group) is used for filtering.
+     *
+     * @param array $item   Item to check
+     * @param array $filter Filters
+     *
+     * @return bool
+     */
+    protected function itemIsIncluded(array $item, array $filter): bool
+    {
+        $globalFilter = isset($this->recordConfig->ItemGlobalFilter)
+            ? $this->recordConfig->ItemGlobalFilter->toArray() : [];
+
+        $filter['exclude']['Label'] =
+            array_merge($globalFilter['excludeLabel'] ?? [], $filter['exclude']['Label'] ?? []);
+        $filter['include']['Label'] =
+            array_merge($globalFilter['includeLabel'] ?? [], $filter['include']['Label'] ?? []);
+        $filter['exclude']['Group'] =
+            array_merge($globalFilter['excludeGroup'] ?? [], $filter['exclude']['Group'] ?? []);
+        $filter['include']['Group'] =
+            array_merge($globalFilter['includeGroup'] ?? [], $filter['include']['Group'] ?? []);
+
+        foreach ($filter['exclude'] ?? [] as $itemKey => $filteredItemValues) {
+            if (isset($item[$itemKey]) && in_array($item[$itemKey], $filteredItemValues)) {
+                return false;
+            }
+        }
+
+        foreach ($filter['include'] ?? [] as $itemKey => $filteredItemValues) {
+            if (isset($item[$itemKey]) && in_array($item[$itemKey], $filteredItemValues)) {
+                return true;
+            }
+        }
+
+        return empty(array_filter($filter['include']));
+    }
+
+    /**
+     * Get the items of the record based on a value of a specific key.
+     * E.g. Label and Authors or Group and Au.
+     *
+     * @param string $itemKey   Key of item used for selection
+     * @param string $itemValue Value to be selected
+     *
+     * @return array
+     */
+    public function getItem(string $itemKey, string $itemValue): array
+    {
+        $filter = ['include' => [$itemKey => [$itemValue]]];
+        return $this->getItems($filter);
     }
 
     /**
      * Get the items of the record.
      *
+     * @param array $filter Filter (see itemIsIncluded)
+     *
      * @return array
      */
-    public function getItems()
-    {
+    public function getItems(
+        array $filter = []
+    ): array {
         $items = [];
-        if (isset($this->fields['Items']) && !empty($this->fields['Items'])) {
-            foreach ($this->fields['Items'] as $item) {
-                $items[] = [
-                    'Label' => isset($item['Label']) ? $item['Label'] : '',
-                    'Group' => isset($item['Group']) ? $item['Group'] : '',
-                    'Data'  => isset($item['Data'])
-                        ? $this->toHTML($item['Data'], $item['Group']) : ''
-                ];
+        if (is_array($this->fields['Items'] ?? null)) {
+            $itemGlobalOrderConfig = $this->recordConfig?->ItemGlobalOrder?->toArray() ?? [];
+            $origItems = $this->fields['Items'];
+            // Only sort by label if we have a sort config:
+            if (!empty($itemGlobalOrderConfig)) {
+                // We want unassigned labels to appear AFTER configured labels:
+                $nextPos = max(array_keys($itemGlobalOrderConfig));
+                foreach (array_keys($origItems) as $key) {
+                    $label = $origItems[$key]['Label'] ?? '';
+                    $configuredPos = array_search($label, $itemGlobalOrderConfig);
+                    $origItems[$key]['Pos'] = $configuredPos === false
+                        ? ++$nextPos : $configuredPos;
+                }
+                $positions = array_column($origItems, 'Pos');
+                array_multisort($positions, SORT_ASC, $origItems);
+            }
+
+            foreach ($origItems as $item) {
+                $nextItem = $this->parseItem([
+                    'Label' => $item['Label'] ?? '',
+                    'Group' => $item['Group'] ?? '',
+                    'Name' => $item['Name'] ?? '',
+                    'RawData'  => $item['Data'] ?? '',
+                ]);
+                if ($this->itemIsIncluded($nextItem, $filter)) {
+                    $items[] = $nextItem;
+                }
             }
         }
         return $items;
@@ -203,7 +482,7 @@ class EDS extends SolrDefault
      */
     public function getPLink()
     {
-        return isset($this->fields['PLink']) ? $this->fields['PLink'] : '';
+        return $this->fields['PLink'] ?? '';
     }
 
     /**
@@ -213,8 +492,7 @@ class EDS extends SolrDefault
      */
     public function getPubType()
     {
-        return isset($this->fields['Header']['PubType'])
-            ? $this->fields['Header']['PubType'] : '';
+        return $this->fields['Header']['PubType'] ?? '';
     }
 
     /**
@@ -224,8 +502,24 @@ class EDS extends SolrDefault
      */
     public function getPubTypeId()
     {
-        return isset($this->fields['Header']['PubTypeId'])
-            ? $this->fields['Header']['PubTypeId'] : '';
+        return $this->fields['Header']['PubTypeId'] ?? '';
+    }
+
+    /**
+     * Get the ebook availability of the record.
+     *
+     * @param array $types Types that we are interested in checking for
+     *
+     * @return bool
+     */
+    protected function hasEbookAvailable(array $types)
+    {
+        foreach ($this->fields['FullText']['Links'] ?? [] as $link) {
+            if (in_array($link['Type'] ?? '', $types)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -235,13 +529,44 @@ class EDS extends SolrDefault
      */
     public function hasPdfAvailable()
     {
-        if (isset($this->fields['FullText'])
-            && isset($this->fields['FullText']['Links'])
-        ) {
-            foreach ($this->fields['FullText']['Links'] as $link) {
-                if (isset($link['Type']) && 'pdflink' == $link['Type']) {
-                    return true;
-                }
+        return $this->hasEbookAvailable($this->pdfTypes);
+    }
+
+    /**
+     * Get the ePub availability of the record.
+     *
+     * @return bool
+     */
+    public function hasEpubAvailable()
+    {
+        return $this->hasEbookAvailable($this->epubTypes);
+    }
+
+    /**
+     * Get the linked full text availability of the record.
+     *
+     * @return bool
+     */
+    public function hasLinkedFullTextAvailable()
+    {
+        return $this->hasEbookAvailable(['other']);
+    }
+
+    /**
+     * Get the ebook url of the record. If missing, return false
+     *
+     * @param array $types Types that we are interested in checking for
+     *
+     * @return string
+     */
+    public function getEbookLink(array $types)
+    {
+        foreach ($this->fields['FullText']['Links'] ?? [] as $link) {
+            if (
+                !empty($link['Type']) && !empty($link['Url'])
+                && in_array($link['Type'], $types)
+            ) {
+                return $link['Url'];
             }
         }
         return false;
@@ -254,34 +579,47 @@ class EDS extends SolrDefault
      */
     public function getPdfLink()
     {
-        if (isset($this->fields['FullText'])
-            && isset($this->fields['FullText']['Links'])
-        ) {
-            foreach ($this->fields['FullText']['Links'] as $link) {
-                if (isset($link['Type']) && 'pdflink' == $link['Type']) {
-                    return isset($link['Url']) ? $link['Url'] : false;
-                }
-            }
-        }
-        return false;
+        return $this->getEbookLink($this->pdfTypes);
     }
 
     /**
-     * Get the subject data of the record.
+     * Get the ePub url of the record. If missing, return false
      *
      * @return string
      */
-    public function getItemsSubjects()
+    public function getEpubLink()
     {
-        $subjects = [];
-        if (isset($this->fields['Items'])) {
-            foreach ($this->fields['Items'] as $item) {
-                if ('Su' == $item['Group']) {
-                    $subjects[] = $this->toHTML($item['Data'], $item['Group']);
-                }
-            }
-        }
-        return empty($subjects) ? '' : implode(', ', $subjects);
+        return $this->getEbookLink($this->epubTypes);
+    }
+
+    /**
+     * Get the linked full text url of the record. If missing, return false
+     *
+     * @return string
+     */
+    public function getLinkedFullTextLink()
+    {
+        return $this->getEbookLink(['other']);
+    }
+
+    /**
+     * Get the subject headings as a flat array of strings.
+     *
+     * @return array Subject headings
+     */
+    public function getAllSubjectHeadingsFlattened()
+    {
+        $subject_arrays = array_map(
+            function ($data) {
+                $elements = $data['Elements'] ?? [];
+                return array_map(
+                    fn ($element) => rtrim(strip_tags($element['Data']), '.'),
+                    $elements
+                );
+            },
+            $this->getItem('Group', 'Su')
+        );
+        return array_merge(...$subject_arrays);
     }
 
     /**
@@ -295,14 +633,29 @@ class EDS extends SolrDefault
      */
     public function getThumbnail($size = 'small')
     {
-        if (!empty($this->fields['ImageInfo'])) {
-            foreach ($this->fields['ImageInfo'] as $image) {
-                if (isset($image['Size']) && $size == $image['Size']) {
-                    return (isset($image['Target'])) ? $image['Target'] : '';
+        // Create a ranked list of sizes so we can use "best available" when appropriate.
+        // Note that "thumb" is a value used by EBSCO, not by VuFind; it is included so
+        // it can be matched up with requests for "small."
+        $sizes = ['thumb' => 0, 'small' => 1, 'medium' => 2, 'large' => 3];
+        $bestFit = -1;
+        $desiredFit = $sizes[$size] ?? count($sizes);
+        $closestMatch = false;
+        foreach ($this->fields['ImageInfo'] ?? [] as $image) {
+            $currentFit = $sizes[$image['Size'] ?? 'thumb'] ?? 0;
+            $target = $image['Target'] ?? '';
+            if ($target) {
+                if ($currentFit === $desiredFit) {
+                    return $target;
+                }
+                // Aim for the best match that is smaller than the requested size; we
+                // don't want to overflow, but something small is better than nothing.
+                if ($currentFit > $bestFit && $currentFit < $desiredFit) {
+                    $bestFit = $currentFit;
+                    $closestMatch = $target;
                 }
             }
         }
-        return false;
+        return $closestMatch;
     }
 
     /**
@@ -312,14 +665,8 @@ class EDS extends SolrDefault
      */
     public function getItemsTitle()
     {
-        if (isset($this->fields['Items'])) {
-            foreach ($this->fields['Items'] as $item) {
-                if ('Ti' == $item['Group']) {
-                    return $this->toHTML($item['Data']);
-                }
-            }
-        }
-        return '';
+        $title = $this->getItem('Group', 'Ti');
+        return $title[0]['Data'] ?? '';
     }
 
     /**
@@ -329,13 +676,10 @@ class EDS extends SolrDefault
      */
     public function getTitle()
     {
-        if (isset($this->fields['RecordInfo']['BibRecord']['BibEntity']['Titles'])) {
-            foreach ($this->fields['RecordInfo']['BibRecord']['BibEntity']['Titles']
-                as $titleRecord
-            ) {
-                if (isset($titleRecord['Type']) && 'main' == $titleRecord['Type']) {
-                    return $titleRecord['TitleFull'];
-                }
+        $list = $this->extractEbscoDataFromRecordInfo('BibRecord/BibEntity/Titles');
+        foreach ($list as $titleRecord) {
+            if ('main' == ($titleRecord['Type'] ?? '')) {
+                return $titleRecord['TitleFull'];
             }
         }
         return '';
@@ -346,34 +690,30 @@ class EDS extends SolrDefault
      *
      * @return array
      */
-    public function getAuthors()
+    public function getPrimaryAuthors()
     {
-        $authors = [];
-        if (isset($this->fields['RecordInfo']['BibRecord']['BibRelationships'])) {
-            $bibRels
-                = & $this->fields['RecordInfo']['BibRecord']['BibRelationships'];
-        }
-        if (isset($bibRels['HasContributorRelationships'])
-            && !empty($bibRels['HasContributorRelationships'])
-        ) {
-            foreach ($bibRels['HasContributorRelationships'] as $entry) {
-                if (isset($entry['PersonEntity']['Name']['NameFull'])) {
-                    $authors[] = $entry['PersonEntity']['Name']['NameFull'];
-                }
-            }
-        }
-        return $authors;
+        $authors = $this->extractEbscoDataFromRecordInfo(
+            'BibRecord/BibRelationships/HasContributorRelationships/*/'
+                . 'PersonEntity/Name/NameFull'
+        );
+        return array_unique(array_filter($authors));
     }
 
     /**
-     * Obtain the primary author of the record
+     * Get highlighted author data, if available.
      *
-     * @return string
+     * @return array
      */
-    public function getPrimaryAuthor()
+    public function getRawAuthorHighlights()
     {
-        $authors = $this->getAuthors();
-        return empty($authors) ? '' : $authors[0];
+        $authors = $this->getItem('Group', 'Au')[0] ?? [];
+        $highlightedAuthors = [];
+        foreach ($authors['Elements'] ?? [] as $author) {
+            if (preg_match('/<span class="highlight">(((?!<\/span>).)*)<\/span>/', $author['Data'] ?? '', $matches)) {
+                $highlightedAuthors[] = '{{{{START_HILITE}}}}' . $matches[1] . '{{{{END_HILITE}}}}';
+            }
+        }
+        return $highlightedAuthors;
     }
 
     /**
@@ -383,57 +723,20 @@ class EDS extends SolrDefault
      */
     public function getItemsTitleSource()
     {
-        if (isset($this->fields['Items'])) {
-            foreach ($this->fields['Items'] as $item) {
-                if ('Src' == $item['Group']) {
-                    return $this->toHTML($item['Data']);
-                }
-            }
-
-        }
-        return '';
-    }
-
-    /**
-     * Performs a regex and replaces any url's with links containing themselves
-     * as the text
-     *
-     * @param string $string String to process
-     *
-     * @return string        HTML string
-     */
-    public function linkUrls($string)
-    {
-        $linkedString = preg_replace_callback(
-            "/\b(https?):\/\/([-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|]*)\b/i",
-            create_function(
-                '$matches',
-                'return "<a href=\'".($matches[0])."\'>".($matches[0])."</a>";'
-            ),
-            $string
-        );
-        return $linkedString;
+        $title = $this->getItem('Group', 'Src');
+        return $title[0]['Data'] ?? '';
     }
 
     /**
      * Parse a SimpleXml element and
-     * return it's inner XML as an HTML string
+     * return it's inner XML as an HTML string.
      *
-     * @param SimpleXml $data  A SimpleXml DOM
-     * @param string    $group Group identifier
+     * @param string $data A SimpleXml DOM
      *
-     * @return string          The HTML string
+     * @return string      The HTML string
      */
-    protected function toHTML($data, $group = null)
+    protected function toHTML(string $data): string
     {
-        // Map xml tags to the HTML tags
-        // This is just a small list, the total number of xml tags is far greater
-
-
-        // Any group can be added here, but we only use Au (Author)
-        // Other groups, not present here, won't be transformed to HTML links
-        $allowed_searchlink_groups = ['au','su'];
-
         $xml_to_html_tags = [
                 '<jsection'    => '<section',
                 '</jsection'   => '</section',
@@ -445,7 +748,7 @@ class EDS extends SolrDefault
                 '</text'       => '</div',
                 '<title'       => '<h2',
                 '</title'      => '</h2',
-                '<anid'        => '<p',
+                '<anid'        => '<p class="eds_html_anid"',
                 '</anid'       => '</p',
                 '<aug'         => '<p class="aug"',
                 '</aug'        => '</p',
@@ -470,11 +773,11 @@ class EDS extends SolrDefault
                 '<superscript' => '<sup',
                 '</superscript' => '</sup',
                 '<relatesTo'   => '<sup',
-                '</relatesTo'  => '</sup'
+                '</relatesTo'  => '</sup',
         ];
 
         //  The XML data is escaped, let's unescape html entities (e.g. &lt; => <)
-        $data = html_entity_decode($data, ENT_QUOTES, "utf-8");
+        $data = html_entity_decode($data, ENT_QUOTES, 'utf-8');
 
         // Start parsing the xml data
         if (!empty($data)) {
@@ -489,21 +792,6 @@ class EDS extends SolrDefault
             $data = preg_replace('/<\/searchLink/', '</searchLink>', $data);
             $data = preg_replace('/<\/searchLink>>/', '</searchLink>', $data);
 
-            //$searchBase = $this->url('eds-search');
-            // Parse searchLinks
-            if (!empty($group)) {
-                $group = strtolower($group);
-                if (in_array($group, $allowed_searchlink_groups)) {
-                    $type = strtoupper($group);
-                    $link_xml = '/<searchLink fieldCode="([^\"]*)" '
-                        . 'term="%22([^\"]*)%22">/';
-                    $link_html
-                        = "<a href=\"../EDS/Search?lookfor=$2&amp;type={$type}\">";
-                    $data = preg_replace($link_xml, $link_html, $data);
-                    $data = str_replace('</searchLink>', '</a>', $data);
-                }
-            }
-
             // Replace the rest of searchLinks with simple spans
             $link_xml = '/<searchLink fieldCode="([^\"]*)" term="%22([^\"]*)%22">/';
             $link_html = '<span>';
@@ -514,59 +802,478 @@ class EDS extends SolrDefault
             $data = preg_replace('/<a idref="([^\"]*)"/', '<a href="#$1"', $data);
             $data = preg_replace(
                 '/<a id="([^\"]*)" idref="([^\"]*)" type="([^\"]*)"/',
-                '<a id="$1" href="#$2"', $data
+                '<a id="$1" href="#$2"',
+                $data
             );
 
-            $data = $this->replaceBRWithCommas($data, $group);
+            // Avoid tables & mathML markup from showing as "raw html"
+            // - Tables and mathML markup are wrapped in <ephtml> tags
+            // - their content is urlencoded (i.e. double-encoding)
+            // - through this function we decode the content and wrap it in a
+            //   div/span tag and give it a class for styling
+            if (strpos($data, 'ephtml') > -1) {
+                $pattern = "/<\/?ephtml>/";
+                $splitParts = preg_split($pattern, $data);
+                $data = '';
+                foreach ($splitParts as $part) {
+                    if (strpos($part, '&lt;table') > -1) {
+                        $data .= '<div class="eds_html_table">';
+                        $data .= html_entity_decode($part, ENT_QUOTES, 'utf-8');
+                        $data .= '</div>';
+                    } elseif (strpos($part, '&lt;math') > -1) {
+                        $data .= '<span class="eds_html_math">';
+                        $data .= html_entity_decode($part, ENT_QUOTES, 'utf-8');
+                        $data .= '</span>';
+                    } else {
+                        $data .= $part;
+                    }
+                }
+            }
         }
 
         return $data;
     }
 
     /**
-     * Replace <br> tags that are embedded in data to commas
+     * Parse an item.
      *
-     * @param string $data  Data to process
-     * @param string $group Group identifier
+     * @param array $item Item
+     *
+     * @return array Parsed Item
+     */
+    protected function parseItem(array $item): array
+    {
+        $data = $item['RawData'] ?? '';
+        $type = strtoupper($item['Group'] ?? '');
+        $elements = [];
+        foreach (explode('&lt;br /&gt;', $data) as $elementData) {
+            if (empty($elementData)) {
+                continue;
+            }
+            // Parse searchLinks
+            $excludeQuotationMark = '(((?!&quot;)[^"])*)';
+            $link_xml = '/&lt;searchLink fieldCode=(&quot;|")' . $excludeQuotationMark
+                . '(&quot;|") term=(&quot;|")%22' . $excludeQuotationMark . '%22(&quot;|")&gt;/';
+            if (!empty($type) && preg_match($link_xml, $elementData, $matches)) {
+                $link_html = '&lt;a href=&quot;../EDS/Search?lookfor=%22$6%22&amp;amp;type='
+                    . urlencode($type) . '&quot;&gt;';
+                $link = preg_replace($link_xml, $link_html, $elementData);
+                $link = str_replace('&lt;/searchLink&gt;', '&lt;/a&gt;', $link);
+                $element['SearchLink'] = $this->toHTML($link);
+            }
+            $element['Data'] = $this->toHTML($elementData);
+            if (
+                preg_match(
+                    '/^<link linkTarget="URL" linkTerm="([^"]+)"[^<]*<\/link>$/',
+                    $element['Data'],
+                    $matches
+                )
+            ) {
+                $element['Link'] = $matches[1];
+            }
+            $elements[] = $element;
+        }
+
+        $item['Data'] = $this->toHTML($data);
+        $item['Elements'] = $elements;
+
+        return $item;
+    }
+
+    /**
+     * Return the first valid DOI found in the record (false if none).
+     *
+     * @return mixed
+     */
+    public function getCleanDOI()
+    {
+        $doi = $this->getItem('Name', 'DOI');
+        if (isset($doi[0]['Data'])) {
+            $cleanDoi = strip_tags($doi[0]['Data']);
+            $cleanDoi = preg_replace('/https?:\/\/.*doi.org\//', '', $cleanDoi);
+            return $cleanDoi;
+        }
+        $dois = $this->getFilteredIdentifiers(['doi']);
+        return $dois[0] ?? false;
+    }
+
+    /**
+     * Get record languages
+     *
+     * @return array
+     */
+    public function getLanguages()
+    {
+        return $this->extractEbscoData(
+            [
+                'RecordInfo:BibRecord/BibEntity/Languages/*/Text',
+                'Items:Languages',
+                'Items:Language',
+            ]
+        );
+    }
+
+    /**
+     * Retrieve identifiers from the EBSCO record and retrieve values filtered by
+     * type.
+     *
+     * @param array $filter Type values to retrieve.
+     *
+     * @return array
+     */
+    protected function getFilteredIdentifiers($filter)
+    {
+        $raw = array_merge(
+            $this->extractEbscoDataFromRecordInfo(
+                'BibRecord/BibRelationships/IsPartOfRelationships/*'
+                . '/BibEntity/Identifiers'
+            ),
+            $this->extractEbscoDataFromRecordInfo(
+                'BibRecord/BibEntity/Identifiers'
+            )
+        );
+        $ids = [];
+        foreach ($raw as $data) {
+            $type = strtolower($data['Type'] ?? '');
+            if (isset($data['Value']) && in_array($type, $filter)) {
+                $ids[] = $data['Value'];
+            }
+        }
+        return $ids;
+    }
+
+    /**
+     * Get ISSNs (of containing record)
+     *
+     * @return array
+     */
+    public function getISSNs()
+    {
+        return $this->getFilteredIdentifiers(['issn-print', 'issn-electronic']);
+    }
+
+    /**
+     * Get an array of ISBNs
+     *
+     * @return array
+     */
+    public function getISBNs()
+    {
+        return $this->getFilteredIdentifiers(['isbn-print', 'isbn-electronic']);
+    }
+
+    /**
+     * Get title of containing record
      *
      * @return string
      */
-    protected function replaceBRWithCommas($data, $group)
+    public function getContainerTitle()
     {
-        $groupsToReplace = ['au','su'];
-        if (in_array($group, $groupsToReplace)) {
-            $br =  '/<br \/>/';
-            $comma = ', ';
-            return preg_replace($br, $comma, $data);
+        // If there is no source, we don't want to identify a container
+        // (in this situation, it is likely redundant data):
+        if (count($this->extractEbscoDataFromItems('Source')) === 0) {
+            return '';
         }
-        return $data;
+        $data = $this->extractEbscoDataFromRecordInfo(
+            'BibRecord/BibRelationships/IsPartOfRelationships/0'
+            . '/BibEntity/Titles/0/TitleFull'
+        );
+        return $data[0] ?? '';
     }
 
     /**
-     * Get an array of strings representing citation formats supported
-     * by this record's data (empty if none).  For possible legal values,
-     * see /application/themes/root/helpers/Citation.php, getCitation()
-     * method.
+     * Extract numbering data of a particular type.
      *
-     * @return array Strings representing citation formats.
+     * @param string $type Numbering type to return, if present.
+     *
+     * @return string
      */
-    protected function getSupportedCitationFormats()
+    protected function getFilteredNumbering($type)
     {
-        return [];
+        $numbering = $this->extractEbscoDataFromRecordInfo(
+            'BibRecord/BibRelationships/IsPartOfRelationships/*/BibEntity/Numbering'
+        );
+        foreach ($numbering as $data) {
+            if (
+                strtolower($data['Type'] ?? '') == $type
+                && !empty($data['Value'])
+            ) {
+                return $data['Value'];
+            }
+        }
+        return '';
     }
 
     /**
-     * Indicate whether export is disabled for a particular format.
+     * Get issue of containing record
      *
-     * @param string $format Export format
-     *
-     * @return bool
-     *
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     * @return string
      */
-    public function exportDisabled($format)
+    public function getContainerIssue()
     {
-        // EDS is not export-friendly; disable all formats.
-        return true;
+        return $this->getFilteredNumbering('issue');
+    }
+
+    /**
+     * Get volume of containing record
+     *
+     * @return string
+     */
+    public function getContainerVolume()
+    {
+        return $this->getFilteredNumbering('volume');
+    }
+
+    /**
+     * Get the publication dates of the record.  See also getDateSpan().
+     *
+     * @return array
+     */
+    public function getPublicationDates()
+    {
+        $pubDates = array_map(
+            function ($data) {
+                return $data->getDate();
+            },
+            $this->getRawEDSPublicationDetails()
+        );
+        return !empty($pubDates) ? $pubDates : $this->extractEbscoDataFromRecordInfo(
+            'BibRecord/BibRelationships/IsPartOfRelationships/0/BibEntity/Dates/0/Y'
+        );
+    }
+
+    /**
+     * Get year of containing record
+     *
+     * @return string
+     */
+    public function getContainerStartPage()
+    {
+        $pagination = $this->extractEbscoDataFromRecordInfo(
+            'BibRecord/BibEntity/PhysicalDescription/Pagination'
+        );
+        return $pagination['StartPage'] ?? '';
+    }
+
+    /**
+     * Get the end page of the item that contains this record.
+     *
+     * @return string
+     */
+    public function getContainerEndPage()
+    {
+        // EBSCO doesn't make this information readily available, but in some
+        // cases we can abstract it from an OpenURL.
+        $startPage = $this->getContainerStartPage();
+        if (!empty($startPage)) {
+            $startPage = preg_quote($startPage, '/');
+            $regex = "/&pages={$startPage}-(\d+)/";
+            foreach ($this->getFTCustomLinks() as $link) {
+                if (preg_match($regex, $link['Url'] ?? '', $matches)) {
+                    if (isset($matches[1])) {
+                        return $matches[1];
+                    }
+                }
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Returns an array of formats based on publication type.
+     *
+     * @return array
+     */
+    public function getFormats()
+    {
+        $formats = [];
+        $pubType = $this->getPubType();
+        switch (strtolower($pubType)) {
+            case 'academic journal':
+            case 'periodical':
+            case 'report':
+                // Add "article" format for better OpenURL generation
+                $formats[] = $pubType;
+                $formats[] = 'Article';
+                break;
+            case 'ebook':
+                // Treat eBooks as both "Books" and "Electronic" items
+                $formats[] = 'Book';
+                $formats[] = 'Electronic';
+                break;
+            case 'dissertation/thesis':
+                // Simplify wording for consistency with other drivers
+                $formats[] = 'Thesis';
+                break;
+            default:
+                $formats[] = $pubType;
+        }
+
+        return $formats;
+    }
+
+    /**
+     * Get the publishers of the record.
+     *
+     * @return array
+     */
+    public function getPublishers()
+    {
+        return array_map(
+            function ($data) {
+                return $data->getName();
+            },
+            $this->getRawEDSPublicationDetails()
+        );
+    }
+
+    /**
+     * Get the item's place of publication.
+     *
+     * @return array
+     */
+    public function getPlacesOfPublication()
+    {
+        return array_map(
+            function ($data) {
+                return $data->getPlace();
+            },
+            $this->getRawEDSPublicationDetails()
+        );
+    }
+
+    /**
+     * Get an array of publication detail lines combining information from
+     * getPublicationDates(), getPublishers() and getPlacesOfPublication().
+     *
+     * @return array
+     */
+    public function getPublicationDetails()
+    {
+        $details = $this->getRawEDSPublicationDetails();
+        return !empty($details) ? $details : parent::getPublicationDetails();
+    }
+
+    /**
+     * Attempt to build up publication details from raw EDS data.
+     *
+     * @return array
+     */
+    protected function getRawEDSPublicationDetails()
+    {
+        $details = [];
+        foreach ($this->getItem('Label', 'Publication Information') as $pub) {
+            // Try to extract place, publisher and date:
+            if (preg_match('/^(.+):(.*)\.\s*(\d{4})$/', $pub['Data'], $matches)) {
+                [$place, $pub, $date] = [trim($matches[1]), trim($matches[2]), $matches[3]];
+            } elseif (preg_match('/^(.+):(.*)$/', $pub['Data'], $matches)) {
+                [$place, $pub, $date] = [trim($matches[1]), trim($matches[2]), ''];
+            } else {
+                [$place, $pub, $date] = ['', $pub['Data'], ''];
+            }
+
+            // In some cases, the place may have noise on the front that needs
+            // to be removed...
+            $placeParts = explode('.', $place);
+            $shortPlace = array_pop($placeParts);
+            $details[] = new Response\PublicationDetails(
+                strlen($shortPlace) > 5 ? $shortPlace : $place,
+                $pub,
+                $date
+            );
+        }
+        return $details;
+    }
+
+    /**
+     * Get class name for RecordDataFormatter spec.
+     *
+     * @return ?string
+     */
+    public function getRecordDataFormatterSpecClass(): ?string
+    {
+        return \VuFind\RecordDataFormatter\Specs\EDS::class;
+    }
+
+    /**
+     * Extract data from EBSCO API response using a prioritized list of selectors.
+     * Selectors can be of the form Items:Label to invoke extractEbscoDataFromItems,
+     * or RecordInfo:Path/To/Data/Element to invoke extractEbscoDataFromRecordInfo.
+     *
+     * @param array $selectors Array of selector strings for extracting data.
+     *
+     * @return array
+     */
+    protected function extractEbscoData($selectors)
+    {
+        $result = [];
+        foreach ($selectors as $selector) {
+            [$method, $params] = explode(':', $selector, 2);
+            $fullMethod = 'extractEbscoDataFrom' . ucwords($method);
+            if (!is_callable([$this, $fullMethod])) {
+                throw new \Exception('Undefined method: ' . $fullMethod);
+            }
+            $result = $this->$fullMethod($params);
+            if (!empty($result)) {
+                break;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Extract data from the record's "Items" array, based on a label.
+     *
+     * @param string $label Label to filter on.
+     *
+     * @return array
+     */
+    protected function extractEbscoDataFromItems($label)
+    {
+        $items = $this->getItem('Label', $label);
+        $output = [];
+        foreach ($items as $item) {
+            $output[] = $item['Data'];
+        }
+        return $output;
+    }
+
+    /**
+     * Extract data from the record's "RecordInfo" array, based on a path.
+     *
+     * @param string $path Path to select with (slash-separated element names,
+     * with special * selector to iterate through all children).
+     *
+     * @return array
+     */
+    protected function extractEbscoDataFromRecordInfo($path)
+    {
+        return (array)$this->recurseIntoRecordInfo(
+            $this->fields['RecordInfo'] ?? [],
+            explode('/', $path)
+        );
+    }
+
+    /**
+     * Recursive support method for extractEbscoDataFromRecordInfo().
+     *
+     * @param array $data Data to recurse into
+     * @param array $path Array representing path into data
+     *
+     * @return array
+     */
+    protected function recurseIntoRecordInfo($data, $path)
+    {
+        $nextField = array_shift($path);
+        $keys = $nextField === '*' ? array_keys($data) : [$nextField];
+        $values = [];
+        foreach ($keys as $key) {
+            if (isset($data[$key])) {
+                $values[] = empty($path)
+                    ? $data[$key]
+                    : $this->recurseIntoRecordInfo($data[$key], $path);
+            }
+        }
+        return count($values) == 1 ? $values[0] : $values;
     }
 }

@@ -1,0 +1,29 @@
+<?php $this->assetManager()->appendStyleLink('vendor/slick/slick.css');?>
+<?php $this->assetManager()->appendStyleLink('vendor/slick/slick-theme.css');?>
+<?php $this->assetManager()->appendStyleLink('vendor/cw/swiper.css');?>
+
+<?php $this->assetManager()->appendScriptLink('vendor/slick/slick.min.js');?>
+<?php $this->assetManager()->appendScriptLink('vendor/cw/ofi.js');?>
+<?php $this->assetManager()->appendScriptLink('vendor/cw/smooth-scroll.js');?>
+<?php $this->assetManager()->appendScriptLink('vendor/cw/swiper.js');?>
+<?php $this->assetManager()->appendScriptLink('vendor/cw/theme.js');?>
+
+<?=$this->render('content/sections/aktuelles'); ?>
+
+<?=$this->render('content/sections/discover'); ?>
+
+<?=$this->render('content/sections/resource'); ?>
+
+<?=$this->render('content/sections/special'); ?>
+
+<?=$this->render('content/sections/networking'); ?>
+
+<div class="tf-background-body ix-display-none">
+    <div id="content" class="container">
+        <div class="row">
+            <?=$this->content()->renderTranslated('panels/discover'); ?>
+            <?=$this->content()->renderTranslated('panels/services'); ?>
+            <?=$this->content()->renderTranslated('panels/derivatives'); ?>
+        </div>
+    </div>
+</div>

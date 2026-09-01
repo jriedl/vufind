@@ -1,8 +1,9 @@
 <?php
+
 /**
  * Guardian review content loader.
  *
- * PHP version 5
+ * PHP version 8
  *
  * Copyright (C) Villanova University 2010.
  *
@@ -16,25 +17,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
+
 namespace VuFind\Content\Reviews;
+
+use function strlen;
 
 /**
  * Guardian review content loader.
  *
- * @category VuFind2
+ * @category VuFind
  * @package  Content
  * @author   Demian Katz <demian.katz@villanova.edu>
  * @license  http://opensource.org/licenses/gpl-2.0.php GNU General Public License
- * @link     http://vufind.org/wiki/vufind2:developer_manual Wiki
+ * @link     https://vufind.org/wiki/development Wiki
  */
 class Guardian extends \VuFind\Content\AbstractBase
 {
@@ -57,13 +61,13 @@ class Guardian extends \VuFind\Content\AbstractBase
     {
         // Base request URL:
         $url
-            = "http://content.guardianapis.com/search?order-by=newest&format=json" .
-                "&show-fields=all&reference=isbn%2F" . $isbnObj->get13();
+            = 'http://content.guardianapis.com/search?order-by=newest&format=json' .
+                '&show-fields=all&reference=isbn%2F' . $isbnObj->get13();
 
         // Only add api-key if one has been provided in config.ini. If no key is
         // provided, a link to the Guardian can still be shown.
         if (strlen($key) > 0) {
-            $url = $url . "&api-key=" . $key;
+            $url = $url . '&api-key=' . $key;
         }
 
         $this->debug('Guardian request: ' . $url);
@@ -80,9 +84,10 @@ class Guardian extends \VuFind\Content\AbstractBase
                 $i = 0;
                 foreach ($data['response']['results'] as $review) {
                     $result[$i]['Date'] = $review['webPublicationDate'];
-                    $result[$i]['Summary'] = $review['fields']['headline'] . ". " .
+                    $result[$i]['Summary'] = $review['fields']['headline'] . '. ' .
                         preg_replace(
-                            '/<p>|<p [^>]*>|<\/p>/', '',
+                            '/<p>|<p [^>]*>|<\/p>/',
+                            '',
                             html_entity_decode($review['fields']['trailText'])
                         );
                     $result[$i]['ReviewURL'] = $review['fields']['shortUrl'];
@@ -94,15 +99,16 @@ class Guardian extends \VuFind\Content\AbstractBase
                         = 'http://image.guardian.co.uk/sys-images/Guardian/' .
                         'Pix/pictures/2010/03/01/poweredbyguardianBLACK.png';
 
-                    $result[$i]['Copyright'] = "<a href=\"" .
-                        $review['fields']['shortUrl'] . "\" target=\"new\">" .
+                    $result[$i]['Copyright'] = '<a href="' .
+                        $review['fields']['shortUrl'] . '" target="new">' .
                         "<img src=\"{$poweredImage}\" " .
-                        "alt=\"Powered by the Guardian\" /></a>";
+                        'alt="Powered by the Guardian" /></a>';
 
                     $result[$i]['Source'] = $review['fields']['byline'];
                     // Only return Content if the body tag contains a usable review
-                    $redist = "Redistribution rights for this field are unavailable";
-                    if ((strlen($review['fields']['body']) > 0)
+                    $redist = 'Redistribution rights for this field are unavailable';
+                    if (
+                        (strlen($review['fields']['body']) > 0)
                         && (!strstr($review['fields']['body'], $redist))
                     ) {
                         $result[$i]['Content'] = $review['fields']['body'];
